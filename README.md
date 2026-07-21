@@ -10,21 +10,47 @@ Go でドメイン駆動設計（DDD）とヘキサゴナルアーキテクチ�
 層の分離・境界・生成物との付き合い方を、そのまま自分のプロジェクトの出発点として
 コピーできる形で示すことです。
 
-## このスライスで実装済みのもの
+## 実装済みのもの
 
-ひとつの境界づけられたコンテキスト **Inventory（在庫）** を、最小の縦切り
-（walking skeleton）で通してあります。
+ひとつの境界づけられたコンテキスト **Inventory（在庫）** のドメインを、DDD の主要パターンで
+ひととおり実装しています。まず最小の縦切り（walking skeleton）で背骨を通し、そのうえに
+予約のライフサイクルと、コンテキストを跨ぐための汎用機構を載せています。
+
+**公開 API（補充・照会）**
 
 - **在庫の補充** `POST /stock/{sku}/replenish`
 - **在庫の照会** `GET /stock/{sku}`
 
-これにより「OpenAPI → 生成サーバ → アプリケーションのユースケース → 純粋なドメイン →
-リポジトリ（インメモリ実装と PostgreSQL 実装の両方）」という背骨が端から端まで
-組み上がることを、テストで保証しています。
+**内部 API（サービス間連携）** — 公開 API とは別のサーバ／ポートで動く
 
-> 引当・予約、期限切れの掃除処理、アウトボックス、2 つ目のコンテキスト、
-> コンテキスト間の腐敗防止層（anti-corruption layer）などは、この最小スライスの
-> 対象外です（後続で追加していきます）。
+- **予約** `POST /reservations`（マルチ SKU・全か無か）
+- **確定** `POST /reservations/{ref}/confirm`（二相予約の第 2 相）
+- **解放** `POST /reservations/{ref}/release`
+- **メッセージ取り込み** `POST /events`（`outbox.Router` へ委譲）
+
+**ドメインの要点**
+
+- **二相予約**（reserve → confirm）と、期限切れ仮予約を掃除する **Reaper**
+  （confirmed は決して解放しない）。予約・確定・解放はいずれも **冪等**。
+- **導出値としての `reserved`**（有効な予約の合計）と、非負の `available`。
+- **マルチ SKU 予約の全か無か**（`ReservationService`）。同一予約参照が複数の在庫項目に
+  跨るため、確定・解放は対象の全項目を **1 つの作業単位で原子的に** 遷移させる。
+
+**共有機構（`shared/`）**
+
+- **トランザクショナルアウトボックス**（`shared/outbox`）: 集約書き込みと同一トランザクションで
+  メッセージを積み（Enqueue）、送信中継（`Runner`）が at-least-once で送出、受信側は
+  `Router` が種別ごとに `Consumer` へ振り分ける（未登録種別は `ErrNoRoute`）。
+- **プロセス内イベント配信**（`shared/event`）と、決定的テスト用の擬似時計（`shared/testutil`）。
+
+これらは「OpenAPI / SQL → 生成コード → アプリケーションのユースケース → 純粋なドメイン →
+リポジトリ（インメモリ実装と PostgreSQL 実装の両方）」という構成で、端から端まで
+テストで保証しています。
+
+> 2 つ目のコンテキスト（注文）と、その送信側（`ConfirmReservation` / `OrderCancelled` の
+> 発行）、コンテキスト間の腐敗防止層（anti-corruption layer）は、この段階の対象外です
+> （後続で追加します）。在庫側の **受信ポリシ**（`OnConfirmReservation` /
+> `OnOrderCancelled`）と内部エンドポイントは先に用意してあります。
 
 ## アーキテクチャ（4 つの層）
 
@@ -99,28 +125,35 @@ Go でドメイン駆動設計（DDD）とヘキサゴナルアーキテクチ�
 .
 ├── go.work                     … 複数モジュールのワークスペース
 ├── contracts/                  … コード生成の入力（契約 = 真実の源）
-│   └── inventory/openapi.yaml   … 在庫コンテキストの公開 OpenAPI
+│   └── inventory/
+│       ├── openapi.yaml          … 公開 OpenAPI（補充・照会）
+│       └── internal.openapi.yaml … 内部 OpenAPI（予約・確定・解放・取り込み）
 ├── shared/                     … ドメイン非依存の共有モジュール
 │   ├── uow/                     … 作業単位（明示的トランザクション + 楽観的再試行）
+│   ├── event/                   … プロセス内イベント配信
+│   ├── outbox/                  … トランザクショナルアウトボックス（Runner / Router）
 │   ├── id/                      … ID 生成（crypto/rand）
-│   └── correlation/             … 相関 ID の context ヘルパー
+│   ├── correlation/             … 相関 ID の context ヘルパー
+│   └── testutil/                … 擬似時計・アサーション補助（テスト用）
 └── contexts/
     └── inventory/              … 「在庫」境界づけられたコンテキスト（1 モジュール）
-        ├── inventory.go         … 公開ファサード（Module, New, HTTPHandler）
+        ├── inventory.go         … 公開ファサード（Module, New, HTTPHandler, InternalHTTPHandler, StartWorkers）
         ├── cmd/inventory/       … サービスの合成ルート（main）
         ├── db/                  … schema.sql / queries.sql（sqlc の入力）
         ├── sqlc.yaml            … sqlc の設定
         └── internal/
-            ├── domain/          … 純粋なドメイン
-            ├── application/     … ユースケース / ポート
+            ├── domain/          … 純粋なドメイン（StockItem / Reservation / ReservationService …）
+            ├── application/     … ユースケース / ポート / サブスクライバ / Reaper
             └── adapter/         … アダプタ（入口 / 出口で対称）
                 ├── inbound/     … 入口（駆動側）
-                │   ├── http/     … 薄いハンドラ + RFC 9457 変換（パッケージ httpapi）
-                │   └── openapi/  … ogen 生成サーバ
+                │   ├── http/            … 公開 API の薄いハンドラ（パッケージ httpapi）
+                │   ├── openapi/         … ogen 生成サーバ（公開）
+                │   ├── internalhttp/    … 内部 API の薄いハンドラ
+                │   └── openapiinternal/ … ogen 生成サーバ（内部）
                 └── outbound/    … 出口（被駆動側）
-                    ├── memory/   … インメモリ実装
+                    ├── memory/   … インメモリ実装（在庫 + アウトボックス）
                     ├── postgres/ … pgx + sqlc 実装（sqlcgen/ を含む）
-                    └── logging/  … 構造化ログ
+                    └── logging/  … 構造化ログ + 開発用パブリッシャ
 ```
 
 ## 動かし方
@@ -157,6 +190,24 @@ curl localhost:8080/stock/WIDGET-001
 
 # 存在しない SKU（RFC 9457 の problem+json が 404 で返る）
 curl -i localhost:8080/stock/UNKNOWN
+```
+
+内部 API（別ポート 8081）で予約のライフサイクルを試せます。
+
+```sh
+# 予約（マルチ SKU・全か無か）
+curl -X POST localhost:8081/reservations \
+  -H 'Content-Type: application/json' \
+  -d '{"ref":"ORDER-1","lines":[{"sku":"WIDGET-001","quantity":3}]}'
+
+# 確定（pending → confirmed）
+curl -X POST localhost:8081/reservations/ORDER-1/confirm
+
+# 解放（在庫を戻す）
+curl -X POST localhost:8081/reservations/ORDER-1/release
+
+# 照会すると reserved が反映されている（公開 API 側）
+curl localhost:8080/stock/WIDGET-001
 ```
 
 > `docker-compose.yml` に書かれた認証情報はすべて**デモ専用**です。本番では

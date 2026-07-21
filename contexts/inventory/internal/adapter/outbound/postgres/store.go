@@ -1,15 +1,18 @@
 // Package postgres は PostgreSQL（pgx + sqlc）を用いた送信アダプタ
 // （outbound adapter＝被駆動側）を提供する。ヘキサゴナルアーキテクチャの「出口」であり、
-// application 層のポート（StockStore、UnitOfWork）を実装して外の世界（DB）へ書き出す。
+// application 層のポート（StockStore、UnitOfWork、MessagePublisher）を実装して外の世界（DB）へ
+// 書き出す。
 package postgres
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/postgres/sqlcgen"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
@@ -30,7 +33,7 @@ func newStockStore(q *sqlcgen.Queries) *stockStore {
 	return &stockStore{q: q}
 }
 
-// Load は SKU で在庫項目を読み込み、集約を復元する。
+// Load は SKU で在庫項目を読み込み、予約を含めて集約を復元する。
 // 行が存在しない場合は inventory.ErrStockItemNotFound を返す。
 func (s *stockStore) Load(ctx context.Context, sku inventory.SKU) (*inventory.StockItem, error) {
 	row, err := s.q.GetStockItemBySKU(ctx, sku.String())
@@ -40,20 +43,106 @@ func (s *stockStore) Load(ctx context.Context, sku inventory.SKU) (*inventory.St
 		}
 		return nil, fmt.Errorf("在庫項目の読み込みに失敗しました: %w", err)
 	}
+	return s.reconstitute(ctx, row.ID, row.Sku, row.Available, row.Version)
+}
 
-	qty, err := inventory.NewQuantity(int(row.Available))
-	if err != nil {
-		return nil, fmt.Errorf("永続化された数量が不正です（SKU=%q）: %w", sku.String(), err)
+// LoadMany は複数 SKU をまとめて読み込む。見つからない SKU は除外する。
+func (s *stockStore) LoadMany(ctx context.Context, skus []inventory.SKU) ([]*inventory.StockItem, error) {
+	items := make([]*inventory.StockItem, 0, len(skus))
+	for _, sku := range skus {
+		item, err := s.Load(ctx, sku)
+		if err != nil {
+			if errors.Is(err, inventory.ErrStockItemNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		items = append(items, item)
 	}
-	loadedSKU, err := inventory.NewSKU(row.Sku)
+	return items, nil
+}
+
+// LoadByReservation は指定参照を持つ全ての在庫項目を読み込む。
+func (s *stockStore) LoadByReservation(ctx context.Context, ref inventory.ReservationRef) ([]*inventory.StockItem, error) {
+	ids, err := s.q.ListStockItemIDsByReservationRef(ctx, ref.String())
+	if err != nil {
+		return nil, fmt.Errorf("予約参照による在庫項目の検索に失敗しました: %w", err)
+	}
+	return s.loadByIDs(ctx, ids)
+}
+
+// LoadExpiredPending は before 時点で期限切れの pending 予約を持つ在庫項目を最大 limit 件返す。
+func (s *stockStore) LoadExpiredPending(ctx context.Context, before time.Time, limit int) ([]*inventory.StockItem, error) {
+	ids, err := s.q.ListExpiredPendingStockItemIDs(ctx, sqlcgen.ListExpiredPendingStockItemIDsParams{
+		ExpiresAt: pgtype.Timestamptz{Time: before, Valid: true},
+		Limit:     int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("期限切れ予約の検索に失敗しました: %w", err)
+	}
+	return s.loadByIDs(ctx, ids)
+}
+
+func (s *stockStore) loadByIDs(ctx context.Context, ids []string) ([]*inventory.StockItem, error) {
+	items := make([]*inventory.StockItem, 0, len(ids))
+	for _, id := range ids {
+		row, err := s.q.GetStockItemByID(ctx, id)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue
+			}
+			return nil, fmt.Errorf("在庫項目 %q の読み込みに失敗しました: %w", id, err)
+		}
+		item, err := s.reconstitute(ctx, row.ID, row.Sku, row.Available, row.Version)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+// reconstitute は在庫行と、その予約行から集約を復元する。
+func (s *stockStore) reconstitute(ctx context.Context, id, sku string, available, version int32) (*inventory.StockItem, error) {
+	qty, err := inventory.NewQuantity(int(available))
+	if err != nil {
+		return nil, fmt.Errorf("永続化された数量が不正です（SKU=%q）: %w", sku, err)
+	}
+	loadedSKU, err := inventory.NewSKU(sku)
 	if err != nil {
 		return nil, fmt.Errorf("永続化された SKU が不正です: %w", err)
 	}
-	return inventory.ReconstituteStockItem(row.ID, loadedSKU, qty, int(row.Version)), nil
+
+	resRows, err := s.q.ListReservationsByStockItem(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("予約の読み込みに失敗しました: %w", err)
+	}
+	reservations := make([]*inventory.Reservation, 0, len(resRows))
+	for _, rr := range resRows {
+		ref, err := inventory.NewReservationRef(rr.Ref)
+		if err != nil {
+			return nil, fmt.Errorf("永続化された予約参照が不正です: %w", err)
+		}
+		rq, err := inventory.NewQuantity(int(rr.Quantity))
+		if err != nil {
+			return nil, fmt.Errorf("永続化された予約数量が不正です: %w", err)
+		}
+		status, err := parseReservationStatus(rr.Status)
+		if err != nil {
+			return nil, err
+		}
+		var expiresAt time.Time
+		if rr.ExpiresAt.Valid {
+			expiresAt = rr.ExpiresAt.Time
+		}
+		reservations = append(reservations, inventory.ReconstituteReservation(ref, rq, status, expiresAt))
+	}
+	return inventory.ReconstituteStockItem(id, loadedSKU, qty, int(version), reservations), nil
 }
 
-// Save は在庫項目を永続化する。version が 0 の集約は新規挿入し、
-// それ以外は楽観的排他制御つきで更新する。版が食い違えば uow.ErrConcurrencyConflict を返す。
+// Save は在庫項目を予約状態ごと永続化する。version が 0 の集約は新規挿入し、それ以外は
+// 楽観的排他制御つきで更新する。版が食い違えば uow.ErrConcurrencyConflict を返す。
+// 予約は「全削除 → 現在の予約を挿入」というスナップショット方式で書き込む（同一トランザクション）。
 func (s *stockStore) Save(ctx context.Context, items ...*inventory.StockItem) error {
 	for _, item := range items {
 		if err := s.saveOne(ctx, item); err != nil {
@@ -82,7 +171,7 @@ func (s *stockStore) saveOne(ctx context.Context, item *inventory.StockItem) err
 			return fmt.Errorf("在庫項目の挿入に失敗しました: %w", err)
 		}
 		item.MarkPersisted(1)
-		return nil
+		return s.saveReservations(ctx, item)
 	}
 
 	// 既存項目の更新。期待バージョンが一致する行だけを更新する。
@@ -101,5 +190,41 @@ func (s *stockStore) saveOne(ctx context.Context, item *inventory.StockItem) err
 		return fmt.Errorf("SKU %q のバージョンが一致しません: %w", item.SKU().String(), uow.ErrConcurrencyConflict)
 	}
 	item.MarkPersisted(next)
+	return s.saveReservations(ctx, item)
+}
+
+// saveReservations は集約の予約状態をスナップショットとして書き直す。
+func (s *stockStore) saveReservations(ctx context.Context, item *inventory.StockItem) error {
+	if err := s.q.DeleteReservationsByStockItem(ctx, item.ID()); err != nil {
+		return fmt.Errorf("予約の削除に失敗しました: %w", err)
+	}
+	for _, r := range item.Reservations() {
+		var expiresAt pgtype.Timestamptz
+		if r.Status() == inventory.ReservationPending && !r.ExpiresAt().IsZero() {
+			expiresAt = pgtype.Timestamptz{Time: r.ExpiresAt(), Valid: true}
+		}
+		err := s.q.InsertReservation(ctx, sqlcgen.InsertReservationParams{
+			StockItemID: item.ID(),
+			Ref:         r.Ref().String(),
+			Quantity:    int32(r.Quantity().Int()),
+			Status:      r.Status().String(),
+			ExpiresAt:   expiresAt,
+		})
+		if err != nil {
+			return fmt.Errorf("予約の挿入に失敗しました: %w", err)
+		}
+	}
 	return nil
+}
+
+// parseReservationStatus は永続化された文字列を予約状態へ変換する。
+func parseReservationStatus(s string) (inventory.ReservationStatus, error) {
+	switch s {
+	case "pending":
+		return inventory.ReservationPending, nil
+	case "confirmed":
+		return inventory.ReservationConfirmed, nil
+	default:
+		return inventory.ReservationPending, fmt.Errorf("永続化された予約状態が不正です: %q", s)
+	}
 }

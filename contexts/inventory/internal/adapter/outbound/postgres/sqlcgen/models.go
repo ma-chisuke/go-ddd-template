@@ -8,6 +8,15 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type InventoryOutbox struct {
+	ID          string
+	MessageType string
+	Payload     []byte
+	TraceID     string
+	OccurredAt  pgtype.Timestamptz
+	PublishedAt pgtype.Timestamptz
+}
+
 type InventoryStockItem struct {
 	ID        string
 	Sku       string
@@ -15,4 +24,12 @@ type InventoryStockItem struct {
 	Version   int32
 	CreatedAt pgtype.Timestamptz
 	UpdatedAt pgtype.Timestamptz
+}
+
+type InventoryStockReservation struct {
+	StockItemID string
+	Ref         string
+	Quantity    int32
+	Status      string
+	ExpiresAt   pgtype.Timestamptz
 }

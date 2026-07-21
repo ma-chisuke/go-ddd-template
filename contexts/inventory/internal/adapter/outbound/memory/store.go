@@ -2,25 +2,36 @@
 // 送信アダプタはヘキサゴナルアーキテクチャの「出口」であり、application 層が定義した
 // ポートを実装して外の世界（ここではメモリ上の記憶）へ書き出す。
 //
-// これはテスト用のモックではなく、application 層のポート（StockStore、UnitOfWork）を
-// きちんと実装した「本物のアダプタ」である。擬似トランザクションと楽観的排他制御の
-// 版チェックを備えており、DB を用意しなくても ErrConcurrencyConflict を再現できる。
-// ドメイン層とアプリケーション層を DB 非依存で高速にテストするために使う。
+// これはテスト用のモックではなく、application 層のポート（StockStore、UnitOfWork、
+// MessagePublisher）をきちんと実装した「本物のアダプタ」である。擬似トランザクションと
+// 楽観的排他制御の版チェックを備えており、DB を用意しなくても ErrConcurrencyConflict や
+// アウトボックスの同一トランザクション書き込みを再現できる。ドメイン層とアプリケーション層を
+// DB 非依存で高速にテストするために使う。
 package memory
 
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
 )
 
-// record は確定済み（コミット済み）の在庫行。
+// reservationRow は確定済み（コミット済み）の予約行。
+type reservationRow struct {
+	ref       string
+	quantity  int
+	status    inventory.ReservationStatus
+	expiresAt time.Time
+}
+
+// record は確定済み（コミット済み）の在庫行（予約を含む）。
 type record struct {
-	id        string
-	sku       string
-	available int
-	version   int
+	id           string
+	sku          string
+	available    int
+	version      int
+	reservations []reservationRow
 }
 
 // Store はインメモリの確定済みデータを保持する。並行アクセスを mutex で守る。
@@ -34,8 +45,32 @@ func NewStore() *Store {
 	return &Store{rows: make(map[string]record)}
 }
 
+// recordToStockItem は確定済みの行から集約を復元する。
+func recordToStockItem(r record) (*inventory.StockItem, error) {
+	qty, err := inventory.NewQuantity(r.available)
+	if err != nil {
+		return nil, fmt.Errorf("永続化された数量が不正です（SKU=%q）: %w", r.sku, err)
+	}
+	loadedSKU, err := inventory.NewSKU(r.sku)
+	if err != nil {
+		return nil, fmt.Errorf("永続化された SKU が不正です: %w", err)
+	}
+	reservations := make([]*inventory.Reservation, 0, len(r.reservations))
+	for _, rr := range r.reservations {
+		ref, err := inventory.NewReservationRef(rr.ref)
+		if err != nil {
+			return nil, fmt.Errorf("永続化された予約参照が不正です: %w", err)
+		}
+		rq, err := inventory.NewQuantity(rr.quantity)
+		if err != nil {
+			return nil, fmt.Errorf("永続化された予約数量が不正です: %w", err)
+		}
+		reservations = append(reservations, inventory.ReconstituteReservation(ref, rq, rr.status, rr.expiresAt))
+	}
+	return inventory.ReconstituteStockItem(r.id, loadedSKU, qty, r.version, reservations), nil
+}
+
 // load は確定済みデータから在庫項目を読み込み、集約を復元する。
-// リポジトリの Load 経由でのみ呼ばれる。
 func (s *Store) load(sku inventory.SKU) (*inventory.StockItem, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -44,14 +79,106 @@ func (s *Store) load(sku inventory.SKU) (*inventory.StockItem, error) {
 	if !ok {
 		return nil, fmt.Errorf("SKU %q: %w", sku.String(), inventory.ErrStockItemNotFound)
 	}
-	// 確定済みの available は常に非負なのでエラーにはならない。
-	qty, err := inventory.NewQuantity(r.available)
-	if err != nil {
-		return nil, fmt.Errorf("永続化された数量が不正です（SKU=%q）: %w", sku.String(), err)
+	return recordToStockItem(r)
+}
+
+// loadMany は複数 SKU をまとめて読み込む。見つからない SKU は黙って除外する
+// （存在検査はドメインサービス側の事前検証が担う）。
+func (s *Store) loadMany(skus []inventory.SKU) ([]*inventory.StockItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	items := make([]*inventory.StockItem, 0, len(skus))
+	for _, sku := range skus {
+		r, ok := s.rows[sku.String()]
+		if !ok {
+			continue
+		}
+		item, err := recordToStockItem(r)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
 	}
-	loadedSKU, err := inventory.NewSKU(r.sku)
-	if err != nil {
-		return nil, fmt.Errorf("永続化された SKU が不正です: %w", err)
+	return items, nil
+}
+
+// loadByReservation は指定参照を持つ全ての在庫項目を読み込む。
+func (s *Store) loadByReservation(ref inventory.ReservationRef) ([]*inventory.StockItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var items []*inventory.StockItem
+	for _, r := range s.rows {
+		if !recordHasReservation(r, ref.String()) {
+			continue
+		}
+		item, err := recordToStockItem(r)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
 	}
-	return inventory.ReconstituteStockItem(r.id, loadedSKU, qty, r.version), nil
+	return items, nil
+}
+
+// loadExpiredPending は before 時点で期限切れの pending 予約を持つ在庫項目を最大 limit 件返す。
+func (s *Store) loadExpiredPending(before time.Time, limit int) ([]*inventory.StockItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var items []*inventory.StockItem
+	for _, r := range s.rows {
+		if !recordHasExpiredPending(r, before) {
+			continue
+		}
+		item, err := recordToStockItem(r)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+		if limit > 0 && len(items) >= limit {
+			break
+		}
+	}
+	return items, nil
+}
+
+func recordHasReservation(r record, ref string) bool {
+	for _, rr := range r.reservations {
+		if rr.ref == ref {
+			return true
+		}
+	}
+	return false
+}
+
+func recordHasExpiredPending(r record, before time.Time) bool {
+	for _, rr := range r.reservations {
+		if rr.status == inventory.ReservationPending && !rr.expiresAt.IsZero() && !before.Before(rr.expiresAt) {
+			return true
+		}
+	}
+	return false
+}
+
+// itemToRecord は集約を、指定バージョンで確定行へ変換する（予約状態を含む）。
+func itemToRecord(item *inventory.StockItem, version int) record {
+	res := item.Reservations()
+	rows := make([]reservationRow, 0, len(res))
+	for _, r := range res {
+		rows = append(rows, reservationRow{
+			ref:       r.Ref().String(),
+			quantity:  r.Quantity().Int(),
+			status:    r.Status(),
+			expiresAt: r.ExpiresAt(),
+		})
+	}
+	return record{
+		id:           item.ID(),
+		sku:          item.SKU().String(),
+		available:    item.Available().Int(),
+		version:      version,
+		reservations: rows,
+	}
 }

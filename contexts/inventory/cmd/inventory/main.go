@@ -1,5 +1,6 @@
 // Command inventory は在庫コンテキストを単独のサービスとして起動する合成ルート。
-// pgx のアダプタと ogen 製の公開サーバを結線し、HTTP サーバを立ち上げる。
+// pgx のアダプタと ogen 製のサーバ（公開・内部）を結線し、HTTP サーバを立ち上げ、
+// 背景ワーカー（期限切れ掃除・アウトボックス送信中継）を起動する。
 package main
 
 import (
@@ -36,6 +37,10 @@ func run(log *slog.Logger) error {
 	if addr == "" {
 		addr = ":8080"
 	}
+	internalAddr := os.Getenv("INTERNAL_HTTP_ADDR")
+	if internalAddr == "" {
+		internalAddr = ":8081"
+	}
 
 	// シグナルで停止をハンドリングする context。
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -61,26 +66,34 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	mux := http.NewServeMux()
-	// ヘルスチェック（コンテナ／ロードバランサ用）。
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+	// 背景ワーカー（Reaper と アウトボックス送信中継）を起動する。
+	mod.StartWorkers(ctx)
+
+	// 公開サーバ（補充・照会）。ヘルスチェックもここに載せる。
+	publicMux := http.NewServeMux()
+	publicMux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	// 在庫コンテキストの公開 API をマウントする。
-	mux.Handle("/", mod.HTTPHandler())
+	publicMux.Handle("/", mod.HTTPHandler())
+	publicSrv := &http.Server{Addr: addr, Handler: publicMux, ReadHeaderTimeout: 10 * time.Second}
 
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
-	}
+	// 内部サーバ（予約・確定・解放・メッセージ取り込み）。公開サーバとは別ポートで待ち受ける。
+	internalSrv := &http.Server{Addr: internalAddr, Handler: mod.InternalHTTPHandler(), ReadHeaderTimeout: 10 * time.Second}
 
-	// サーバを別 goroutine で起動する。
-	serverErr := make(chan error, 1)
+	// 2 つのサーバを別 goroutine で起動する。
+	serverErr := make(chan error, 2)
 	go func() {
-		log.Info("HTTP サーバを起動します", "addr", addr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Info("公開 HTTP サーバを起動します", "addr", addr)
+		if err := publicSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
+			return
+		}
+		serverErr <- nil
+	}()
+	go func() {
+		log.Info("内部 HTTP サーバを起動します", "addr", internalAddr)
+		if err := internalSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErr <- err
 			return
 		}
@@ -95,10 +108,13 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	// グレースフルシャットダウン。
+	// グレースフルシャットダウン（両サーバ）。
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer shutdownCancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
+	if err := publicSrv.Shutdown(shutdownCtx); err != nil {
+		return err
+	}
+	if err := internalSrv.Shutdown(shutdownCtx); err != nil {
 		return err
 	}
 	log.Info("サービスを正常に停止しました")

@@ -13,6 +13,17 @@ var (
 	// ErrInvalidSKU は、SKU が不正（空文字など）であることを表す。
 	ErrInvalidSKU = errors.New("SKU が不正です")
 
-	// ErrInvalidQuantity は、数量が不正（負数、または補充数が 0）であることを表す。
+	// ErrInvalidQuantity は、数量が不正（負数、または要求数が 0）であることを表す。
 	ErrInvalidQuantity = errors.New("数量が不正です")
+
+	// ErrInvalidReservationRef は、予約参照（相関 ID）が不正（空文字など）であることを表す。
+	ErrInvalidReservationRef = errors.New("予約参照が不正です")
+
+	// ErrInsufficientStock は、要求数量が利用可能在庫を上回り予約できないことを表す。
+	// 予約が許容されるのは、要求 Quantity が available 以下のときのみ（在庫不変条件）。
+	ErrInsufficientStock = errors.New("在庫が不足しています")
+
+	// ErrReservationNotFound は、Confirm 対象の有効な予約が存在しないことを表す。
+	// 既に Reap 済み、または速い取消で解放済みの参照に対する Confirm で返る。
+	ErrReservationNotFound = errors.New("予約が見つかりません")
 )

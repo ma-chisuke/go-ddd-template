@@ -51,6 +51,8 @@ services:
     environment:
       # デモ専用の接続情報。実行時の環境変数として渡す（イメージには含めない）。
       DATABASE_URL: "postgres://inventory:inventory@db:5432/inventory?sslmode=disable"
-      HTTP_ADDR: ":8080"
+      HTTP_ADDR: ":8080"           # 公開 API（補充・照会）
+      INTERNAL_HTTP_ADDR: ":8081"  # 内部 API（予約・確定・解放・取り込み）
     ports:
       - "8080:8080"
+      - "8081:8081"

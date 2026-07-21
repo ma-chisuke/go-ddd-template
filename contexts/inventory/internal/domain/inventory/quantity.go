@@ -31,3 +31,18 @@ func (q Quantity) IsZero() bool {
 func (q Quantity) Add(other Quantity) Quantity {
 	return Quantity{value: q.value + other.value}
 }
+
+// Sub は q から other を引いた数量を返す。結果が負になる場合は非負制約に反するため
+// ErrInvalidQuantity を返す。予約時の在庫引き落としなどで用いる（呼び出し側は
+// 事前に other <= q を確認しておくのが望ましい）。
+func (q Quantity) Sub(other Quantity) (Quantity, error) {
+	if other.value > q.value {
+		return Quantity{}, fmt.Errorf("数量 %d から %d は引けません（負になります）: %w", q.value, other.value, ErrInvalidQuantity)
+	}
+	return Quantity{value: q.value - other.value}, nil
+}
+
+// GreaterThan は q が other より大きいかどうかを返す。予約可否の判定などに使う。
+func (q Quantity) GreaterThan(other Quantity) bool {
+	return q.value > other.value
+}

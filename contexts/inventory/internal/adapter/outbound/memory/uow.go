@@ -3,20 +3,24 @@ package memory
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/shared/outbox"
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
 // UnitOfWork はインメモリの擬似トランザクションによる作業単位。
+// 在庫ストアとアウトボックスを同一トランザクションに束ね、コミット時にまとめて確定させる。
 type UnitOfWork struct {
-	store *Store
+	store  *Store
+	outbox *OutboxStore
 }
 
 // NewUnitOfWork はインメモリの作業単位を生成する。
-func NewUnitOfWork(store *Store) *UnitOfWork {
-	return &UnitOfWork{store: store}
+func NewUnitOfWork(store *Store, outboxStore *OutboxStore) *UnitOfWork {
+	return &UnitOfWork{store: store, outbox: outboxStore}
 }
 
 // コンパイル時にポートを満たしていることを確認する。
@@ -24,10 +28,12 @@ var _ application.UnitOfWork = (*UnitOfWork)(nil)
 
 // Within は擬似トランザクションを開く。fn が成功すれば staging をコミットし、
 // エラーを返せば staging を破棄（ロールバック）する。
-// コミットは版チェックと適用を単一ロック下で原子的に行う。
 func (u *UnitOfWork) Within(ctx context.Context, fn func(ctx context.Context, r application.Repos) error) error {
-	tx := &txState{store: u.store}
-	r := repos{stock: &txStore{tx: tx}}
+	tx := &txState{store: u.store, outbox: u.outbox}
+	r := repos{
+		stock:  &txStore{tx: tx},
+		outbox: &txOutbox{tx: tx},
+	}
 	if err := fn(ctx, r); err != nil {
 		return err // staging を破棄してロールバック
 	}
@@ -36,31 +42,34 @@ func (u *UnitOfWork) Within(ctx context.Context, fn func(ctx context.Context, r 
 
 // repos は application.Repos の実装。
 type repos struct {
-	stock application.StockStore
+	stock  application.StockStore
+	outbox application.MessagePublisher
 }
 
-func (r repos) Stock() application.StockStore { return r.stock }
+func (r repos) Stock() application.StockStore        { return r.stock }
+func (r repos) Outbox() application.MessagePublisher { return r.outbox }
 
 // txState はトランザクション中の保存要求（staging）を蓄える。
-// staged には「コミット時に確定ストアへ書き込む行」を貯める。
 type txState struct {
-	store  *Store
-	staged []record
+	store      *Store
+	outbox     *OutboxStore
+	staged     []record
+	stagedMsgs []outbox.Message
 }
 
-// commit は staging された行を確定ストアへ適用する。
+// commit は staging された在庫行とアウトボックスメッセージを確定ストアへ適用する。
 // 版チェックと集約への版反映（MarkPersisted）は Save の時点で済ませているため、
-// ここでは確定ストアへの書き込みだけを行う。ロールバック（fn がエラー）時は
-// staged を破棄するだけでよく、確定ストアは変化しない。
+// ここでは確定ストアへの書き込みだけを行う。ロールバック（fn がエラー）時は staged を
+// 破棄するだけでよく、確定ストアは変化しない。
 func (tx *txState) commit() error {
-	if len(tx.staged) == 0 {
-		return nil
+	if len(tx.staged) > 0 {
+		tx.store.mu.Lock()
+		for _, r := range tx.staged {
+			tx.store.rows[r.sku] = r
+		}
+		tx.store.mu.Unlock()
 	}
-	tx.store.mu.Lock()
-	defer tx.store.mu.Unlock()
-	for _, r := range tx.staged {
-		tx.store.rows[r.sku] = r
-	}
+	tx.outbox.appendCommitted(tx.stagedMsgs)
 	return nil
 }
 
@@ -69,20 +78,29 @@ type txStore struct {
 	tx *txState
 }
 
-// Load は確定済みデータから読み込む。
-// 本スライスではユースケースが「読み込み → 保存」を 1 回ずつ行うため、
-// 同一トランザクション内での read-your-writes（自分の書き込みの読み戻し）は実装しない。
-func (s *txStore) Load(ctx context.Context, sku inventory.SKU) (*inventory.StockItem, error) {
+// コンパイル時にポートを満たしていることを確認する。
+var _ application.StockStore = (*txStore)(nil)
+
+func (s *txStore) Load(_ context.Context, sku inventory.SKU) (*inventory.StockItem, error) {
 	return s.tx.store.load(sku)
 }
 
+func (s *txStore) LoadMany(_ context.Context, skus []inventory.SKU) ([]*inventory.StockItem, error) {
+	return s.tx.store.loadMany(skus)
+}
+
+func (s *txStore) LoadByReservation(_ context.Context, ref inventory.ReservationRef) ([]*inventory.StockItem, error) {
+	return s.tx.store.loadByReservation(ref)
+}
+
+func (s *txStore) LoadExpiredPending(_ context.Context, before time.Time, limit int) ([]*inventory.StockItem, error) {
+	return s.tx.store.loadExpiredPending(before, limit)
+}
+
 // Save は各集約の版を確定ストアと突き合わせて検証し、集約のバージョンを同期（MarkPersisted）
-// したうえで、確定ストアへ書き込む行を staging に積む。実際の書き込みはコミット時に行う。
-//
-// 版チェックとバージョン反映を Save の時点で行うことで、ユースケースがクロージャ内で
-// item.Version() を読んでも最新のバージョンが得られる（pgx アダプタと同じ観測契約になる）。
-// 版が食い違えば uow.ErrConcurrencyConflict を返し、確定ストアは一切変更しない。
-func (s *txStore) Save(ctx context.Context, items ...*inventory.StockItem) error {
+// したうえで、確定ストアへ書き込む行（予約状態を含む）を staging に積む。実際の書き込みは
+// コミット時に行う。版が食い違えば uow.ErrConcurrencyConflict を返し、確定ストアは変更しない。
+func (s *txStore) Save(_ context.Context, items ...*inventory.StockItem) error {
 	s.tx.store.mu.Lock()
 	defer s.tx.store.mu.Unlock()
 
@@ -103,14 +121,24 @@ func (s *txStore) Save(ctx context.Context, items ...*inventory.StockItem) error
 			next = item.Version() + 1
 		}
 
-		s.tx.staged = append(s.tx.staged, record{
-			id:        item.ID(),
-			sku:       item.SKU().String(),
-			available: item.Available().Int(),
-			version:   next,
-		})
+		s.tx.staged = append(s.tx.staged, itemToRecord(item, next))
 		item.MarkPersisted(next)
 	}
+	return nil
+}
+
+// txOutbox はトランザクションに束ねた MessagePublisher。Enqueue はコミット時に確定する。
+type txOutbox struct {
+	tx *txState
+}
+
+// コンパイル時にポートを満たしていることを確認する。
+var _ application.MessagePublisher = (*txOutbox)(nil)
+
+// Enqueue はメッセージを staging に積む。実際の確定はコミット時に行うため、集約の保存と
+// 同一トランザクションで原子的にコミットされる（二重書き込みを避ける）。
+func (o *txOutbox) Enqueue(_ context.Context, m outbox.Message) error {
+	o.tx.stagedMsgs = append(o.tx.stagedMsgs, m)
 	return nil
 }
 
@@ -125,11 +153,25 @@ type readStore struct {
 	store *Store
 }
 
-func (s *readStore) Load(ctx context.Context, sku inventory.SKU) (*inventory.StockItem, error) {
+var _ application.StockStore = (*readStore)(nil)
+
+func (s *readStore) Load(_ context.Context, sku inventory.SKU) (*inventory.StockItem, error) {
 	return s.store.load(sku)
 }
 
+func (s *readStore) LoadMany(_ context.Context, skus []inventory.SKU) ([]*inventory.StockItem, error) {
+	return s.store.loadMany(skus)
+}
+
+func (s *readStore) LoadByReservation(_ context.Context, ref inventory.ReservationRef) ([]*inventory.StockItem, error) {
+	return s.store.loadByReservation(ref)
+}
+
+func (s *readStore) LoadExpiredPending(_ context.Context, before time.Time, limit int) ([]*inventory.StockItem, error) {
+	return s.store.loadExpiredPending(before, limit)
+}
+
 // Save は読み取り専用アダプタでは使用しない。誤用を早期に検知するためエラーを返す。
-func (s *readStore) Save(ctx context.Context, items ...*inventory.StockItem) error {
+func (s *readStore) Save(_ context.Context, _ ...*inventory.StockItem) error {
 	return fmt.Errorf("readStore は読み取り専用です: 書き込みは UnitOfWork.Within を使ってください")
 }

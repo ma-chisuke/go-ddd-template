@@ -7,7 +7,46 @@ package sqlcgen
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const deleteReservationsByStockItem = `-- name: DeleteReservationsByStockItem :exec
+DELETE FROM inventory.stock_reservations
+WHERE stock_item_id = $1
+`
+
+// 在庫項目の予約を全削除する（集約の予約状態を「削除して入れ直す」スナップショット保存の前段）。
+func (q *Queries) DeleteReservationsByStockItem(ctx context.Context, stockItemID string) error {
+	_, err := q.db.Exec(ctx, deleteReservationsByStockItem, stockItemID)
+	return err
+}
+
+const getStockItemByID = `-- name: GetStockItemByID :one
+SELECT id, sku, available, version
+FROM inventory.stock_items
+WHERE id = $1
+`
+
+type GetStockItemByIDRow struct {
+	ID        string
+	Sku       string
+	Available int32
+	Version   int32
+}
+
+// ID で在庫項目を 1 件取得する（予約参照や期限切れ検索で得た ID から復元する用）。
+func (q *Queries) GetStockItemByID(ctx context.Context, id string) (GetStockItemByIDRow, error) {
+	row := q.db.QueryRow(ctx, getStockItemByID, id)
+	var i GetStockItemByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.Sku,
+		&i.Available,
+		&i.Version,
+	)
+	return i, err
+}
 
 const getStockItemBySKU = `-- name: GetStockItemBySKU :one
 
@@ -38,6 +77,56 @@ func (q *Queries) GetStockItemBySKU(ctx context.Context, sku string) (GetStockIt
 	return i, err
 }
 
+const insertOutboxMessage = `-- name: InsertOutboxMessage :exec
+INSERT INTO inventory.outbox (id, message_type, payload, trace_id, occurred_at)
+VALUES ($1, $2, $3, $4, $5)
+`
+
+type InsertOutboxMessageParams struct {
+	ID          string
+	MessageType string
+	Payload     []byte
+	TraceID     string
+	OccurredAt  pgtype.Timestamptz
+}
+
+// アウトボックスへメッセージを積む（集約書き込みと同一トランザクションで実行する）。
+func (q *Queries) InsertOutboxMessage(ctx context.Context, arg InsertOutboxMessageParams) error {
+	_, err := q.db.Exec(ctx, insertOutboxMessage,
+		arg.ID,
+		arg.MessageType,
+		arg.Payload,
+		arg.TraceID,
+		arg.OccurredAt,
+	)
+	return err
+}
+
+const insertReservation = `-- name: InsertReservation :exec
+INSERT INTO inventory.stock_reservations (stock_item_id, ref, quantity, status, expires_at)
+VALUES ($1, $2, $3, $4, $5)
+`
+
+type InsertReservationParams struct {
+	StockItemID string
+	Ref         string
+	Quantity    int32
+	Status      string
+	ExpiresAt   pgtype.Timestamptz
+}
+
+// 予約を 1 件挿入する。
+func (q *Queries) InsertReservation(ctx context.Context, arg InsertReservationParams) error {
+	_, err := q.db.Exec(ctx, insertReservation,
+		arg.StockItemID,
+		arg.Ref,
+		arg.Quantity,
+		arg.Status,
+		arg.ExpiresAt,
+	)
+	return err
+}
+
 const insertStockItem = `-- name: InsertStockItem :exec
 INSERT INTO inventory.stock_items (id, sku, available, version)
 VALUES ($1, $2, $3, $4)
@@ -58,6 +147,154 @@ func (q *Queries) InsertStockItem(ctx context.Context, arg InsertStockItemParams
 		arg.Available,
 		arg.Version,
 	)
+	return err
+}
+
+const listExpiredPendingStockItemIDs = `-- name: ListExpiredPendingStockItemIDs :many
+SELECT DISTINCT stock_item_id
+FROM inventory.stock_reservations
+WHERE status = 'pending' AND expires_at IS NOT NULL AND expires_at < $1
+LIMIT $2
+`
+
+type ListExpiredPendingStockItemIDsParams struct {
+	ExpiresAt pgtype.Timestamptz
+	Limit     int32
+}
+
+// before 時点で期限切れの pending 予約を持つ在庫項目の ID 一覧を取得する（Reaper）。
+func (q *Queries) ListExpiredPendingStockItemIDs(ctx context.Context, arg ListExpiredPendingStockItemIDsParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, listExpiredPendingStockItemIDs, arg.ExpiresAt, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var stock_item_id string
+		if err := rows.Scan(&stock_item_id); err != nil {
+			return nil, err
+		}
+		items = append(items, stock_item_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listReservationsByStockItem = `-- name: ListReservationsByStockItem :many
+SELECT stock_item_id, ref, quantity, status, expires_at
+FROM inventory.stock_reservations
+WHERE stock_item_id = $1
+`
+
+// 在庫項目が保持する予約の一覧を取得する。
+func (q *Queries) ListReservationsByStockItem(ctx context.Context, stockItemID string) ([]InventoryStockReservation, error) {
+	rows, err := q.db.Query(ctx, listReservationsByStockItem, stockItemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []InventoryStockReservation{}
+	for rows.Next() {
+		var i InventoryStockReservation
+		if err := rows.Scan(
+			&i.StockItemID,
+			&i.Ref,
+			&i.Quantity,
+			&i.Status,
+			&i.ExpiresAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStockItemIDsByReservationRef = `-- name: ListStockItemIDsByReservationRef :many
+SELECT DISTINCT stock_item_id
+FROM inventory.stock_reservations
+WHERE ref = $1
+`
+
+// 指定の予約参照を持つ在庫項目の ID 一覧を取得する（Confirm / Release のマルチ SKU ロード）。
+func (q *Queries) ListStockItemIDsByReservationRef(ctx context.Context, ref string) ([]string, error) {
+	rows, err := q.db.Query(ctx, listStockItemIDsByReservationRef, ref)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var stock_item_id string
+		if err := rows.Scan(&stock_item_id); err != nil {
+			return nil, err
+		}
+		items = append(items, stock_item_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUnpublishedOutbox = `-- name: ListUnpublishedOutbox :many
+SELECT id, message_type, payload, trace_id, occurred_at
+FROM inventory.outbox
+WHERE published_at IS NULL
+ORDER BY occurred_at ASC
+LIMIT $1
+`
+
+type ListUnpublishedOutboxRow struct {
+	ID          string
+	MessageType string
+	Payload     []byte
+	TraceID     string
+	OccurredAt  pgtype.Timestamptz
+}
+
+// 未送信のメッセージを occurred_at 昇順で最大 $1 件取得する。
+func (q *Queries) ListUnpublishedOutbox(ctx context.Context, limit int32) ([]ListUnpublishedOutboxRow, error) {
+	rows, err := q.db.Query(ctx, listUnpublishedOutbox, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUnpublishedOutboxRow{}
+	for rows.Next() {
+		var i ListUnpublishedOutboxRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.MessageType,
+			&i.Payload,
+			&i.TraceID,
+			&i.OccurredAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markOutboxPublished = `-- name: MarkOutboxPublished :exec
+UPDATE inventory.outbox
+SET published_at = now()
+WHERE id = $1
+`
+
+// 指定 ID のメッセージを送信済みとして記録する。
+func (q *Queries) MarkOutboxPublished(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, markOutboxPublished, id)
 	return err
 }
 

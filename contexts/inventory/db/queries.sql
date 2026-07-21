@@ -7,6 +7,12 @@ SELECT id, sku, available, version
 FROM inventory.stock_items
 WHERE sku = $1;
 
+-- name: GetStockItemByID :one
+-- ID で在庫項目を 1 件取得する（予約参照や期限切れ検索で得た ID から復元する用）。
+SELECT id, sku, available, version
+FROM inventory.stock_items
+WHERE id = $1;
+
 -- name: InsertStockItem :exec
 -- 在庫項目を新規挿入する（version は 1 から始まる）。
 INSERT INTO inventory.stock_items (id, sku, available, version)
@@ -18,3 +24,51 @@ VALUES ($1, $2, $3, $4);
 UPDATE inventory.stock_items
 SET available = $1, version = $2, updated_at = now()
 WHERE sku = $3 AND version = $4;
+
+-- name: ListReservationsByStockItem :many
+-- 在庫項目が保持する予約の一覧を取得する。
+SELECT stock_item_id, ref, quantity, status, expires_at
+FROM inventory.stock_reservations
+WHERE stock_item_id = $1;
+
+-- name: ListStockItemIDsByReservationRef :many
+-- 指定の予約参照を持つ在庫項目の ID 一覧を取得する（Confirm / Release のマルチ SKU ロード）。
+SELECT DISTINCT stock_item_id
+FROM inventory.stock_reservations
+WHERE ref = $1;
+
+-- name: ListExpiredPendingStockItemIDs :many
+-- before 時点で期限切れの pending 予約を持つ在庫項目の ID 一覧を取得する（Reaper）。
+SELECT DISTINCT stock_item_id
+FROM inventory.stock_reservations
+WHERE status = 'pending' AND expires_at IS NOT NULL AND expires_at < $1
+LIMIT $2;
+
+-- name: DeleteReservationsByStockItem :exec
+-- 在庫項目の予約を全削除する（集約の予約状態を「削除して入れ直す」スナップショット保存の前段）。
+DELETE FROM inventory.stock_reservations
+WHERE stock_item_id = $1;
+
+-- name: InsertReservation :exec
+-- 予約を 1 件挿入する。
+INSERT INTO inventory.stock_reservations (stock_item_id, ref, quantity, status, expires_at)
+VALUES ($1, $2, $3, $4, $5);
+
+-- name: InsertOutboxMessage :exec
+-- アウトボックスへメッセージを積む（集約書き込みと同一トランザクションで実行する）。
+INSERT INTO inventory.outbox (id, message_type, payload, trace_id, occurred_at)
+VALUES ($1, $2, $3, $4, $5);
+
+-- name: ListUnpublishedOutbox :many
+-- 未送信のメッセージを occurred_at 昇順で最大 $1 件取得する。
+SELECT id, message_type, payload, trace_id, occurred_at
+FROM inventory.outbox
+WHERE published_at IS NULL
+ORDER BY occurred_at ASC
+LIMIT $1;
+
+-- name: MarkOutboxPublished :exec
+-- 指定 ID のメッセージを送信済みとして記録する。
+UPDATE inventory.outbox
+SET published_at = now()
+WHERE id = $1;

@@ -1,0 +1,8 @@
+# 内部 API 向けの ogen コード生成設定。internal.openapi.yaml と対で管理する。
+# サーバ実装のみ必要なのでクライアント生成を無効化し、テンプレートを軽く保つため
+# OpenTelemetry 計装も無効化している（観測性が必要になれば有効化して再生成すればよい）。
+generator:
+  features:
+    disable:
+      - "paths/client"
+      - "ogen/otel"

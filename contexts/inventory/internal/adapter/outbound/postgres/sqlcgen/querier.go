@@ -9,12 +9,30 @@ import (
 )
 
 type Querier interface {
+	// 在庫項目の予約を全削除する（集約の予約状態を「削除して入れ直す」スナップショット保存の前段）。
+	DeleteReservationsByStockItem(ctx context.Context, stockItemID string) error
+	// ID で在庫項目を 1 件取得する（予約参照や期限切れ検索で得た ID から復元する用）。
+	GetStockItemByID(ctx context.Context, id string) (GetStockItemByIDRow, error)
 	// sqlc の入力となる SQL 定義。ここから型安全な Go コードを生成する。
 	// 生成物はコミットし、手で編集しない。クエリを変えたいときはこの SQL を編集して再生成する。
 	// SKU で在庫項目を 1 件取得する。存在しなければ pgx.ErrNoRows が返る。
 	GetStockItemBySKU(ctx context.Context, sku string) (GetStockItemBySKURow, error)
+	// アウトボックスへメッセージを積む（集約書き込みと同一トランザクションで実行する）。
+	InsertOutboxMessage(ctx context.Context, arg InsertOutboxMessageParams) error
+	// 予約を 1 件挿入する。
+	InsertReservation(ctx context.Context, arg InsertReservationParams) error
 	// 在庫項目を新規挿入する（version は 1 から始まる）。
 	InsertStockItem(ctx context.Context, arg InsertStockItemParams) error
+	// before 時点で期限切れの pending 予約を持つ在庫項目の ID 一覧を取得する（Reaper）。
+	ListExpiredPendingStockItemIDs(ctx context.Context, arg ListExpiredPendingStockItemIDsParams) ([]string, error)
+	// 在庫項目が保持する予約の一覧を取得する。
+	ListReservationsByStockItem(ctx context.Context, stockItemID string) ([]InventoryStockReservation, error)
+	// 指定の予約参照を持つ在庫項目の ID 一覧を取得する（Confirm / Release のマルチ SKU ロード）。
+	ListStockItemIDsByReservationRef(ctx context.Context, ref string) ([]string, error)
+	// 未送信のメッセージを occurred_at 昇順で最大 $1 件取得する。
+	ListUnpublishedOutbox(ctx context.Context, limit int32) ([]ListUnpublishedOutboxRow, error)
+	// 指定 ID のメッセージを送信済みとして記録する。
+	MarkOutboxPublished(ctx context.Context, id string) error
 	// 楽観的排他制御つきの更新。期待バージョンが一致する行だけを更新し、
 	// 影響行数を返す。0 行なら版が食い違っている（＝衝突）ことを意味する。
 	UpdateStockItem(ctx context.Context, arg UpdateStockItemParams) (int64, error)

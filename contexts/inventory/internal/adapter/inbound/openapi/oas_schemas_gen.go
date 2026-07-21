@@ -216,7 +216,8 @@ type StockView struct {
 	Sku string `json:"sku"`
 	// 利用可能在庫数.
 	Available int `json:"available"`
-	// 引当済み在庫数（本スライスでは常に 0）.
+	// 引当済み在庫数（有効な予約 pending + confirmed
+	// の合計。予約・確定・解放は内部 API で行う）.
 	Reserved int `json:"reserved"`
 	// 楽観的排他制御のためのバージョン番号.
 	Version int `json:"version"`

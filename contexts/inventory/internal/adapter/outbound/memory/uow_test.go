@@ -71,7 +71,7 @@ func loadItem(t *testing.T, work *memory.UnitOfWork, sku inventory.SKU) *invento
 func TestUnitOfWork_ConcurrencyConflict(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store)
+	work := memory.NewUnitOfWork(store, memory.NewOutboxStore())
 	sku := mustSKU(t, "WIDGET-001")
 
 	seedItem(t, work, sku, mustQty(t, 5)) // version 1
@@ -115,7 +115,7 @@ func TestUnitOfWork_ConcurrencyConflict(t *testing.T) {
 func TestUnitOfWork_RollbackOnError(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store)
+	work := memory.NewUnitOfWork(store, memory.NewOutboxStore())
 	sku := mustSKU(t, "GADGET-1")
 
 	sentinel := errors.New("業務都合で中断")

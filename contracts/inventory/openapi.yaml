@@ -111,7 +111,7 @@ components:
           description: 利用可能在庫数
         reserved:
           type: integer
-          description: 引当済み在庫数（本スライスでは常に 0）
+          description: 引当済み在庫数（有効な予約 pending + confirmed の合計。予約・確定・解放は内部 API で行う）
         version:
           type: integer
           description: 楽観的排他制御のためのバージョン番号

@@ -31,14 +31,16 @@
 
 | 関心事 | 置き場所 |
 | --- | --- |
-| 集約・値オブジェクト・不変条件・ドメインイベント | `internal/domain/inventory/` |
-| ユースケース、ポート（interface） | `internal/application/` |
+| 集約・値オブジェクト・不変条件・ドメインイベント・ドメインサービス | `internal/domain/inventory/` |
+| ユースケース、ポート（interface）、サブスクライバ、Reaper | `internal/application/` |
 | ポートの実装（DB・インメモリ・ログ）＝出口アダプタ | `internal/adapter/outbound/`（`memory` / `postgres` / `logging`） |
-| HTTP ハンドラ・エラー変換・ミドルウェア＝入口アダプタ | `internal/adapter/inbound/http/`（パッケージ `httpapi`） |
-| ogen 生成の HTTP サーバ | `internal/adapter/inbound/openapi/` |
+| 公開 HTTP ハンドラ・エラー変換・ミドルウェア＝入口アダプタ | `internal/adapter/inbound/http/`（パッケージ `httpapi`） |
+| 内部 HTTP ハンドラ（予約・確定・解放・取り込み）＝入口アダプタ | `internal/adapter/inbound/internalhttp/` |
+| ogen 生成の HTTP サーバ（公開 / 内部） | `internal/adapter/inbound/openapi/` / `openapiinternal/` |
 | 依存の結線（合成ルート） | `inventory.go`（ファサード）と `cmd/inventory/` |
-| 公開 HTTP 契約 | `contracts/inventory/openapi.yaml` |
+| 公開 HTTP 契約 / 内部 HTTP 契約 | `contracts/inventory/openapi.yaml` / `internal.openapi.yaml` |
 | DB スキーマ・クエリ | `contexts/inventory/db/schema.sql`, `queries.sql` |
+| コンテキスト横断の汎用機構 | `shared/`（`uow` / `event` / `outbox` / `id` / `correlation` / `testutil`） |
 
 ## よくある作業のレシピ
 
@@ -69,8 +71,23 @@
 ## 機械可読な契約（真実の源）
 
 - 公開 HTTP 契約: `contracts/inventory/openapi.yaml`（RFC 9457 の ProblemDetails を含む）
-- DB スキーマ: `contexts/inventory/db/schema.sql`
+- 内部 HTTP 契約: `contracts/inventory/internal.openapi.yaml`（予約・確定・解放・取り込み）
+- DB スキーマ: `contexts/inventory/db/schema.sql`（stock_items / stock_reservations / outbox）
 - DB クエリ: `contexts/inventory/db/queries.sql`
+
+## 予約・アウトボックスを扱うときの要点
+
+- **予約は二相**（reserve → confirm）。予約・確定・解放はいずれも冪等に実装する
+  （自動リトライと at-least-once 配送のもとで安全にするため）。
+- **確定・解放は予約参照（ref）単位**で、`StockStore.LoadByReservation` を使って ref を持つ
+  全ての在庫項目を 1 つの作業単位で原子的に遷移させる。単一項目への部分適用は禁止
+  （残り SKU の pending が孤児化し、Reaper に誤解放されて二重割当を招く）。
+- **Reaper は期限切れの pending のみ**を解放する。confirmed には決して触れない。
+- **アウトボックス**へは `repos.Outbox().Enqueue(...)` で、集約の `Save` と同一の
+  `uow.Run` クロージャ内から積む（二重書き込みを避ける）。送出は `outbox.Runner` が
+  at-least-once で行い、受信は `outbox.Router` が message_type で `Consumer` へ振り分ける。
+- 時刻に依存する処理（TTL / Reaper）は、実時間を直接呼ばず `application.Clock` を注入して
+  テスト可能にする（`shared/testutil` の擬似時計を使う）。
 
 ## コマンド
 

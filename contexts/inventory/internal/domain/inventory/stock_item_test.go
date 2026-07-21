@@ -156,7 +156,7 @@ func TestStockItem_Replenish(t *testing.T) {
 }
 
 func TestReconstituteAndMarkPersisted(t *testing.T) {
-	item := inventory.ReconstituteStockItem("id-9", mustSKU(t, "GADGET-9"), mustQuantity(t, 42), 3)
+	item := inventory.ReconstituteStockItem("id-9", mustSKU(t, "GADGET-9"), mustQuantity(t, 42), 3, nil)
 	if item.Version() != 3 || item.Available().Int() != 42 {
 		t.Fatalf("復元結果が不正: version=%d available=%d", item.Version(), item.Available().Int())
 	}

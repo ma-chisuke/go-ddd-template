@@ -11,12 +11,14 @@ import (
 )
 
 // repos は application.Repos の実装。ひとつのトランザクションに束ねた
-// リポジトリの束を保持する。
+// リポジトリの束（在庫ストアとアウトボックス）を保持する。
 type repos struct {
-	stock application.StockStore
+	stock  application.StockStore
+	outbox application.MessagePublisher
 }
 
-func (r repos) Stock() application.StockStore { return r.stock }
+func (r repos) Stock() application.StockStore        { return r.stock }
+func (r repos) Outbox() application.MessagePublisher { return r.outbox }
 
 // UnitOfWork は pgxpool を用いた実トランザクションの作業単位。
 // Within がトランザクションを開き、そのトランザクションに束ねた Repos を組み立てて
@@ -49,7 +51,9 @@ func (u *UnitOfWork) Within(ctx context.Context, fn func(ctx context.Context, r 
 	}()
 
 	// トランザクションに束ねた Queries から Repos を組み立てる。
-	r := repos{stock: newStockStore(sqlcgen.New(tx))}
+	// 在庫ストアとアウトボックスが同一トランザクションに参加する（原子的コミット）。
+	q := sqlcgen.New(tx)
+	r := repos{stock: newStockStore(q), outbox: newOutboxStore(q)}
 	if err := fn(ctx, r); err != nil {
 		return err
 	}
