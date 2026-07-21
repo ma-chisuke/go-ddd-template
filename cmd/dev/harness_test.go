@@ -6,6 +6,9 @@ import (
 	"log/slog"
 	"net/http"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestHarnessScenario は開発ハーネスの端から端までのスモークテスト。
@@ -20,34 +23,18 @@ func TestHarnessScenario(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	h, err := newHarness(harnessDeps{logger: log})
-	if err != nil {
-		t.Fatalf("ハーネスの構築に失敗しました: %v", err)
-	}
+	require.NoError(t, err, "ハーネスの構築に失敗しました")
 
 	res, err := runScenario(context.Background(), log, h)
-	if err != nil {
-		t.Fatalf("シナリオの実行に失敗しました: %v", err)
-	}
+	require.NoError(t, err, "シナリオの実行に失敗しました")
 
-	if res.orderID == "" {
-		t.Error("作成された注文 ID が空です")
-	}
-	if res.placedStatus != "confirmed" {
-		t.Errorf("作成後の注文状態: got %q, want %q", res.placedStatus, "confirmed")
-	}
+	assert.NotEmpty(t, res.orderID, "作成された注文 ID が空です")
+	assert.Equal(t, "confirmed", res.placedStatus, "作成後の注文状態")
 	// (a)+(b): 予約 3 が確定まで進み、在庫の reserved に反映されている。
-	if res.reservedAfterPlace != demoOrderQty {
-		t.Errorf("作成後の引当済み数: got %d, want %d", res.reservedAfterPlace, demoOrderQty)
-	}
-	if res.cancelledStatus != "cancelled" {
-		t.Errorf("取消後の注文状態: got %q, want %q", res.cancelledStatus, "cancelled")
-	}
+	assert.Equal(t, demoOrderQty, res.reservedAfterPlace, "作成後の引当済み数")
+	assert.Equal(t, "cancelled", res.cancelledStatus, "取消後の注文状態")
 	// (c): 取消イベントで予約が解放され、reserved が 0 に戻っている。
-	if res.reservedAfterCancel != 0 {
-		t.Errorf("取消後の引当済み数: got %d, want 0", res.reservedAfterCancel)
-	}
+	assert.Zero(t, res.reservedAfterCancel, "取消後の引当済み数")
 	// 在庫不足の注文は 409（ErrReservationRejected → Conflict）。
-	if res.rejectedStatusCode != http.StatusConflict {
-		t.Errorf("在庫不足の注文のステータス: got %d, want %d", res.rejectedStatusCode, http.StatusConflict)
-	}
+	assert.Equal(t, http.StatusConflict, res.rejectedStatusCode, "在庫不足の注文のステータス")
 }

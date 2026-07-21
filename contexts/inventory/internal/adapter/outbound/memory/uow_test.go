@@ -5,6 +5,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
@@ -14,18 +17,14 @@ import (
 func mustSKU(t *testing.T, s string) inventory.SKU {
 	t.Helper()
 	sku, err := inventory.NewSKU(s)
-	if err != nil {
-		t.Fatalf("SKU 生成失敗: %v", err)
-	}
+	require.NoError(t, err, "SKU 生成")
 	return sku
 }
 
 func mustQty(t *testing.T, n int) inventory.Quantity {
 	t.Helper()
 	q, err := inventory.NewQuantity(n)
-	if err != nil {
-		t.Fatalf("Quantity 生成失敗: %v", err)
-	}
+	require.NoError(t, err, "Quantity 生成")
 	return q
 }
 
@@ -42,9 +41,7 @@ func seedItem(t *testing.T, work *memory.UnitOfWork, sku inventory.SKU, qty inve
 		}
 		return r.Stock().Save(ctx, item)
 	})
-	if err != nil {
-		t.Fatalf("初期データ投入に失敗: %v", err)
-	}
+	require.NoError(t, err, "初期データ投入")
 }
 
 // loadItem は Within の内側で SKU を読み込み、集約を取り出す。
@@ -59,9 +56,7 @@ func loadItem(t *testing.T, work *memory.UnitOfWork, sku inventory.SKU) *invento
 		loaded = item
 		return nil // 書き込みなしでコミット
 	})
-	if err != nil {
-		t.Fatalf("読み込みに失敗: %v", err)
-	}
+	require.NoError(t, err, "読み込み")
 	return loaded
 }
 
@@ -80,35 +75,24 @@ func TestUnitOfWork_ConcurrencyConflict(t *testing.T) {
 	second := loadItem(t, work, sku) // version 1（stale になる予定）
 
 	// first を保存 → version 2 になる。
-	if err := first.Replenish(mustQty(t, 3)); err != nil {
-		t.Fatalf("Replenish 失敗: %v", err)
-	}
+	require.NoError(t, first.Replenish(mustQty(t, 3)), "Replenish")
 	err := work.Within(ctx, func(ctx context.Context, r application.Repos) error {
 		return r.Stock().Save(ctx, first)
 	})
-	if err != nil {
-		t.Fatalf("first の保存に失敗: %v", err)
-	}
-	if first.Version() != 2 {
-		t.Fatalf("first.Version = %d, want 2", first.Version())
-	}
+	require.NoError(t, err, "first の保存")
+	assert.Equal(t, 2, first.Version(), "first.Version")
 
 	// second（version 1 のまま）を保存 → 衝突。
-	if err := second.Replenish(mustQty(t, 1)); err != nil {
-		t.Fatalf("Replenish 失敗: %v", err)
-	}
+	require.NoError(t, second.Replenish(mustQty(t, 1)), "Replenish")
 	err = work.Within(ctx, func(ctx context.Context, r application.Repos) error {
 		return r.Stock().Save(ctx, second)
 	})
-	if !errors.Is(err, uow.ErrConcurrencyConflict) {
-		t.Fatalf("エラー = %v, want ErrConcurrencyConflict", err)
-	}
+	require.ErrorIs(t, err, uow.ErrConcurrencyConflict)
 
 	// 確定済みの在庫は first の結果（5 + 3 = 8）のまま。
 	final := loadItem(t, work, sku)
-	if final.Available().Int() != 8 || final.Version() != 2 {
-		t.Fatalf("確定状態が不正: available=%d version=%d", final.Available().Int(), final.Version())
-	}
+	assert.Equal(t, 8, final.Available().Int(), "確定 available")
+	assert.Equal(t, 2, final.Version(), "確定 version")
 }
 
 // エラーを返すコールバックはロールバックされ、確定データが変化しないことを確認する。
@@ -127,13 +111,9 @@ func TestUnitOfWork_RollbackOnError(t *testing.T) {
 		}
 		return sentinel // ここで中断 → ロールバック
 	})
-	if !errors.Is(err, sentinel) {
-		t.Fatalf("エラー = %v, want sentinel", err)
-	}
+	require.ErrorIs(t, err, sentinel)
 
 	// ロールバックされたので在庫は存在しない。
 	_, err = memory.NewReadStockStore(store).Load(ctx, sku)
-	if !errors.Is(err, inventory.ErrStockItemNotFound) {
-		t.Fatalf("ロールバック後の読み込み = %v, want ErrStockItemNotFound", err)
-	}
+	require.ErrorIs(t, err, inventory.ErrStockItemNotFound, "ロールバック後の読み込み")
 }

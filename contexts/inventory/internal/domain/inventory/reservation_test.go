@@ -1,9 +1,11 @@
 package inventory_test
 
 import (
-	"errors"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
 )
@@ -12,9 +14,7 @@ import (
 func mustRef(t *testing.T, s string) inventory.ReservationRef {
 	t.Helper()
 	ref, err := inventory.NewReservationRef(s)
-	if err != nil {
-		t.Fatalf("ReservationRef の生成に失敗しました: %v", err)
-	}
+	require.NoError(t, err, "ReservationRef の生成")
 	return ref
 }
 
@@ -22,12 +22,8 @@ func mustRef(t *testing.T, s string) inventory.ReservationRef {
 func seededItem(t *testing.T, sku string, n int) *inventory.StockItem {
 	t.Helper()
 	item, err := inventory.NewStockItem("id-"+sku, mustSKU(t, sku))
-	if err != nil {
-		t.Fatalf("NewStockItem 失敗: %v", err)
-	}
-	if err := item.Replenish(mustQuantity(t, n)); err != nil {
-		t.Fatalf("Replenish 失敗: %v", err)
-	}
+	require.NoError(t, err, "NewStockItem")
+	require.NoError(t, item.Replenish(mustQuantity(t, n)), "Replenish")
 	_ = item.PullEvents() // 補充イベントは以降のテストに無関係なので捨てる
 	return item
 }
@@ -45,71 +41,43 @@ func hasEvent(events []inventory.DomainEvent, name string) bool {
 func TestStockItem_Reserve(t *testing.T) {
 	t.Run("正常系: available を減らし StockReserved を記録する", func(t *testing.T) {
 		item := seededItem(t, "WIDGET-001", 10)
-		if err := item.Reserve(mustRef(t, "RES-1"), mustQuantity(t, 4), time.Hour); err != nil {
-			t.Fatalf("想定外のエラー: %v", err)
-		}
-		if item.Available().Int() != 6 {
-			t.Fatalf("Available = %d, want 6", item.Available().Int())
-		}
-		if item.Reserved().Int() != 4 {
-			t.Fatalf("Reserved = %d, want 4", item.Reserved().Int())
-		}
-		if events := item.PullEvents(); !hasEvent(events, "inventory.stock_reserved") {
-			t.Fatalf("StockReserved が記録されていない: %+v", events)
-		}
+		require.NoError(t, item.Reserve(mustRef(t, "RES-1"), mustQuantity(t, 4), time.Hour))
+		assert.Equal(t, 6, item.Available().Int(), "Available")
+		assert.Equal(t, 4, item.Reserved().Int(), "Reserved")
+		assert.True(t, hasEvent(item.PullEvents(), "inventory.stock_reserved"), "StockReserved が記録される")
 	})
 
 	t.Run("冪等: 同一 ref の再予約は no-op（二重予約しない）", func(t *testing.T) {
 		item := seededItem(t, "WIDGET-001", 10)
 		ref := mustRef(t, "RES-1")
-		if err := item.Reserve(ref, mustQuantity(t, 4), time.Hour); err != nil {
-			t.Fatalf("1 回目 想定外のエラー: %v", err)
-		}
+		require.NoError(t, item.Reserve(ref, mustQuantity(t, 4), time.Hour), "1 回目")
 		_ = item.PullEvents()
 		// 同じ ref・別の数量で再予約しても状態は変わらない。
-		if err := item.Reserve(ref, mustQuantity(t, 99), time.Hour); err != nil {
-			t.Fatalf("2 回目 想定外のエラー: %v", err)
-		}
-		if item.Available().Int() != 6 || item.Reserved().Int() != 4 {
-			t.Fatalf("冪等でない: available=%d reserved=%d", item.Available().Int(), item.Reserved().Int())
-		}
-		if events := item.PullEvents(); len(events) != 0 {
-			t.Fatalf("冪等 no-op でイベントが出た: %+v", events)
-		}
+		require.NoError(t, item.Reserve(ref, mustQuantity(t, 99), time.Hour), "2 回目")
+		assert.Equal(t, 6, item.Available().Int(), "冪等 available")
+		assert.Equal(t, 4, item.Reserved().Int(), "冪等 reserved")
+		assert.Empty(t, item.PullEvents(), "冪等 no-op でイベントは出ない")
 	})
 
 	t.Run("異常系: 在庫不足は ErrInsufficientStock（状態は不変）", func(t *testing.T) {
 		item := seededItem(t, "WIDGET-001", 3)
 		err := item.Reserve(mustRef(t, "RES-1"), mustQuantity(t, 4), time.Hour)
-		if !errors.Is(err, inventory.ErrInsufficientStock) {
-			t.Fatalf("エラー = %v, want ErrInsufficientStock", err)
-		}
-		if item.Available().Int() != 3 || item.Reserved().Int() != 0 {
-			t.Fatalf("失敗時に状態が変わった: available=%d reserved=%d", item.Available().Int(), item.Reserved().Int())
-		}
+		require.ErrorIs(t, err, inventory.ErrInsufficientStock)
+		assert.Equal(t, 3, item.Available().Int(), "失敗時 available 不変")
+		assert.Equal(t, 0, item.Reserved().Int(), "失敗時 reserved 不変")
 	})
 
 	t.Run("異常系: 数量 0 と空 ref", func(t *testing.T) {
 		item := seededItem(t, "WIDGET-001", 10)
-		if err := item.Reserve(mustRef(t, "RES-1"), mustQuantity(t, 0), time.Hour); !errors.Is(err, inventory.ErrInvalidQuantity) {
-			t.Fatalf("数量 0 のエラー = %v, want ErrInvalidQuantity", err)
-		}
-		if err := item.Reserve(inventory.ReservationRef{}, mustQuantity(t, 1), time.Hour); !errors.Is(err, inventory.ErrInvalidReservationRef) {
-			t.Fatalf("空 ref のエラー = %v, want ErrInvalidReservationRef", err)
-		}
+		require.ErrorIs(t, item.Reserve(mustRef(t, "RES-1"), mustQuantity(t, 0), time.Hour), inventory.ErrInvalidQuantity)
+		require.ErrorIs(t, item.Reserve(inventory.ReservationRef{}, mustQuantity(t, 1), time.Hour), inventory.ErrInvalidReservationRef)
 	})
 
 	t.Run("available が 0 到達で StockDepleted", func(t *testing.T) {
 		item := seededItem(t, "WIDGET-001", 5)
-		if err := item.Reserve(mustRef(t, "RES-1"), mustQuantity(t, 5), time.Hour); err != nil {
-			t.Fatalf("想定外のエラー: %v", err)
-		}
-		if item.Available().Int() != 0 {
-			t.Fatalf("Available = %d, want 0", item.Available().Int())
-		}
-		if events := item.PullEvents(); !hasEvent(events, "inventory.stock_depleted") {
-			t.Fatalf("StockDepleted が記録されていない: %+v", events)
-		}
+		require.NoError(t, item.Reserve(mustRef(t, "RES-1"), mustQuantity(t, 5), time.Hour))
+		assert.Equal(t, 0, item.Available().Int(), "Available")
+		assert.True(t, hasEvent(item.PullEvents(), "inventory.stock_depleted"), "StockDepleted が記録される")
 	})
 }
 
@@ -120,24 +88,15 @@ func TestStockItem_Confirm(t *testing.T) {
 		_ = item.Reserve(ref, mustQuantity(t, 4), time.Hour)
 		_ = item.PullEvents()
 
-		if err := item.Confirm(ref); err != nil {
-			t.Fatalf("想定外のエラー: %v", err)
-		}
-		if item.Available().Int() != 6 || item.Reserved().Int() != 4 {
-			t.Fatalf("Confirm で数量が変化した: available=%d reserved=%d", item.Available().Int(), item.Reserved().Int())
-		}
-		if events := item.PullEvents(); !hasEvent(events, "inventory.stock_reservation_confirmed") {
-			t.Fatalf("StockReservationConfirmed が記録されていない: %+v", events)
-		}
+		require.NoError(t, item.Confirm(ref))
+		assert.Equal(t, 6, item.Available().Int(), "Confirm 後 available")
+		assert.Equal(t, 4, item.Reserved().Int(), "Confirm 後 reserved")
+		assert.True(t, hasEvent(item.PullEvents(), "inventory.stock_reservation_confirmed"), "StockReservationConfirmed が記録される")
 
 		// confirmed は期限切れでも Reap されない。
 		reaped := item.ReapExpired(time.Now().Add(24 * time.Hour))
-		if len(reaped) != 0 {
-			t.Fatalf("confirmed が Reap された: %+v", reaped)
-		}
-		if item.Reserved().Int() != 4 {
-			t.Fatalf("confirmed が解放された: reserved=%d", item.Reserved().Int())
-		}
+		assert.Empty(t, reaped, "confirmed は Reap されない")
+		assert.Equal(t, 4, item.Reserved().Int(), "confirmed は解放されない")
 	})
 
 	t.Run("冪等: 既に confirmed の ref は no-op", func(t *testing.T) {
@@ -146,19 +105,13 @@ func TestStockItem_Confirm(t *testing.T) {
 		_ = item.Reserve(ref, mustQuantity(t, 4), time.Hour)
 		_ = item.Confirm(ref)
 		_ = item.PullEvents()
-		if err := item.Confirm(ref); err != nil {
-			t.Fatalf("2 回目 Confirm 想定外のエラー: %v", err)
-		}
-		if events := item.PullEvents(); len(events) != 0 {
-			t.Fatalf("冪等 no-op でイベントが出た: %+v", events)
-		}
+		require.NoError(t, item.Confirm(ref), "2 回目 Confirm")
+		assert.Empty(t, item.PullEvents(), "冪等 no-op でイベントは出ない")
 	})
 
 	t.Run("異常系: 有効な予約が無い ref は ErrReservationNotFound", func(t *testing.T) {
 		item := seededItem(t, "WIDGET-001", 10)
-		if err := item.Confirm(mustRef(t, "UNKNOWN")); !errors.Is(err, inventory.ErrReservationNotFound) {
-			t.Fatalf("エラー = %v, want ErrReservationNotFound", err)
-		}
+		require.ErrorIs(t, item.Confirm(mustRef(t, "UNKNOWN")), inventory.ErrReservationNotFound)
 	})
 }
 
@@ -169,15 +122,10 @@ func TestStockItem_Release(t *testing.T) {
 		_ = item.Reserve(ref, mustQuantity(t, 4), time.Hour)
 		_ = item.PullEvents()
 
-		if err := item.Release(ref); err != nil {
-			t.Fatalf("想定外のエラー: %v", err)
-		}
-		if item.Available().Int() != 10 || item.Reserved().Int() != 0 {
-			t.Fatalf("解放後の状態が不正: available=%d reserved=%d", item.Available().Int(), item.Reserved().Int())
-		}
-		if events := item.PullEvents(); !hasEvent(events, "inventory.stock_released") {
-			t.Fatalf("StockReleased が記録されていない: %+v", events)
-		}
+		require.NoError(t, item.Release(ref))
+		assert.Equal(t, 10, item.Available().Int(), "解放後 available")
+		assert.Equal(t, 0, item.Reserved().Int(), "解放後 reserved")
+		assert.True(t, hasEvent(item.PullEvents(), "inventory.stock_released"), "StockReleased が記録される")
 	})
 
 	t.Run("正常系: confirmed も解放できる", func(t *testing.T) {
@@ -186,22 +134,14 @@ func TestStockItem_Release(t *testing.T) {
 		_ = item.Reserve(ref, mustQuantity(t, 4), time.Hour)
 		_ = item.Confirm(ref)
 		_ = item.PullEvents()
-		if err := item.Release(ref); err != nil {
-			t.Fatalf("想定外のエラー: %v", err)
-		}
-		if item.Available().Int() != 10 {
-			t.Fatalf("confirmed 解放後の available = %d, want 10", item.Available().Int())
-		}
+		require.NoError(t, item.Release(ref))
+		assert.Equal(t, 10, item.Available().Int(), "confirmed 解放後 available")
 	})
 
 	t.Run("冪等: 未知・解放済みの ref は no-op", func(t *testing.T) {
 		item := seededItem(t, "WIDGET-001", 10)
-		if err := item.Release(mustRef(t, "UNKNOWN")); err != nil {
-			t.Fatalf("未知 ref の Release がエラー: %v", err)
-		}
-		if events := item.PullEvents(); len(events) != 0 {
-			t.Fatalf("no-op でイベントが出た: %+v", events)
-		}
+		require.NoError(t, item.Release(mustRef(t, "UNKNOWN")), "未知 ref の Release")
+		assert.Empty(t, item.PullEvents(), "no-op でイベントは出ない")
 	})
 }
 
@@ -223,31 +163,20 @@ func TestStockItem_ReapExpired(t *testing.T) {
 	reaped := item.ReapExpired(now)
 
 	// 解放されるのは期限切れ pending の EXP だけ。
-	if len(reaped) != 1 {
-		t.Fatalf("Reap 件数 = %d, want 1", len(reaped))
-	}
+	require.Len(t, reaped, 1, "Reap 件数")
 	rel, ok := reaped[0].(inventory.StockReleased)
-	if !ok || rel.ReservationRef != "EXP" {
-		t.Fatalf("Reap されたイベントが不正: %+v", reaped[0])
-	}
+	require.True(t, ok, "Reap されたイベントは StockReleased")
+	assert.Equal(t, "EXP", rel.ReservationRef)
 	// EXP の 10 が戻る。残る有効予約は LIVE(20) + CONF(30) = 50。
-	if item.Reserved().Int() != 50 {
-		t.Fatalf("Reap 後の reserved = %d, want 50", item.Reserved().Int())
-	}
+	assert.Equal(t, 50, item.Reserved().Int(), "Reap 後 reserved")
 	// available = 100 - 20 - 30 = 50。
-	if item.Available().Int() != 50 {
-		t.Fatalf("Reap 後の available = %d, want 50", item.Available().Int())
-	}
+	assert.Equal(t, 50, item.Available().Int(), "Reap 後 available")
 
 	// ReapExpired は内部イベントに蓄積せず戻り値で返す（PullEvents では取得できない）。
-	if events := item.PullEvents(); hasEvent(events, "inventory.stock_released") {
-		t.Fatalf("ReapExpired のイベントが PullEvents に混入した: %+v", events)
-	}
+	assert.False(t, hasEvent(item.PullEvents(), "inventory.stock_released"), "ReapExpired のイベントは PullEvents に混入しない")
 
 	// もう一度 Reap しても解放対象は無い。
-	if again := item.ReapExpired(now); len(again) != 0 {
-		t.Fatalf("2 回目の Reap で解放が発生: %+v", again)
-	}
+	assert.Empty(t, item.ReapExpired(now), "2 回目の Reap で解放は発生しない")
 }
 
 func TestReconstituteStockItem_WithReservations(t *testing.T) {
@@ -256,15 +185,9 @@ func TestReconstituteStockItem_WithReservations(t *testing.T) {
 		inventory.ReconstituteReservation(mustRef(t, "RES-2"), mustQuantity(t, 6), inventory.ReservationConfirmed, time.Time{}),
 	}
 	item := inventory.ReconstituteStockItem("id-1", mustSKU(t, "WIDGET-001"), mustQuantity(t, 90), 5, res)
-	if item.Available().Int() != 90 {
-		t.Fatalf("Available = %d, want 90", item.Available().Int())
-	}
-	if item.Reserved().Int() != 10 {
-		t.Fatalf("Reserved（導出）= %d, want 10", item.Reserved().Int())
-	}
-	if len(item.Reservations()) != 2 {
-		t.Fatalf("復元された予約数 = %d, want 2", len(item.Reservations()))
-	}
+	assert.Equal(t, 90, item.Available().Int(), "Available")
+	assert.Equal(t, 10, item.Reserved().Int(), "Reserved（導出）")
+	assert.Len(t, item.Reservations(), 2, "復元された予約数")
 }
 
 func TestReservationService_Allocate(t *testing.T) {
@@ -278,12 +201,9 @@ func TestReservationService_Allocate(t *testing.T) {
 			{SKU: mustSKU(t, "SKU-A"), Quantity: mustQuantity(t, 3)},
 			{SKU: mustSKU(t, "SKU-B"), Quantity: mustQuantity(t, 7)},
 		}
-		if err := svc.Allocate([]*inventory.StockItem{a, b}, ref, lines, time.Hour); err != nil {
-			t.Fatalf("想定外のエラー: %v", err)
-		}
-		if a.Reserved().Int() != 3 || b.Reserved().Int() != 7 {
-			t.Fatalf("予約数が不正: A=%d B=%d", a.Reserved().Int(), b.Reserved().Int())
-		}
+		require.NoError(t, svc.Allocate([]*inventory.StockItem{a, b}, ref, lines, time.Hour))
+		assert.Equal(t, 3, a.Reserved().Int(), "A 予約数")
+		assert.Equal(t, 7, b.Reserved().Int(), "B 予約数")
 	})
 
 	t.Run("異常系: 1 SKU でも不足なら全体を失敗させ部分予約を作らない", func(t *testing.T) {
@@ -295,13 +215,10 @@ func TestReservationService_Allocate(t *testing.T) {
 			{SKU: mustSKU(t, "SKU-B"), Quantity: mustQuantity(t, 7)},
 		}
 		err := svc.Allocate([]*inventory.StockItem{a, b}, ref, lines, time.Hour)
-		if !errors.Is(err, inventory.ErrInsufficientStock) {
-			t.Fatalf("エラー = %v, want ErrInsufficientStock", err)
-		}
+		require.ErrorIs(t, err, inventory.ErrInsufficientStock)
 		// 部分予約が作られていないこと（A も予約されない）。
-		if a.Reserved().Int() != 0 || b.Reserved().Int() != 0 {
-			t.Fatalf("部分予約が作られた: A=%d B=%d", a.Reserved().Int(), b.Reserved().Int())
-		}
+		assert.Equal(t, 0, a.Reserved().Int(), "A に部分予約なし")
+		assert.Equal(t, 0, b.Reserved().Int(), "B に部分予約なし")
 	})
 
 	t.Run("異常系: 要求 SKU の在庫項目が無い", func(t *testing.T) {
@@ -311,8 +228,6 @@ func TestReservationService_Allocate(t *testing.T) {
 			{SKU: mustSKU(t, "SKU-MISSING"), Quantity: mustQuantity(t, 1)},
 		}
 		err := svc.Allocate([]*inventory.StockItem{a}, ref, lines, time.Hour)
-		if !errors.Is(err, inventory.ErrStockItemNotFound) {
-			t.Fatalf("エラー = %v, want ErrStockItemNotFound", err)
-		}
+		require.ErrorIs(t, err, inventory.ErrStockItemNotFound)
 	})
 }

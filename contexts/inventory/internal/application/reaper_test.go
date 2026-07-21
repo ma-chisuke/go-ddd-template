@@ -5,6 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
@@ -35,43 +38,27 @@ func TestReaper_ReleasesOnlyExpiredPending(t *testing.T) {
 	clock := testutil.NewClock(time.Now().Add(2 * time.Hour))
 	reaper := application.NewReaper(exec, work, dispatcher, clock, log, 100)
 
-	if _, err := replenisher.Replenish(ctx, application.ReplenishInput{SKU: "SKU-A", Quantity: 100}); err != nil {
-		t.Fatalf("補充失敗: %v", err)
-	}
+	_, err := replenisher.Replenish(ctx, application.ReplenishInput{SKU: "SKU-A", Quantity: 100})
+	require.NoError(t, err, "補充")
 	// 期限切れになる pending 予約と、確定して Reap されない予約を作る。
-	if err := reserver.Reserve(ctx, application.ReserveInput{Ref: "PENDING", Lines: []application.ReserveLine{{SKU: "SKU-A", Quantity: 10}}}); err != nil {
-		t.Fatalf("pending 予約失敗: %v", err)
-	}
-	if err := reserver.Reserve(ctx, application.ReserveInput{Ref: "CONFIRMED", Lines: []application.ReserveLine{{SKU: "SKU-A", Quantity: 20}}}); err != nil {
-		t.Fatalf("confirmed 予約失敗: %v", err)
-	}
-	if err := confirmer.Confirm(ctx, "CONFIRMED"); err != nil {
-		t.Fatalf("Confirm 失敗: %v", err)
-	}
+	require.NoError(t, reserver.Reserve(ctx, application.ReserveInput{Ref: "PENDING", Lines: []application.ReserveLine{{SKU: "SKU-A", Quantity: 10}}}), "pending 予約")
+	require.NoError(t, reserver.Reserve(ctx, application.ReserveInput{Ref: "CONFIRMED", Lines: []application.ReserveLine{{SKU: "SKU-A", Quantity: 20}}}), "confirmed 予約")
+	require.NoError(t, confirmer.Confirm(ctx, "CONFIRMED"), "Confirm")
 	*captured = nil
 
 	// 掃除を実行する。期限切れ pending（PENDING）だけが解放される。
-	if err := reaper.Sweep(ctx); err != nil {
-		t.Fatalf("Sweep 失敗: %v", err)
-	}
+	require.NoError(t, reaper.Sweep(ctx), "Sweep")
 
 	view, _ := viewer.QueryStock(ctx, application.QueryStockInput{SKU: "SKU-A"})
 	// PENDING(10) が戻る。available = 100 - 20(confirmed) = 80、reserved = 20。
-	if view.Available != 80 || view.Reserved != 20 {
-		t.Fatalf("Reap 後の状態が不正: %+v", view)
-	}
-	if got := capturedNames(*captured)["inventory.stock_released"]; got != 1 {
-		t.Fatalf("StockReleased 件数 = %d, want 1", got)
-	}
+	assert.Equal(t, 80, view.Available, "Reap 後 available")
+	assert.Equal(t, 20, view.Reserved, "Reap 後 reserved")
+	assert.Equal(t, 1, capturedNames(*captured)["inventory.stock_released"], "StockReleased 件数")
 
 	// 2 回目の掃除では解放対象が無い（イベントも出ない）。
 	*captured = nil
-	if err := reaper.Sweep(ctx); err != nil {
-		t.Fatalf("2 回目 Sweep 失敗: %v", err)
-	}
-	if len(*captured) != 0 {
-		t.Fatalf("2 回目の掃除でイベントが出た: %d 件", len(*captured))
-	}
+	require.NoError(t, reaper.Sweep(ctx), "2 回目 Sweep")
+	assert.Empty(t, *captured, "2 回目の掃除ではイベントが出ない")
 }
 
 func TestReaper_SweepNoopWhenClockBeforeExpiry(t *testing.T) {
@@ -93,11 +80,7 @@ func TestReaper_SweepNoopWhenClockBeforeExpiry(t *testing.T) {
 	_, _ = replenisher.Replenish(ctx, application.ReplenishInput{SKU: "SKU-A", Quantity: 100})
 	_ = reserver.Reserve(ctx, application.ReserveInput{Ref: "PENDING", Lines: []application.ReserveLine{{SKU: "SKU-A", Quantity: 10}}})
 
-	if err := reaper.Sweep(ctx); err != nil {
-		t.Fatalf("Sweep 失敗: %v", err)
-	}
+	require.NoError(t, reaper.Sweep(ctx), "Sweep")
 	view, _ := viewer.QueryStock(ctx, application.QueryStockInput{SKU: "SKU-A"})
-	if view.Reserved != 10 {
-		t.Fatalf("未期限の予約が解放された: %+v", view)
-	}
+	assert.Equal(t, 10, view.Reserved, "未期限の予約は解放されない")
 }

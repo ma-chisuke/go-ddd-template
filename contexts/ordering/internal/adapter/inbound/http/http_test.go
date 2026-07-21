@@ -11,6 +11,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	httpapi "github.com/example/go-ddd-template/contexts/ordering/internal/adapter/inbound/http"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/inbound/openapi"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/memory"
@@ -19,11 +22,17 @@ import (
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
-// fakeReserver は StockReserver の差し替え（注入したエラーを返す）。
-type fakeReserver struct{ err error }
+// これは HTTP 継ぎ目（seam）の統合テスト。本物のハンドラ・生成サーバ（ogen）・本物の
+// インメモリアダプタを httptest で結線し、入口から出口までを通しで検証する。
+//
+// stubReserver は在庫予約 ACL ポートの「本物のスタブ」（gomock のモックではない）。継ぎ目
+// テストでは境界の入力（成功／各種番兵）を固定するだけでよいので、呼び出し回数や順序を縛る
+// gomock ではなく単純なスタブを使う。ポート単体の相互作用検証は application 層のテストで
+// gomock により別途行う（gomock は継ぎ目テストに対して加算的であり、置き換えではない）。
+type stubReserver struct{ err error }
 
-func (f fakeReserver) Reserve(_ context.Context, _ string, _ []port.ReserveLine) error { return f.err }
-func (f fakeReserver) Release(_ context.Context, _ string) error                       { return nil }
+func (s stubReserver) Reserve(_ context.Context, _ string, _ []port.ReserveLine) error { return s.err }
+func (s stubReserver) Release(_ context.Context, _ string) error                       { return nil }
 
 func newServer(t *testing.T, reserver application.StockReserver) *httptest.Server {
 	t.Helper()
@@ -40,9 +49,7 @@ func newServer(t *testing.T, reserver application.StockReserver) *httptest.Serve
 
 	h := httpapi.NewHandler(place, get, cancel, log)
 	server, err := openapi.NewServer(h)
-	if err != nil {
-		t.Fatalf("サーバ構築に失敗: %v", err)
-	}
+	require.NoError(t, err, "サーバ構築に失敗")
 	ts := httptest.NewServer(httpapi.CorrelationMiddleware(server))
 	t.Cleanup(ts.Close)
 	return ts
@@ -51,28 +58,22 @@ func newServer(t *testing.T, reserver application.StockReserver) *httptest.Serve
 func post(t *testing.T, c *http.Client, url, body string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewBufferString(body))
-	if err != nil {
-		t.Fatalf("リクエスト生成失敗: %v", err)
-	}
+	require.NoError(t, err, "リクエスト生成失敗")
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.Do(req)
-	if err != nil {
-		t.Fatalf("送信失敗: %v", err)
-	}
+	require.NoError(t, err, "送信失敗")
 	return resp
 }
 
 const placeBody = `{"customerId":"CUST-1","lines":[{"sku":"SKU-A","quantity":3,"unitPrice":{"amount":1200,"currency":"JPY"}}]}`
 
 func TestHTTP_PlaceGetCancel(t *testing.T) {
-	ts := newServer(t, fakeReserver{})
+	ts := newServer(t, stubReserver{})
 	c := ts.Client()
 
 	// 作成 -> 201。
 	resp := post(t, c, ts.URL+"/orders", placeBody)
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("place ステータス = %d, want 201", resp.StatusCode)
-	}
+	require.Equal(t, http.StatusCreated, resp.StatusCode, "place ステータス")
 	var created struct {
 		ID     string `json:"id"`
 		Status string `json:"status"`
@@ -81,77 +82,54 @@ func TestHTTP_PlaceGetCancel(t *testing.T) {
 			Currency string `json:"currency"`
 		} `json:"total"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
-		t.Fatalf("JSON デコード失敗: %v", err)
-	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&created))
 	resp.Body.Close()
-	if created.Status != "confirmed" || created.Total.Amount != 3600 {
-		t.Fatalf("作成結果が不正: %+v", created)
-	}
+	assert.Equal(t, "confirmed", created.Status)
+	assert.Equal(t, int64(3600), created.Total.Amount)
 
 	// 照会 -> 200。
 	getResp, err := c.Get(ts.URL + "/orders/" + created.ID)
-	if err != nil {
-		t.Fatalf("照会失敗: %v", err)
-	}
-	if getResp.StatusCode != http.StatusOK {
-		t.Fatalf("get ステータス = %d, want 200", getResp.StatusCode)
-	}
+	require.NoError(t, err, "照会失敗")
+	assert.Equal(t, http.StatusOK, getResp.StatusCode, "get ステータス")
 	getResp.Body.Close()
 
 	// 取消 -> 200・cancelled。
 	cancelResp := post(t, c, ts.URL+"/orders/"+created.ID+"/cancel", "")
-	if cancelResp.StatusCode != http.StatusOK {
-		t.Fatalf("cancel ステータス = %d, want 200", cancelResp.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, cancelResp.StatusCode, "cancel ステータス")
 	var cancelled struct {
 		Status string `json:"status"`
 	}
-	if err := json.NewDecoder(cancelResp.Body).Decode(&cancelled); err != nil {
-		t.Fatalf("JSON デコード失敗: %v", err)
-	}
+	require.NoError(t, json.NewDecoder(cancelResp.Body).Decode(&cancelled))
 	cancelResp.Body.Close()
-	if cancelled.Status != "cancelled" {
-		t.Fatalf("取消後の状態 = %q, want cancelled", cancelled.Status)
-	}
+	assert.Equal(t, "cancelled", cancelled.Status)
 }
 
 func TestHTTP_ReserveRejectedIsConflict(t *testing.T) {
-	ts := newServer(t, fakeReserver{err: application.ErrReservationRejected})
+	ts := newServer(t, stubReserver{err: application.ErrReservationRejected})
 	resp := post(t, ts.Client(), ts.URL+"/orders", placeBody)
-	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("ステータス = %d, want 409", resp.StatusCode)
-	}
+	require.Equal(t, http.StatusConflict, resp.StatusCode)
 	assertProblemJSON(t, resp, http.StatusConflict)
 }
 
 func TestHTTP_ReserveUnavailableIsServiceUnavailable(t *testing.T) {
-	ts := newServer(t, fakeReserver{err: errors.Join(application.ErrReservationRejected, application.ErrReservationUnavailable)})
+	ts := newServer(t, stubReserver{err: errors.Join(application.ErrReservationRejected, application.ErrReservationUnavailable)})
 	resp := post(t, ts.Client(), ts.URL+"/orders", placeBody)
-	if resp.StatusCode != http.StatusServiceUnavailable {
-		t.Fatalf("ステータス = %d, want 503", resp.StatusCode)
-	}
+	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 	assertProblemJSON(t, resp, http.StatusServiceUnavailable)
 }
 
 func TestHTTP_EmptyLinesIsUnprocessable(t *testing.T) {
-	ts := newServer(t, fakeReserver{})
+	ts := newServer(t, stubReserver{})
 	resp := post(t, ts.Client(), ts.URL+"/orders", `{"customerId":"CUST-1","lines":[]}`)
-	if resp.StatusCode != http.StatusUnprocessableEntity {
-		t.Fatalf("ステータス = %d, want 422", resp.StatusCode)
-	}
+	require.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
 	assertProblemJSON(t, resp, http.StatusUnprocessableEntity)
 }
 
 func TestHTTP_GetUnknownIsNotFound(t *testing.T) {
-	ts := newServer(t, fakeReserver{})
+	ts := newServer(t, stubReserver{})
 	resp, err := ts.Client().Get(ts.URL + "/orders/NOPE")
-	if err != nil {
-		t.Fatalf("照会失敗: %v", err)
-	}
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("ステータス = %d, want 404", resp.StatusCode)
-	}
+	require.NoError(t, err, "照会失敗")
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 	assertProblemJSON(t, resp, http.StatusNotFound)
 }
 
@@ -159,22 +137,15 @@ func TestHTTP_GetUnknownIsNotFound(t *testing.T) {
 func assertProblemJSON(t *testing.T, resp *http.Response, wantStatus int) {
 	t.Helper()
 	defer resp.Body.Close()
-	if ct := resp.Header.Get("Content-Type"); ct != "application/problem+json" {
-		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
-	}
+	assert.Equal(t, "application/problem+json", resp.Header.Get("Content-Type"))
 	var pd struct {
 		Type   string `json:"type"`
 		Title  string `json:"title"`
 		Status int    `json:"status"`
 		Detail string `json:"detail"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&pd); err != nil {
-		t.Fatalf("JSON デコード失敗: %v", err)
-	}
-	if pd.Status != wantStatus {
-		t.Fatalf("problem.status = %d, want %d", pd.Status, wantStatus)
-	}
-	if pd.Title == "" || pd.Type == "" {
-		t.Fatalf("problem の必須項目が空: %+v", pd)
-	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&pd))
+	assert.Equal(t, wantStatus, pd.Status, "problem.status")
+	assert.NotEmpty(t, pd.Title, "problem.title は必須")
+	assert.NotEmpty(t, pd.Type, "problem.type は必須")
 }

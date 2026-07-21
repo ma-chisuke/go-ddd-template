@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/example/go-ddd-template/shared/outbox"
 )
 
@@ -73,24 +76,14 @@ func TestRunner_RunOncePublishesAndMarks(t *testing.T) {
 	runner := outbox.NewRunner(store, pub, testLogger(), outbox.WithBatch(10))
 
 	sent, err := runner.RunOnce(ctx)
-	if err != nil {
-		t.Fatalf("想定外のエラー: %v", err)
-	}
-	if sent != 2 {
-		t.Fatalf("送信件数 = %d, want 2", sent)
-	}
-	if len(pub.sent) != 2 {
-		t.Fatalf("Publisher へ渡った件数 = %d, want 2", len(pub.sent))
-	}
+	require.NoError(t, err, "想定外のエラー")
+	assert.Equal(t, 2, sent, "送信件数")
+	assert.Len(t, pub.sent, 2, "Publisher へ渡った件数")
 
 	// 2 回目は全て published 済みなので 0 件。
 	sent, err = runner.RunOnce(ctx)
-	if err != nil {
-		t.Fatalf("想定外のエラー: %v", err)
-	}
-	if sent != 0 {
-		t.Fatalf("2 回目の送信件数 = %d, want 0(既に送信済み)", sent)
-	}
+	require.NoError(t, err, "想定外のエラー")
+	assert.Equal(t, 0, sent, "2 回目の送信件数(既に送信済み)")
 }
 
 func TestRunner_PublishFailureLeavesUnpublished(t *testing.T) {
@@ -104,21 +97,14 @@ func TestRunner_PublishFailureLeavesUnpublished(t *testing.T) {
 
 	// 1 件目は成功、2 件目で失敗して中断する。
 	sent, err := runner.RunOnce(ctx)
-	if err == nil {
-		t.Fatal("送出失敗時はエラーを返すべき")
-	}
-	if sent != 1 {
-		t.Fatalf("失敗前に送信できた件数 = %d, want 1", sent)
-	}
+	require.Error(t, err, "送出失敗時はエラーを返すべき")
+	assert.Equal(t, 1, sent, "失敗前に送信できた件数")
 
 	// 失敗した bad は未送信のまま残り、次回に再送されうる(at-least-once)。
 	remaining, err := store.Unpublished(ctx, 10)
-	if err != nil {
-		t.Fatalf("Unpublished 失敗: %v", err)
-	}
-	if len(remaining) != 1 || remaining[0].ID != "bad" {
-		t.Fatalf("未送信の残りが不正: %+v", remaining)
-	}
+	require.NoError(t, err, "Unpublished 失敗")
+	require.Len(t, remaining, 1, "未送信の残り件数")
+	assert.Equal(t, "bad", remaining[0].ID, "未送信の残りは bad であるべき")
 }
 
 func TestRouter_DeliverRoutesByType(t *testing.T) {
@@ -132,12 +118,8 @@ func TestRouter_DeliverRoutesByType(t *testing.T) {
 	})
 
 	err := router.Deliver(ctx, outbox.Message{Type: "greeting", Payload: []byte("hello")})
-	if err != nil {
-		t.Fatalf("想定外のエラー: %v", err)
-	}
-	if delivered != "hello" {
-		t.Fatalf("配送されたペイロード = %q, want hello", delivered)
-	}
+	require.NoError(t, err, "想定外のエラー")
+	assert.Equal(t, "hello", delivered, "配送されたペイロード")
 }
 
 func TestRouter_DeliverUnknownTypeReturnsErrNoRoute(t *testing.T) {
@@ -145,7 +127,5 @@ func TestRouter_DeliverUnknownTypeReturnsErrNoRoute(t *testing.T) {
 	router := outbox.NewRouter()
 	// 未登録種別は ErrNoRoute。黙って捨てない。
 	err := router.Deliver(ctx, outbox.Message{Type: "unknown"})
-	if !errors.Is(err, outbox.ErrNoRoute) {
-		t.Fatalf("エラー = %v, want ErrNoRoute", err)
-	}
+	require.ErrorIs(t, err, outbox.ErrNoRoute, "エラーは ErrNoRoute であるべき")
 }

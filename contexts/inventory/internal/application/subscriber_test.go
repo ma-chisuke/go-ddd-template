@@ -2,9 +2,11 @@ package application_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
@@ -30,12 +32,9 @@ func TestRouter_ConfirmAndCancelFlow(t *testing.T) {
 	f, router := newRouterFixture(t)
 
 	// 在庫を用意して予約する。
-	if _, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: "SKU-A", Quantity: 10}); err != nil {
-		t.Fatalf("補充失敗: %v", err)
-	}
-	if err := f.reserver.Reserve(ctx, application.ReserveInput{Ref: "ORDER-1", Lines: []application.ReserveLine{{SKU: "SKU-A", Quantity: 4}}}); err != nil {
-		t.Fatalf("予約失敗: %v", err)
-	}
+	_, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: "SKU-A", Quantity: 10})
+	require.NoError(t, err, "補充")
+	require.NoError(t, f.reserver.Reserve(ctx, application.ReserveInput{Ref: "ORDER-1", Lines: []application.ReserveLine{{SKU: "SKU-A", Quantity: 4}}}), "予約")
 
 	// 確定要求メッセージを配送 → Confirm される。
 	confirmMsg := outbox.Message{
@@ -45,13 +44,10 @@ func TestRouter_ConfirmAndCancelFlow(t *testing.T) {
 		TraceID:    "trace-1",
 		OccurredAt: time.Now().UTC(),
 	}
-	if err := router.Deliver(ctx, confirmMsg); err != nil {
-		t.Fatalf("確定配送失敗: %v", err)
-	}
+	require.NoError(t, router.Deliver(ctx, confirmMsg), "確定配送")
 	view, _ := f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "SKU-A"})
-	if view.Available != 6 || view.Reserved != 4 {
-		t.Fatalf("確定後の状態が不正: %+v", view)
-	}
+	assert.Equal(t, 6, view.Available, "確定後 available")
+	assert.Equal(t, 4, view.Reserved, "確定後 reserved")
 
 	// 取消イベントを配送 → Release される（available へ戻る）。
 	cancelMsg := outbox.Message{
@@ -61,22 +57,17 @@ func TestRouter_ConfirmAndCancelFlow(t *testing.T) {
 		TraceID:    "trace-1",
 		OccurredAt: time.Now().UTC(),
 	}
-	if err := router.Deliver(ctx, cancelMsg); err != nil {
-		t.Fatalf("取消配送失敗: %v", err)
-	}
+	require.NoError(t, router.Deliver(ctx, cancelMsg), "取消配送")
 	view, _ = f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "SKU-A"})
-	if view.Available != 10 || view.Reserved != 0 {
-		t.Fatalf("取消後の状態が不正: %+v", view)
-	}
+	assert.Equal(t, 10, view.Available, "取消後 available")
+	assert.Equal(t, 0, view.Reserved, "取消後 reserved")
 }
 
 func TestRouter_UnknownTypeReturnsErrNoRoute(t *testing.T) {
 	ctx := context.Background()
 	_, router := newRouterFixture(t)
 	err := router.Deliver(ctx, outbox.Message{ID: "x", Type: "unknown.type"})
-	if !errors.Is(err, outbox.ErrNoRoute) {
-		t.Fatalf("エラー = %v, want ErrNoRoute", err)
-	}
+	require.ErrorIs(t, err, outbox.ErrNoRoute)
 }
 
 func TestOnConfirmReservation_BenignNoopWhenNotFound(t *testing.T) {
@@ -95,7 +86,5 @@ func TestOnConfirmReservation_BenignNoopWhenNotFound(t *testing.T) {
 		Payload: []byte(`{"reservation_ref":"NEVER-RESERVED"}`),
 		TraceID: "trace-9",
 	})
-	if err != nil {
-		t.Fatalf("良性 no-op のはずがエラー: %v", err)
-	}
+	require.NoError(t, err, "良性 no-op はエラーにしない")
 }

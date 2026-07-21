@@ -2,6 +2,9 @@
 /out/
 *.exe
 *.test
+# 各 main パッケージのビルド生成物（`go build ./cmd/dev` 等の出力）。
+# バイナリはコミットしない（`go run` / `go build` で都度生成する）。
+/cmd/dev/dev
 
 # カバレッジ
 *.out

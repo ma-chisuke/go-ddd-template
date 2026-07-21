@@ -1,8 +1,10 @@
 package order_test
 
 import (
-	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
 )
@@ -11,35 +13,25 @@ import (
 func mustLine(t *testing.T, sku string, qty int, amount int64, cur string) order.OrderLine {
 	t.Helper()
 	s, err := order.NewSKU(sku)
-	if err != nil {
-		t.Fatalf("SKU の生成に失敗しました: %v", err)
-	}
+	require.NoError(t, err, "SKU の生成に失敗しました")
 	q, err := order.NewQuantity(qty)
-	if err != nil {
-		t.Fatalf("Quantity の生成に失敗しました: %v", err)
-	}
+	require.NoError(t, err, "Quantity の生成に失敗しました")
 	m, err := order.NewMoney(amount, cur)
-	if err != nil {
-		t.Fatalf("Money の生成に失敗しました: %v", err)
-	}
+	require.NoError(t, err, "Money の生成に失敗しました")
 	return order.NewOrderLine(s, q, m)
 }
 
 func mustOrderID(t *testing.T, s string) order.OrderID {
 	t.Helper()
 	id, err := order.NewOrderID(s)
-	if err != nil {
-		t.Fatalf("OrderID の生成に失敗しました: %v", err)
-	}
+	require.NoError(t, err, "OrderID の生成に失敗しました")
 	return id
 }
 
 func mustCustomerID(t *testing.T, s string) order.CustomerID {
 	t.Helper()
 	c, err := order.NewCustomerID(s)
-	if err != nil {
-		t.Fatalf("CustomerID の生成に失敗しました: %v", err)
-	}
+	require.NoError(t, err, "CustomerID の生成に失敗しました")
 	return c
 }
 
@@ -59,32 +51,19 @@ func TestNewOrder(t *testing.T) {
 			mustLine(t, "SKU-B", 2, 500, "JPY"),  // 小計 1000
 		}
 		o, err := order.NewOrder(id, mustCustomerID(t, "CUST-1"), lines)
-		if err != nil {
-			t.Fatalf("想定外のエラー: %v", err)
-		}
-		if o.Status() != order.StatusConfirmed {
-			t.Fatalf("Status = %v, want Confirmed", o.Status())
-		}
-		if o.Total().Amount() != 4600 || o.Total().Currency() != "JPY" {
-			t.Fatalf("Total = %+v, want 4600 JPY", o.Total())
-		}
+		require.NoError(t, err)
+		assert.Equal(t, order.StatusConfirmed, o.Status())
+		assert.Equal(t, int64(4600), o.Total().Amount())
+		assert.Equal(t, "JPY", o.Total().Currency())
 		// 予約参照は注文 ID から決定的に導出される。
-		if o.ReservationRef().String() != id.String() {
-			t.Fatalf("ReservationRef = %q, want %q", o.ReservationRef().String(), id.String())
-		}
-		if o.Version() != 0 {
-			t.Fatalf("新規作成の Version = %d, want 0", o.Version())
-		}
-		if got := eventNames(o.PullEvents())["ordering.order_placed"]; got != 1 {
-			t.Fatalf("OrderPlaced 件数 = %d, want 1", got)
-		}
+		assert.Equal(t, id.String(), o.ReservationRef().String())
+		assert.Equal(t, 0, o.Version(), "新規作成の Version は 0")
+		assert.Equal(t, 1, eventNames(o.PullEvents())["ordering.order_placed"])
 	})
 
 	t.Run("異常系: 明細が空なら ErrEmptyOrder", func(t *testing.T) {
 		_, err := order.NewOrder(mustOrderID(t, "ORDER-1"), mustCustomerID(t, "CUST-1"), nil)
-		if !errors.Is(err, order.ErrEmptyOrder) {
-			t.Fatalf("エラー = %v, want ErrEmptyOrder", err)
-		}
+		require.ErrorIs(t, err, order.ErrEmptyOrder)
 	})
 
 	t.Run("異常系: 行間で通貨が食い違うと ErrInvalidMoney", func(t *testing.T) {
@@ -93,9 +72,7 @@ func TestNewOrder(t *testing.T) {
 			mustLine(t, "SKU-B", 1, 5, "USD"),
 		}
 		_, err := order.NewOrder(mustOrderID(t, "ORDER-1"), mustCustomerID(t, "CUST-1"), lines)
-		if !errors.Is(err, order.ErrInvalidMoney) {
-			t.Fatalf("エラー = %v, want ErrInvalidMoney", err)
-		}
+		require.ErrorIs(t, err, order.ErrInvalidMoney)
 	})
 }
 
@@ -104,42 +81,28 @@ func TestOrderCancel(t *testing.T) {
 		t.Helper()
 		o, err := order.NewOrder(mustOrderID(t, "ORDER-1"), mustCustomerID(t, "CUST-1"),
 			[]order.OrderLine{mustLine(t, "SKU-A", 1, 1000, "JPY")})
-		if err != nil {
-			t.Fatalf("注文作成に失敗しました: %v", err)
-		}
+		require.NoError(t, err, "注文作成に失敗しました")
 		_ = o.PullEvents() // OrderPlaced を捨てる
 		return o
 	}
 
 	t.Run("正常系: Confirmed から取消できて OrderCancelled を記録する", func(t *testing.T) {
 		o := newConfirmed(t)
-		if err := o.Cancel(); err != nil {
-			t.Fatalf("想定外のエラー: %v", err)
-		}
-		if o.Status() != order.StatusCancelled {
-			t.Fatalf("Status = %v, want Cancelled", o.Status())
-		}
+		require.NoError(t, o.Cancel())
+		assert.Equal(t, order.StatusCancelled, o.Status())
 		events := o.PullEvents()
-		if got := eventNames(events)["ordering.order_cancelled"]; got != 1 {
-			t.Fatalf("OrderCancelled 件数 = %d, want 1", got)
-		}
+		assert.Equal(t, 1, eventNames(events)["ordering.order_cancelled"])
 		// OrderCancelled は予約参照を運ぶ（在庫解放の駆動用）。
 		for _, e := range events {
 			if ev, ok := e.(order.OrderCancelled); ok {
-				if ev.ReservationRef != o.ReservationRef().String() {
-					t.Fatalf("OrderCancelled.ReservationRef = %q, want %q", ev.ReservationRef, o.ReservationRef().String())
-				}
+				assert.Equal(t, o.ReservationRef().String(), ev.ReservationRef)
 			}
 		}
 	})
 
 	t.Run("異常系: Confirmed 以外（取消済み）の取消は ErrOrderNotConfirmed", func(t *testing.T) {
 		o := newConfirmed(t)
-		if err := o.Cancel(); err != nil {
-			t.Fatalf("1 回目の取消に失敗しました: %v", err)
-		}
-		if err := o.Cancel(); !errors.Is(err, order.ErrOrderNotConfirmed) {
-			t.Fatalf("2 回目の取消エラー = %v, want ErrOrderNotConfirmed", err)
-		}
+		require.NoError(t, o.Cancel(), "1 回目の取消に失敗しました")
+		require.ErrorIs(t, o.Cancel(), order.ErrOrderNotConfirmed)
 	})
 }

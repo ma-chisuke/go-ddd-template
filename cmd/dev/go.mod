@@ -13,6 +13,7 @@ require (
 	github.com/example/go-ddd-template/contexts/inventory v0.0.0
 	github.com/example/go-ddd-template/contexts/ordering v0.0.0
 	github.com/example/go-ddd-template/shared v0.0.0
+	github.com/stretchr/testify v1.11.1
 )
 
 require (
@@ -23,6 +24,7 @@ require (
 )
 
 require (
+	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/ghodss/yaml v1.0.0 // indirect
@@ -33,6 +35,7 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
@@ -43,6 +46,7 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 // 同一リポジトリ内の未公開モジュールを相対パスへ解決する（go.work でもこの replace でも解決可）。

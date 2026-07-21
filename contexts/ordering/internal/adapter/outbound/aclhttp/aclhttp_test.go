@@ -3,12 +3,14 @@ package aclhttp_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/aclhttp"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
@@ -46,9 +48,7 @@ func stubInventory(t *testing.T, status int, contentType, body string, delay tim
 func newReserver(t *testing.T, baseURL string, timeout time.Duration) *aclhttp.Reserver {
 	t.Helper()
 	client, err := aclhttp.NewInventoryClient(baseURL, timeout)
-	if err != nil {
-		t.Fatalf("クライアント生成失敗: %v", err)
-	}
+	require.NoError(t, err, "クライアント生成失敗")
 	return aclhttp.NewReserver(client)
 }
 
@@ -66,9 +66,7 @@ func TestReserve_MapsRequestToClientContract(t *testing.T) {
 		{SKU: "SKU-A", Qty: 3},
 		{SKU: "SKU-B", Qty: 1},
 	})
-	if err != nil {
-		t.Fatalf("想定外のエラー: %v", err)
-	}
+	require.NoError(t, err)
 
 	// 送出されたリクエストが在庫内部 API の契約（ref + lines[sku,quantity]）に一致する。
 	var got struct {
@@ -78,18 +76,13 @@ func TestReserve_MapsRequestToClientContract(t *testing.T) {
 			Quantity int    `json:"quantity"`
 		} `json:"lines"`
 	}
-	if err := json.Unmarshal(captured.body, &got); err != nil {
-		t.Fatalf("リクエスト本文のデコード失敗: %v (body=%s)", err, captured.body)
-	}
-	if got.Ref != "REF-1" || len(got.Lines) != 2 {
-		t.Fatalf("リクエストが契約と不一致: %+v", got)
-	}
-	if got.Lines[0].Sku != "SKU-A" || got.Lines[0].Quantity != 3 {
-		t.Fatalf("1 行目が不正: %+v", got.Lines[0])
-	}
-	if got.Lines[1].Sku != "SKU-B" || got.Lines[1].Quantity != 1 {
-		t.Fatalf("2 行目が不正: %+v", got.Lines[1])
-	}
+	require.NoError(t, json.Unmarshal(captured.body, &got), "リクエスト本文のデコード失敗 (body=%s)", captured.body)
+	assert.Equal(t, "REF-1", got.Ref)
+	require.Len(t, got.Lines, 2)
+	assert.Equal(t, "SKU-A", got.Lines[0].Sku)
+	assert.Equal(t, 3, got.Lines[0].Quantity)
+	assert.Equal(t, "SKU-B", got.Lines[1].Sku)
+	assert.Equal(t, 1, got.Lines[1].Quantity)
 }
 
 func TestReserve_InsufficientStockTranslatesToRejected(t *testing.T) {
@@ -97,13 +90,9 @@ func TestReserve_InsufficientStockTranslatesToRejected(t *testing.T) {
 	r := newReserver(t, ts.URL, 5*time.Second)
 
 	err := r.Reserve(context.Background(), "REF-1", []port.ReserveLine{{SKU: "SKU-A", Qty: 3}})
-	if !errors.Is(err, application.ErrReservationRejected) {
-		t.Fatalf("エラー = %v, want ErrReservationRejected", err)
-	}
+	require.ErrorIs(t, err, application.ErrReservationRejected)
 	// 業務的拒否（409）は不達（503）ではない。
-	if errors.Is(err, application.ErrReservationUnavailable) {
-		t.Fatalf("409 が不達（Unavailable）に翻訳された: %v", err)
-	}
+	assert.NotErrorIs(t, err, application.ErrReservationUnavailable, "409 が不達（Unavailable）に翻訳された")
 }
 
 func TestReserve_ServerErrorTranslatesToUnavailable(t *testing.T) {
@@ -112,12 +101,8 @@ func TestReserve_ServerErrorTranslatesToUnavailable(t *testing.T) {
 
 	err := r.Reserve(context.Background(), "REF-1", []port.ReserveLine{{SKU: "SKU-A", Qty: 3}})
 	// 5xx は不達（503）かつ拒否（両番兵に一致）。
-	if !errors.Is(err, application.ErrReservationUnavailable) {
-		t.Fatalf("エラー = %v, want ErrReservationUnavailable", err)
-	}
-	if !errors.Is(err, application.ErrReservationRejected) {
-		t.Fatalf("エラー = %v, want ErrReservationRejected も満たすこと", err)
-	}
+	require.ErrorIs(t, err, application.ErrReservationUnavailable)
+	assert.ErrorIs(t, err, application.ErrReservationRejected, "5xx は ErrReservationRejected も満たすべき")
 }
 
 func TestReserve_TimeoutTranslatesToUnavailable(t *testing.T) {
@@ -126,7 +111,5 @@ func TestReserve_TimeoutTranslatesToUnavailable(t *testing.T) {
 	r := newReserver(t, ts.URL, 30*time.Millisecond)
 
 	err := r.Reserve(context.Background(), "REF-1", []port.ReserveLine{{SKU: "SKU-A", Qty: 3}})
-	if !errors.Is(err, application.ErrReservationUnavailable) {
-		t.Fatalf("エラー = %v, want ErrReservationUnavailable", err)
-	}
+	require.ErrorIs(t, err, application.ErrReservationUnavailable)
 }

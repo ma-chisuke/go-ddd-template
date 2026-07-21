@@ -2,26 +2,28 @@ package application_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 
-	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/memory"
+	"github.com/stretchr/testify/require"
+
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
 )
 
+// これらは入力検証（境界での値検証）が、在庫予約より前に失敗して番兵を返すことを検証する。
+// 検証で弾かれる経路では在庫予約は呼ばれない。reserver に EXPECT を置かないので、もし
+// Reserve が呼ばれれば gomock がテストを失敗させる（＝「予約は呼ばれない」を検証している）。
+
 func TestGetOrder_InvalidID(t *testing.T) {
-	f := newMemoryFixture(t, &fakeReserver{})
-	if _, err := f.get.Handle(context.Background(), "   "); !errors.Is(err, order.ErrInvalidOrderID) {
-		t.Fatalf("エラー = %v, want ErrInvalidOrderID", err)
-	}
+	f := newMemFixture(t)
+	_, err := f.get.Handle(context.Background(), "   ")
+	require.ErrorIs(t, err, order.ErrInvalidOrderID)
 }
 
 func TestCancelOrder_InvalidID(t *testing.T) {
-	f := newMemoryFixture(t, &fakeReserver{})
-	if err := f.cancel.Handle(context.Background(), "   "); !errors.Is(err, order.ErrInvalidOrderID) {
-		t.Fatalf("エラー = %v, want ErrInvalidOrderID", err)
-	}
+	f := newMemFixture(t)
+	err := f.cancel.Handle(context.Background(), "   ")
+	require.ErrorIs(t, err, order.ErrInvalidOrderID)
 }
 
 func TestPlaceOrder_InvalidLineValues(t *testing.T) {
@@ -44,32 +46,9 @@ func TestPlaceOrder_InvalidLineValues(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			reserver := &fakeReserver{}
-			f := newMemoryFixture(t, reserver)
+			f := newMemFixture(t)
 			_, err := f.place.Handle(ctx, newInput(tc.line, tc.customer))
-			if !errors.Is(err, tc.want) {
-				t.Fatalf("エラー = %v, want %v", err, tc.want)
-			}
-			// ドメイン検証で失敗するため、在庫予約は呼ばれない。
-			if reserver.reserveCalls != 0 {
-				t.Fatalf("検証失敗時に予約が呼ばれた: %d 回", reserver.reserveCalls)
-			}
+			require.ErrorIs(t, err, tc.want)
 		})
-	}
-}
-
-func TestPlaceOrder_SaveFailureReleaseAlsoFails(t *testing.T) {
-	ctx := context.Background()
-	// 補償解放も失敗する場合、エラーはログに留めて元の保存失敗を返す。
-	reserver := &fakeReserver{releaseErr: errors.New("解放も失敗")}
-	store := memory.NewStore()
-	obx := memory.NewOutboxStore()
-	f := newFixture(t, reserver, &failingUoW{err: errors.New("DB 書き込み失敗")}, store, obx)
-
-	if _, err := f.place.Handle(ctx, sampleInput()); err == nil {
-		t.Fatalf("保存失敗が伝播していない")
-	}
-	if reserver.releaseCalls != 1 {
-		t.Fatalf("補償解放の呼び出し回数 = %d, want 1", reserver.releaseCalls)
 	}
 }

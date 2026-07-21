@@ -11,13 +11,14 @@ package postgres_test
 
 import (
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/postgres"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
@@ -44,15 +45,12 @@ func setupPool(t *testing.T) *pgxpool.Pool {
 	}
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatalf("プール生成に失敗: %v", err)
-	}
+	require.NoError(t, err, "プール生成に失敗")
 	t.Cleanup(pool.Close)
 
 	// order_lines は orders を参照するため CASCADE で一括初期化する。
-	if _, err := pool.Exec(ctx, "TRUNCATE ordering.orders, ordering.outbox CASCADE"); err != nil {
-		t.Fatalf("テーブル初期化に失敗（スキーマ未適用の可能性）: %v", err)
-	}
+	_, err = pool.Exec(ctx, "TRUNCATE ordering.orders, ordering.outbox CASCADE")
+	require.NoError(t, err, "テーブル初期化に失敗（スキーマ未適用の可能性）")
 	return pool
 }
 
@@ -94,29 +92,20 @@ func TestPostgres_PlaceThenGet(t *testing.T) {
 	f := newPgFixture(t, pool)
 
 	id, err := f.place.Handle(ctx, sampleInput())
-	if err != nil {
-		t.Fatalf("Place 失敗: %v", err)
-	}
+	require.NoError(t, err, "Place 失敗")
 	view, err := f.get.Handle(ctx, id.String())
-	if err != nil {
-		t.Fatalf("Get 失敗: %v", err)
-	}
-	if view.Status != "confirmed" || view.Version != 1 {
-		t.Fatalf("保存後の注文が不正: %+v", view)
-	}
-	if view.TotalAmount != 4100 || len(view.Lines) != 2 {
-		t.Fatalf("合計/明細が不正: %+v", view)
-	}
+	require.NoError(t, err, "Get 失敗")
+	assert.Equal(t, "confirmed", view.Status)
+	assert.Equal(t, 1, view.Version)
+	assert.Equal(t, int64(4100), view.TotalAmount)
+	assert.Len(t, view.Lines, 2)
 
 	// ConfirmReservation コマンドが outbox に積まれている。
 	store := postgres.NewOutboxStore(pool)
 	msgs, err := store.Unpublished(ctx, 10)
-	if err != nil {
-		t.Fatalf("Unpublished 失敗: %v", err)
-	}
-	if len(msgs) != 1 || msgs[0].Type != application.MessageTypeConfirmReservation {
-		t.Fatalf("outbox の内容が不正: %+v", msgs)
-	}
+	require.NoError(t, err, "Unpublished 失敗")
+	require.Len(t, msgs, 1)
+	assert.Equal(t, application.MessageTypeConfirmReservation, msgs[0].Type)
 }
 
 func TestPostgres_CancelEnqueuesOrderCancelled(t *testing.T) {
@@ -125,16 +114,11 @@ func TestPostgres_CancelEnqueuesOrderCancelled(t *testing.T) {
 	f := newPgFixture(t, pool)
 
 	id, err := f.place.Handle(ctx, sampleInput())
-	if err != nil {
-		t.Fatalf("Place 失敗: %v", err)
-	}
-	if err := f.cancel.Handle(ctx, id.String()); err != nil {
-		t.Fatalf("Cancel 失敗: %v", err)
-	}
+	require.NoError(t, err, "Place 失敗")
+	require.NoError(t, f.cancel.Handle(ctx, id.String()), "Cancel 失敗")
 	view, _ := f.get.Handle(ctx, id.String())
-	if view.Status != "cancelled" || view.Version != 2 {
-		t.Fatalf("取消後の注文が不正: %+v", view)
-	}
+	assert.Equal(t, "cancelled", view.Status)
+	assert.Equal(t, 2, view.Version)
 
 	// ConfirmReservation と OrderCancelled の 2 件が積まれている。
 	store := postgres.NewOutboxStore(pool)
@@ -145,9 +129,7 @@ func TestPostgres_CancelEnqueuesOrderCancelled(t *testing.T) {
 			hasCancelled = true
 		}
 	}
-	if !hasCancelled {
-		t.Fatalf("OrderCancelled が積まれていない: %+v", msgs)
-	}
+	assert.True(t, hasCancelled, "OrderCancelled が積まれていない")
 }
 
 func TestPostgres_OutboxRelay(t *testing.T) {
@@ -155,28 +137,20 @@ func TestPostgres_OutboxRelay(t *testing.T) {
 	pool := setupPool(t)
 	f := newPgFixture(t, pool)
 
-	if _, err := f.place.Handle(ctx, sampleInput()); err != nil {
-		t.Fatalf("Place 失敗: %v", err)
-	}
+	_, err := f.place.Handle(ctx, sampleInput())
+	require.NoError(t, err, "Place 失敗")
 
 	store := postgres.NewOutboxStore(pool)
 	pub := &countingPublisher{}
 	runner := outbox.NewRunner(store, pub, testLogger(), outbox.WithBatch(10))
 	sent, err := runner.RunOnce(ctx)
-	if err != nil {
-		t.Fatalf("RunOnce 失敗: %v", err)
-	}
-	if sent != 1 || pub.count != 1 {
-		t.Fatalf("送出件数が不正: sent=%d published=%d", sent, pub.count)
-	}
+	require.NoError(t, err, "RunOnce 失敗")
+	assert.Equal(t, 1, sent)
+	assert.Equal(t, 1, pub.count)
 	// 2 回目は送信済みなので 0 件。
 	sent, err = runner.RunOnce(ctx)
-	if err != nil {
-		t.Fatalf("2 回目 RunOnce 失敗: %v", err)
-	}
-	if sent != 0 {
-		t.Fatalf("2 回目の送出件数 = %d, want 0", sent)
-	}
+	require.NoError(t, err, "2 回目 RunOnce 失敗")
+	assert.Zero(t, sent, "2 回目の送出件数")
 }
 
 func TestPostgres_ConcurrencyConflict(t *testing.T) {
@@ -186,9 +160,7 @@ func TestPostgres_ConcurrencyConflict(t *testing.T) {
 	read := postgres.NewReadOrderStore(pool)
 
 	id, err := f.place.Handle(ctx, sampleInput())
-	if err != nil {
-		t.Fatalf("Place 失敗: %v", err)
-	}
+	require.NoError(t, err, "Place 失敗")
 
 	// 同一注文の 2 つの版 1 コピーを読み出す。
 	stale := loadVia(t, read, id) // version 1
@@ -196,20 +168,17 @@ func TestPostgres_ConcurrencyConflict(t *testing.T) {
 
 	// 先に other を取消して保存（version 2 になる）。
 	_ = other.Cancel()
-	if err := f.work.Within(ctx, func(ctx context.Context, r application.Repos) error {
+	err = f.work.Within(ctx, func(ctx context.Context, r application.Repos) error {
 		return r.Orders().Save(ctx, other)
-	}); err != nil {
-		t.Fatalf("other の保存 失敗: %v", err)
-	}
+	})
+	require.NoError(t, err, "other の保存 失敗")
 
 	// stale（version 1）を取消して保存すると版が食い違い衝突する。
 	_ = stale.Cancel()
 	err = f.work.Within(ctx, func(ctx context.Context, r application.Repos) error {
 		return r.Orders().Save(ctx, stale)
 	})
-	if !errors.Is(err, uow.ErrConcurrencyConflict) {
-		t.Fatalf("エラー = %v, want ErrConcurrencyConflict", err)
-	}
+	require.ErrorIs(t, err, uow.ErrConcurrencyConflict)
 }
 
 // countingPublisher は送出回数を数えるだけの Publisher。
@@ -224,8 +193,6 @@ func (p *countingPublisher) Publish(_ context.Context, _ outbox.Message) error {
 func loadVia(t *testing.T, read application.OrderStore, id order.OrderID) *order.Order {
 	t.Helper()
 	o, err := read.Load(context.Background(), id)
-	if err != nil {
-		t.Fatalf("読み込み 失敗: %v", err)
-	}
+	require.NoError(t, err, "読み込み 失敗")
 	return o
 }

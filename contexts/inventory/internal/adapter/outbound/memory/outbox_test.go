@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
@@ -53,34 +56,24 @@ func TestOutbox_EnqueueCommitsWithSave(t *testing.T) {
 			OccurredAt: time.Now().UTC(),
 		})
 	})
-	if err != nil {
-		t.Fatalf("UoW 失敗: %v", err)
-	}
+	require.NoError(t, err, "UoW")
 
 	// コミット後、メッセージが未送信として読める。
 	unpub, err := outboxStore.Unpublished(ctx, 10)
-	if err != nil {
-		t.Fatalf("Unpublished 失敗: %v", err)
-	}
-	if len(unpub) != 1 || unpub[0].ID != "msg-1" {
-		t.Fatalf("コミット後の未送信メッセージが不正: %+v", unpub)
-	}
+	require.NoError(t, err, "Unpublished")
+	require.Len(t, unpub, 1, "コミット後の未送信メッセージ数")
+	assert.Equal(t, "msg-1", unpub[0].ID)
 
 	// 中継（Runner）が送出して published にする。
 	pub := &recordingPublisher{}
 	runner := outbox.NewRunner(outboxStore, pub, outboxTestLogger(), outbox.WithBatch(10))
 	sent, err := runner.RunOnce(ctx)
-	if err != nil {
-		t.Fatalf("RunOnce 失敗: %v", err)
-	}
-	if sent != 1 || len(pub.sent) != 1 {
-		t.Fatalf("送出件数が不正: sent=%d published=%d", sent, len(pub.sent))
-	}
+	require.NoError(t, err, "RunOnce")
+	assert.Equal(t, 1, sent, "送出件数")
+	assert.Len(t, pub.sent, 1, "publish 件数")
 	// 2 回目は送信済みなので 0 件。
 	again, _ := outboxStore.Unpublished(ctx, 10)
-	if len(again) != 0 {
-		t.Fatalf("送信済みなのに未送信として残っている: %+v", again)
-	}
+	assert.Empty(t, again, "送信済みは未送信として残らない")
 }
 
 // TestOutbox_RollbackDiscardsEnqueue は、UoW がロールバックすると Enqueue も
@@ -98,15 +91,9 @@ func TestOutbox_RollbackDiscardsEnqueue(t *testing.T) {
 		}
 		return sentinel // ロールバック
 	})
-	if !errors.Is(err, sentinel) {
-		t.Fatalf("エラー = %v, want sentinel", err)
-	}
+	require.ErrorIs(t, err, sentinel)
 
 	unpub, err := outboxStore.Unpublished(ctx, 10)
-	if err != nil {
-		t.Fatalf("Unpublished 失敗: %v", err)
-	}
-	if len(unpub) != 0 {
-		t.Fatalf("ロールバックされたのにメッセージが残っている: %+v", unpub)
-	}
+	require.NoError(t, err, "Unpublished")
+	assert.Empty(t, unpub, "ロールバックされたメッセージは残らない")
 }

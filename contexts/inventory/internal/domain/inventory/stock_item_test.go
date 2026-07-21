@@ -1,8 +1,10 @@
 package inventory_test
 
 import (
-	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
 )
@@ -11,9 +13,7 @@ import (
 func mustSKU(t *testing.T, s string) inventory.SKU {
 	t.Helper()
 	sku, err := inventory.NewSKU(s)
-	if err != nil {
-		t.Fatalf("SKU の生成に失敗しました: %v", err)
-	}
+	require.NoError(t, err, "SKU の生成")
 	return sku
 }
 
@@ -21,28 +21,21 @@ func mustSKU(t *testing.T, s string) inventory.SKU {
 func mustQuantity(t *testing.T, n int) inventory.Quantity {
 	t.Helper()
 	q, err := inventory.NewQuantity(n)
-	if err != nil {
-		t.Fatalf("Quantity の生成に失敗しました: %v", err)
-	}
+	require.NoError(t, err, "Quantity の生成")
 	return q
 }
 
 func TestNewSKU(t *testing.T) {
 	t.Run("正常系: 空白を取り除いた値で生成できる", func(t *testing.T) {
 		sku, err := inventory.NewSKU("  WIDGET-001  ")
-		if err != nil {
-			t.Fatalf("想定外のエラー: %v", err)
-		}
-		if got := sku.String(); got != "WIDGET-001" {
-			t.Fatalf("String() = %q, want %q", got, "WIDGET-001")
-		}
+		require.NoError(t, err)
+		assert.Equal(t, "WIDGET-001", sku.String())
 	})
 
 	t.Run("異常系: 空文字は ErrInvalidSKU", func(t *testing.T) {
 		for _, in := range []string{"", "   ", "\t"} {
-			if _, err := inventory.NewSKU(in); !errors.Is(err, inventory.ErrInvalidSKU) {
-				t.Fatalf("NewSKU(%q) のエラー = %v, want ErrInvalidSKU", in, err)
-			}
+			_, err := inventory.NewSKU(in)
+			require.ErrorIs(t, err, inventory.ErrInvalidSKU, "NewSKU(%q)", in)
 		}
 	})
 }
@@ -51,57 +44,37 @@ func TestNewQuantity(t *testing.T) {
 	t.Run("正常系: 0 以上は生成できる", func(t *testing.T) {
 		for _, n := range []int{0, 1, 100} {
 			q, err := inventory.NewQuantity(n)
-			if err != nil {
-				t.Fatalf("NewQuantity(%d) 想定外のエラー: %v", n, err)
-			}
-			if q.Int() != n {
-				t.Fatalf("Int() = %d, want %d", q.Int(), n)
-			}
+			require.NoError(t, err, "NewQuantity(%d)", n)
+			assert.Equal(t, n, q.Int())
 		}
 	})
 
 	t.Run("異常系: 負数は ErrInvalidQuantity", func(t *testing.T) {
-		if _, err := inventory.NewQuantity(-1); !errors.Is(err, inventory.ErrInvalidQuantity) {
-			t.Fatalf("エラー = %v, want ErrInvalidQuantity", err)
-		}
+		_, err := inventory.NewQuantity(-1)
+		require.ErrorIs(t, err, inventory.ErrInvalidQuantity)
 	})
 
 	t.Run("IsZero と Add", func(t *testing.T) {
 		zero := mustQuantity(t, 0)
-		if !zero.IsZero() {
-			t.Fatal("0 は IsZero であるべき")
-		}
+		assert.True(t, zero.IsZero(), "0 は IsZero であるべき")
 		sum := mustQuantity(t, 3).Add(mustQuantity(t, 4))
-		if sum.Int() != 7 {
-			t.Fatalf("3 + 4 = %d, want 7", sum.Int())
-		}
+		assert.Equal(t, 7, sum.Int(), "3 + 4")
 	})
 }
 
 func TestNewStockItem(t *testing.T) {
 	t.Run("正常系: 利用可能 0・version 0 で始まる", func(t *testing.T) {
 		item, err := inventory.NewStockItem("id-1", mustSKU(t, "WIDGET-001"))
-		if err != nil {
-			t.Fatalf("想定外のエラー: %v", err)
-		}
-		if item.Available().Int() != 0 {
-			t.Fatalf("Available = %d, want 0", item.Available().Int())
-		}
-		if item.Version() != 0 {
-			t.Fatalf("Version = %d, want 0", item.Version())
-		}
-		if item.Reserved().Int() != 0 {
-			t.Fatalf("Reserved = %d, want 0", item.Reserved().Int())
-		}
-		if item.ID() != "id-1" {
-			t.Fatalf("ID = %q, want id-1", item.ID())
-		}
+		require.NoError(t, err)
+		assert.Equal(t, 0, item.Available().Int(), "Available")
+		assert.Equal(t, 0, item.Version(), "Version")
+		assert.Equal(t, 0, item.Reserved().Int(), "Reserved")
+		assert.Equal(t, "id-1", item.ID(), "ID")
 	})
 
 	t.Run("異常系: 空 id は不正", func(t *testing.T) {
-		if _, err := inventory.NewStockItem("", mustSKU(t, "WIDGET-001")); err == nil {
-			t.Fatal("空 id はエラーになるべき")
-		}
+		_, err := inventory.NewStockItem("", mustSKU(t, "WIDGET-001"))
+		require.Error(t, err, "空 id はエラーになるべき")
 	})
 }
 
@@ -109,63 +82,37 @@ func TestStockItem_Replenish(t *testing.T) {
 	t.Run("正常系: 利用可能在庫が増え、イベントが記録される", func(t *testing.T) {
 		item, _ := inventory.NewStockItem("id-1", mustSKU(t, "WIDGET-001"))
 
-		if err := item.Replenish(mustQuantity(t, 10)); err != nil {
-			t.Fatalf("想定外のエラー: %v", err)
-		}
-		if err := item.Replenish(mustQuantity(t, 5)); err != nil {
-			t.Fatalf("想定外のエラー: %v", err)
-		}
-		if item.Available().Int() != 15 {
-			t.Fatalf("Available = %d, want 15", item.Available().Int())
-		}
+		require.NoError(t, item.Replenish(mustQuantity(t, 10)))
+		require.NoError(t, item.Replenish(mustQuantity(t, 5)))
+		assert.Equal(t, 15, item.Available().Int(), "Available")
 
 		events := item.PullEvents()
-		if len(events) != 2 {
-			t.Fatalf("イベント数 = %d, want 2", len(events))
-		}
+		require.Len(t, events, 2, "イベント数")
 		first, ok := events[0].(inventory.StockReplenished)
-		if !ok {
-			t.Fatalf("イベント型 = %T, want StockReplenished", events[0])
-		}
-		if first.EventName() != "inventory.stock_replenished" {
-			t.Fatalf("EventName = %q", first.EventName())
-		}
-		if first.QuantityAdded != 10 || first.Available != 10 {
-			t.Fatalf("最初のイベント内容が不正: %+v", first)
-		}
-		if first.OccurredAt().IsZero() {
-			t.Fatal("OccurredAt が設定されていない")
-		}
+		require.True(t, ok, "イベント型は StockReplenished")
+		assert.Equal(t, "inventory.stock_replenished", first.EventName())
+		assert.Equal(t, 10, first.QuantityAdded)
+		assert.Equal(t, 10, first.Available)
+		assert.False(t, first.OccurredAt().IsZero(), "OccurredAt が設定されている")
 
 		// PullEvents 後は空になる。
-		if remaining := item.PullEvents(); len(remaining) != 0 {
-			t.Fatalf("PullEvents 後の残イベント = %d, want 0", len(remaining))
-		}
+		assert.Empty(t, item.PullEvents(), "PullEvents 後は空")
 	})
 
 	t.Run("異常系: 補充数量 0 は ErrInvalidQuantity", func(t *testing.T) {
 		item, _ := inventory.NewStockItem("id-1", mustSKU(t, "WIDGET-001"))
-		if err := item.Replenish(mustQuantity(t, 0)); !errors.Is(err, inventory.ErrInvalidQuantity) {
-			t.Fatalf("エラー = %v, want ErrInvalidQuantity", err)
-		}
+		require.ErrorIs(t, item.Replenish(mustQuantity(t, 0)), inventory.ErrInvalidQuantity)
 		// 失敗時はイベントも記録されない。
-		if events := item.PullEvents(); len(events) != 0 {
-			t.Fatalf("失敗時にイベントが記録された: %d", len(events))
-		}
+		assert.Empty(t, item.PullEvents(), "失敗時にイベントは記録されない")
 	})
 }
 
 func TestReconstituteAndMarkPersisted(t *testing.T) {
 	item := inventory.ReconstituteStockItem("id-9", mustSKU(t, "GADGET-9"), mustQuantity(t, 42), 3, nil)
-	if item.Version() != 3 || item.Available().Int() != 42 {
-		t.Fatalf("復元結果が不正: version=%d available=%d", item.Version(), item.Available().Int())
-	}
+	assert.Equal(t, 3, item.Version(), "復元 version")
+	assert.Equal(t, 42, item.Available().Int(), "復元 available")
 	item.MarkPersisted(4)
-	if item.Version() != 4 {
-		t.Fatalf("MarkPersisted 後の Version = %d, want 4", item.Version())
-	}
+	assert.Equal(t, 4, item.Version(), "MarkPersisted 後の Version")
 	// 復元では未発火イベントは無い。
-	if events := item.PullEvents(); len(events) != 0 {
-		t.Fatalf("復元直後のイベント = %d, want 0", len(events))
-	}
+	assert.Empty(t, item.PullEvents(), "復元直後のイベントは無い")
 }

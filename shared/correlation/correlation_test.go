@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/example/go-ddd-template/shared/correlation"
 )
 
@@ -11,20 +13,14 @@ func TestWithIDAndFromContext(t *testing.T) {
 	ctx := correlation.WithID(context.Background(), "abc123")
 
 	got, ok := correlation.FromContext(ctx)
-	if !ok || got != "abc123" {
-		t.Fatalf("FromContext = (%q, %v), want (abc123, true)", got, ok)
-	}
-	if s := correlation.FromContextOrEmpty(ctx); s != "abc123" {
-		t.Fatalf("FromContextOrEmpty = %q, want abc123", s)
-	}
+	assert.True(t, ok, "相関 ID が存在するはず")
+	assert.Equal(t, "abc123", got, "FromContext の値")
+	assert.Equal(t, "abc123", correlation.FromContextOrEmpty(ctx), "FromContextOrEmpty の値")
 }
 
 func TestFromContext_Absent(t *testing.T) {
 	ctx := context.Background()
-	if _, ok := correlation.FromContext(ctx); ok {
-		t.Fatal("相関 ID が無い context で ok=true になった")
-	}
-	if s := correlation.FromContextOrEmpty(ctx); s != "" {
-		t.Fatalf("FromContextOrEmpty = %q, want 空文字列", s)
-	}
+	_, ok := correlation.FromContext(ctx)
+	assert.False(t, ok, "相関 ID が無い context で ok=true になった")
+	assert.Empty(t, correlation.FromContextOrEmpty(ctx), "FromContextOrEmpty は空文字列であるべき")
 }

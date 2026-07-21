@@ -6,6 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
@@ -33,12 +36,9 @@ func TestRun_SucceedsFirstTry(t *testing.T) {
 		calls++
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("想定外のエラー: %v", err)
-	}
-	if calls != 1 || unit.withinCalls != 1 {
-		t.Fatalf("呼び出し回数が不正: cmd=%d within=%d", calls, unit.withinCalls)
-	}
+	require.NoError(t, err, "想定外のエラー")
+	assert.Equal(t, 1, calls, "cmd 呼び出し回数")
+	assert.Equal(t, 1, unit.withinCalls, "Within 呼び出し回数")
 }
 
 func TestRun_RetriesOnConflictThenSucceeds(t *testing.T) {
@@ -54,12 +54,8 @@ func TestRun_RetriesOnConflictThenSucceeds(t *testing.T) {
 		}
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("想定外のエラー: %v", err)
-	}
-	if calls != 3 {
-		t.Fatalf("cmd 呼び出し回数 = %d, want 3", calls)
-	}
+	require.NoError(t, err, "想定外のエラー")
+	assert.Equal(t, 3, calls, "cmd 呼び出し回数")
 }
 
 func TestRun_GivesUpAfterMaxAttempts(t *testing.T) {
@@ -72,12 +68,8 @@ func TestRun_GivesUpAfterMaxAttempts(t *testing.T) {
 		calls++
 		return uow.ErrConcurrencyConflict
 	})
-	if !errors.Is(err, uow.ErrConcurrencyConflict) {
-		t.Fatalf("エラー = %v, want ErrConcurrencyConflict", err)
-	}
-	if calls != 2 {
-		t.Fatalf("cmd 呼び出し回数 = %d, want 2", calls)
-	}
+	require.ErrorIs(t, err, uow.ErrConcurrencyConflict, "エラーは ErrConcurrencyConflict であるべき")
+	assert.Equal(t, 2, calls, "cmd 呼び出し回数")
 }
 
 func TestRun_NonConflictErrorReturnsImmediately(t *testing.T) {
@@ -91,12 +83,8 @@ func TestRun_NonConflictErrorReturnsImmediately(t *testing.T) {
 		calls++
 		return sentinel
 	})
-	if !errors.Is(err, sentinel) {
-		t.Fatalf("エラー = %v, want sentinel", err)
-	}
-	if calls != 1 {
-		t.Fatalf("cmd 呼び出し回数 = %d, want 1（衝突以外は再試行しない）", calls)
-	}
+	require.ErrorIs(t, err, sentinel, "エラーは sentinel であるべき")
+	assert.Equal(t, 1, calls, "cmd 呼び出し回数（衝突以外は再試行しない）")
 }
 
 func TestRun_ContextCancelledDuringBackoff(t *testing.T) {
@@ -110,9 +98,7 @@ func TestRun_ContextCancelledDuringBackoff(t *testing.T) {
 	err := uow.Run(ctx, exec, unit, func(ctx context.Context, _ fakeRepos) error {
 		return uow.ErrConcurrencyConflict
 	})
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("エラー = %v, want context.Canceled", err)
-	}
+	require.ErrorIs(t, err, context.Canceled, "エラーは context.Canceled であるべき")
 }
 
 func TestWithMaxAttempts_ClampedToOne(t *testing.T) {
@@ -126,7 +112,5 @@ func TestWithMaxAttempts_ClampedToOne(t *testing.T) {
 		calls++
 		return uow.ErrConcurrencyConflict
 	})
-	if calls != 1 {
-		t.Fatalf("cmd 呼び出し回数 = %d, want 1", calls)
-	}
+	assert.Equal(t, 1, calls, "cmd 呼び出し回数")
 }

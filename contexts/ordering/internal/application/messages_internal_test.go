@@ -5,6 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
 )
 
@@ -13,63 +16,42 @@ import (
 func TestToOutboxMessage_OrderPlacedHasNoRoute(t *testing.T) {
 	e := order.OrderPlaced{OrderID: "ORDER-1", ReservationRef: "RES-1", At: time.Now().UTC()}
 	_, ok, err := toOutboxMessage(e, "trace-1")
-	if err != nil {
-		t.Fatalf("想定外のエラー: %v", err)
-	}
-	if ok {
-		t.Fatalf("OrderPlaced はクロスコンテキストの送出経路を持たないはず（ok=true）")
-	}
+	require.NoError(t, err)
+	assert.False(t, ok, "OrderPlaced はクロスコンテキストの送出経路を持たないはず")
 }
 
 func TestToOutboxMessage_OrderCancelled(t *testing.T) {
 	e := order.OrderCancelled{OrderID: "ORDER-1", ReservationRef: "RES-1", At: time.Now().UTC()}
 	m, ok, err := toOutboxMessage(e, "trace-1")
-	if err != nil {
-		t.Fatalf("想定外のエラー: %v", err)
-	}
-	if !ok {
-		t.Fatalf("OrderCancelled は送出経路を持つべき（ok=false）")
-	}
-	if m.Type != MessageTypeOrderCancelled {
-		t.Fatalf("Type = %q, want %q", m.Type, MessageTypeOrderCancelled)
-	}
-	if m.TraceID != "trace-1" || m.ID == "" {
-		t.Fatalf("メッセージのメタ情報が不正: %+v", m)
-	}
+	require.NoError(t, err)
+	require.True(t, ok, "OrderCancelled は送出経路を持つべき")
+	assert.Equal(t, MessageTypeOrderCancelled, m.Type)
+	assert.Equal(t, "trace-1", m.TraceID)
+	assert.NotEmpty(t, m.ID)
+
 	var p struct {
 		ReservationRef string `json:"reservation_ref"`
 		OrderID        string `json:"order_id"`
 	}
-	if err := json.Unmarshal(m.Payload, &p); err != nil {
-		t.Fatalf("payload デコード失敗: %v", err)
-	}
-	if p.ReservationRef != "RES-1" || p.OrderID != "ORDER-1" {
-		t.Fatalf("payload が不正: %+v", p)
-	}
+	require.NoError(t, json.Unmarshal(m.Payload, &p))
+	assert.Equal(t, "RES-1", p.ReservationRef)
+	assert.Equal(t, "ORDER-1", p.OrderID)
 }
 
 func TestConfirmReservationMessage(t *testing.T) {
 	ref, err := order.NewReservationRef("REF-1")
-	if err != nil {
-		t.Fatalf("ReservationRef 生成失敗: %v", err)
-	}
+	require.NoError(t, err)
+
 	m, err := confirmReservationMessage(ref, "trace-1")
-	if err != nil {
-		t.Fatalf("想定外のエラー: %v", err)
-	}
-	if m.Type != MessageTypeConfirmReservation {
-		t.Fatalf("Type = %q, want %q", m.Type, MessageTypeConfirmReservation)
-	}
-	if m.TraceID != "trace-1" || m.ID == "" || m.OccurredAt.IsZero() {
-		t.Fatalf("メッセージのメタ情報が不正: %+v", m)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, MessageTypeConfirmReservation, m.Type)
+	assert.Equal(t, "trace-1", m.TraceID)
+	assert.NotEmpty(t, m.ID)
+	assert.False(t, m.OccurredAt.IsZero())
+
 	var p struct {
 		ReservationRef string `json:"reservation_ref"`
 	}
-	if err := json.Unmarshal(m.Payload, &p); err != nil {
-		t.Fatalf("payload デコード失敗: %v", err)
-	}
-	if p.ReservationRef != "REF-1" {
-		t.Fatalf("reservation_ref = %q, want REF-1", p.ReservationRef)
-	}
+	require.NoError(t, json.Unmarshal(m.Payload, &p))
+	assert.Equal(t, "REF-1", p.ReservationRef)
 }

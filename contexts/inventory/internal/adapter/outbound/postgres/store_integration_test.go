@@ -11,7 +11,6 @@ package postgres_test
 
 import (
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -19,6 +18,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/postgres"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
@@ -39,24 +40,19 @@ func setupPool(t *testing.T) *pgxpool.Pool {
 	}
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatalf("プール生成に失敗: %v", err)
-	}
+	require.NoError(t, err, "プール生成")
 	t.Cleanup(pool.Close)
 
 	// stock_reservations は stock_items を参照するため CASCADE で一括初期化する。
-	if _, err := pool.Exec(ctx, "TRUNCATE inventory.stock_items, inventory.outbox CASCADE"); err != nil {
-		t.Fatalf("テーブル初期化に失敗（スキーマ未適用の可能性）: %v", err)
-	}
+	_, err = pool.Exec(ctx, "TRUNCATE inventory.stock_items, inventory.outbox CASCADE")
+	require.NoError(t, err, "テーブル初期化（スキーマ未適用の可能性）")
 	return pool
 }
 
 func mustSKU(t *testing.T, s string) inventory.SKU {
 	t.Helper()
 	sku, err := inventory.NewSKU(s)
-	if err != nil {
-		t.Fatalf("SKU 生成失敗: %v", err)
-	}
+	require.NoError(t, err, "SKU 生成")
 	return sku
 }
 
@@ -70,7 +66,7 @@ type pgFixture struct {
 	work        *postgres.UnitOfWork
 }
 
-func newPgFixture(t *testing.T, pool *pgxpool.Pool, clock application.Clock) pgFixture {
+func newPgFixture(t *testing.T, pool *pgxpool.Pool, _ application.Clock) pgFixture {
 	t.Helper()
 	log := testLogger()
 	work := postgres.NewUnitOfWork(pool)
@@ -92,24 +88,17 @@ func TestPostgres_ReplenishThenQuery(t *testing.T) {
 	f := newPgFixture(t, pool, application.SystemClock{})
 
 	res, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: "PGX-1", Quantity: 7})
-	if err != nil {
-		t.Fatalf("Replenish 失敗: %v", err)
-	}
-	if res.Available != 7 || res.Version != 1 {
-		t.Fatalf("補充結果が不正: %+v", res)
-	}
+	require.NoError(t, err, "Replenish")
+	assert.Equal(t, 7, res.Available)
+	assert.Equal(t, 1, res.Version)
 
 	view, err := f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "PGX-1"})
-	if err != nil {
-		t.Fatalf("QueryStock 失敗: %v", err)
-	}
-	if view.Available != 7 || view.Version != 1 {
-		t.Fatalf("照会結果が不正: %+v", view)
-	}
+	require.NoError(t, err, "QueryStock")
+	assert.Equal(t, 7, view.Available)
+	assert.Equal(t, 1, view.Version)
 
-	if _, err := f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "MISSING"}); !errors.Is(err, inventory.ErrStockItemNotFound) {
-		t.Fatalf("エラー = %v, want ErrStockItemNotFound", err)
-	}
+	_, err = f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "MISSING"})
+	require.ErrorIs(t, err, inventory.ErrStockItemNotFound)
 }
 
 func TestPostgres_ReserveConfirmRelease(t *testing.T) {
@@ -118,41 +107,34 @@ func TestPostgres_ReserveConfirmRelease(t *testing.T) {
 	f := newPgFixture(t, pool, application.SystemClock{})
 
 	for _, sku := range []string{"PGX-A", "PGX-B"} {
-		if _, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: sku, Quantity: 10}); err != nil {
-			t.Fatalf("補充失敗: %v", err)
-		}
+		_, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: sku, Quantity: 10})
+		require.NoError(t, err, "補充")
 	}
 
 	// マルチ SKU 予約。
-	if err := f.reserver.Reserve(ctx, application.ReserveInput{
+	err := f.reserver.Reserve(ctx, application.ReserveInput{
 		Ref:   "ORDER-1",
 		Lines: []application.ReserveLine{{SKU: "PGX-A", Quantity: 3}, {SKU: "PGX-B", Quantity: 7}},
-	}); err != nil {
-		t.Fatalf("Reserve 失敗: %v", err)
-	}
+	})
+	require.NoError(t, err, "Reserve")
 	viewA, _ := f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "PGX-A"})
-	if viewA.Available != 7 || viewA.Reserved != 3 {
-		t.Fatalf("A の予約後が不正: %+v", viewA)
-	}
+	assert.Equal(t, 7, viewA.Available, "A 予約後 available")
+	assert.Equal(t, 3, viewA.Reserved, "A 予約後 reserved")
 
 	// 確定 → available 不変。
-	if err := f.confirmer.Confirm(ctx, "ORDER-1"); err != nil {
-		t.Fatalf("Confirm 失敗: %v", err)
-	}
+	require.NoError(t, f.confirmer.Confirm(ctx, "ORDER-1"), "Confirm")
 	viewB, _ := f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "PGX-B"})
-	if viewB.Available != 3 || viewB.Reserved != 7 {
-		t.Fatalf("B の確定後が不正: %+v", viewB)
-	}
+	assert.Equal(t, 3, viewB.Available, "B 確定後 available")
+	assert.Equal(t, 7, viewB.Reserved, "B 確定後 reserved")
 
 	// 解放 → available へ戻る。
-	if err := f.releaser.Release(ctx, "ORDER-1"); err != nil {
-		t.Fatalf("Release 失敗: %v", err)
-	}
+	require.NoError(t, f.releaser.Release(ctx, "ORDER-1"), "Release")
 	viewA, _ = f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "PGX-A"})
 	viewB, _ = f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "PGX-B"})
-	if viewA.Reserved != 0 || viewA.Available != 10 || viewB.Reserved != 0 || viewB.Available != 10 {
-		t.Fatalf("解放後が不正: A=%+v B=%+v", viewA, viewB)
-	}
+	assert.Equal(t, 0, viewA.Reserved, "A 解放後 reserved")
+	assert.Equal(t, 10, viewA.Available, "A 解放後 available")
+	assert.Equal(t, 0, viewB.Reserved, "B 解放後 reserved")
+	assert.Equal(t, 10, viewB.Available, "B 解放後 available")
 }
 
 func TestPostgres_ReaperReleasesExpiredPending(t *testing.T) {
@@ -163,29 +145,19 @@ func TestPostgres_ReaperReleasesExpiredPending(t *testing.T) {
 	f := newPgFixture(t, pool, clock)
 	log := testLogger()
 
-	if _, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: "PGX-R", Quantity: 100}); err != nil {
-		t.Fatalf("補充失敗: %v", err)
-	}
-	if err := f.reserver.Reserve(ctx, application.ReserveInput{Ref: "PENDING", Lines: []application.ReserveLine{{SKU: "PGX-R", Quantity: 10}}}); err != nil {
-		t.Fatalf("pending 予約失敗: %v", err)
-	}
-	if err := f.reserver.Reserve(ctx, application.ReserveInput{Ref: "CONFIRMED", Lines: []application.ReserveLine{{SKU: "PGX-R", Quantity: 20}}}); err != nil {
-		t.Fatalf("confirmed 予約失敗: %v", err)
-	}
-	if err := f.confirmer.Confirm(ctx, "CONFIRMED"); err != nil {
-		t.Fatalf("Confirm 失敗: %v", err)
-	}
+	_, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: "PGX-R", Quantity: 100})
+	require.NoError(t, err, "補充")
+	require.NoError(t, f.reserver.Reserve(ctx, application.ReserveInput{Ref: "PENDING", Lines: []application.ReserveLine{{SKU: "PGX-R", Quantity: 10}}}), "pending 予約")
+	require.NoError(t, f.reserver.Reserve(ctx, application.ReserveInput{Ref: "CONFIRMED", Lines: []application.ReserveLine{{SKU: "PGX-R", Quantity: 20}}}), "confirmed 予約")
+	require.NoError(t, f.confirmer.Confirm(ctx, "CONFIRMED"), "Confirm")
 
 	reaper := application.NewReaper(uow.NewExecutor(), f.work, application.NewInProcessDispatcher(log), clock, log, 100)
-	if err := reaper.Sweep(ctx); err != nil {
-		t.Fatalf("Sweep 失敗: %v", err)
-	}
+	require.NoError(t, reaper.Sweep(ctx), "Sweep")
 
 	view, _ := f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "PGX-R"})
 	// PENDING(10) が戻り、CONFIRMED(20) は残る。
-	if view.Available != 80 || view.Reserved != 20 {
-		t.Fatalf("Reap 後が不正: %+v", view)
-	}
+	assert.Equal(t, 80, view.Available, "Reap 後 available")
+	assert.Equal(t, 20, view.Reserved, "Reap 後 reserved")
 }
 
 func TestPostgres_OutboxEnqueueAndRelay(t *testing.T) {
@@ -214,29 +186,20 @@ func TestPostgres_OutboxEnqueueAndRelay(t *testing.T) {
 			OccurredAt: time.Now().UTC(),
 		})
 	})
-	if err != nil {
-		t.Fatalf("UoW 失敗: %v", err)
-	}
+	require.NoError(t, err, "UoW")
 
 	// 送信中継が未送信を送出して published にする。
 	store := postgres.NewOutboxStore(pool)
 	pub := &countingPublisher{}
 	runner := outbox.NewRunner(store, pub, log, outbox.WithBatch(10))
 	sent, err := runner.RunOnce(ctx)
-	if err != nil {
-		t.Fatalf("RunOnce 失敗: %v", err)
-	}
-	if sent != 1 || pub.count != 1 {
-		t.Fatalf("送出件数が不正: sent=%d published=%d", sent, pub.count)
-	}
+	require.NoError(t, err, "RunOnce")
+	assert.Equal(t, 1, sent, "送出件数")
+	assert.Equal(t, 1, pub.count, "publish 件数")
 	// 2 回目は送信済みなので 0 件。
 	sent, err = runner.RunOnce(ctx)
-	if err != nil {
-		t.Fatalf("2 回目 RunOnce 失敗: %v", err)
-	}
-	if sent != 0 {
-		t.Fatalf("2 回目の送出件数 = %d, want 0", sent)
-	}
+	require.NoError(t, err, "2 回目 RunOnce")
+	assert.Equal(t, 0, sent, "2 回目の送出件数")
 }
 
 func TestPostgres_ConcurrencyConflict(t *testing.T) {
@@ -245,9 +208,8 @@ func TestPostgres_ConcurrencyConflict(t *testing.T) {
 	f := newPgFixture(t, pool, application.SystemClock{})
 	read := postgres.NewReadStockStore(pool)
 
-	if _, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: "PGX-CONFLICT", Quantity: 5}); err != nil {
-		t.Fatalf("初期補充 失敗: %v", err)
-	}
+	_, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: "PGX-CONFLICT", Quantity: 5})
+	require.NoError(t, err, "初期補充")
 
 	sku := mustSKU(t, "PGX-CONFLICT")
 	stale := loadVia(t, read, sku) // version 1
@@ -256,19 +218,15 @@ func TestPostgres_ConcurrencyConflict(t *testing.T) {
 	q1, _ := inventory.NewQuantity(1)
 
 	_ = other.Replenish(q1)
-	if err := f.work.Within(ctx, func(ctx context.Context, r application.Repos) error {
+	require.NoError(t, f.work.Within(ctx, func(ctx context.Context, r application.Repos) error {
 		return r.Stock().Save(ctx, other)
-	}); err != nil {
-		t.Fatalf("other の保存 失敗: %v", err)
-	}
+	}), "other の保存")
 
 	_ = stale.Replenish(q1)
-	err := f.work.Within(ctx, func(ctx context.Context, r application.Repos) error {
+	err = f.work.Within(ctx, func(ctx context.Context, r application.Repos) error {
 		return r.Stock().Save(ctx, stale)
 	})
-	if !errors.Is(err, uow.ErrConcurrencyConflict) {
-		t.Fatalf("エラー = %v, want ErrConcurrencyConflict", err)
-	}
+	require.ErrorIs(t, err, uow.ErrConcurrencyConflict)
 }
 
 // countingPublisher は送出回数を数えるだけの Publisher。
@@ -283,8 +241,6 @@ func (p *countingPublisher) Publish(_ context.Context, _ outbox.Message) error {
 func loadVia(t *testing.T, read application.StockStore, sku inventory.SKU) *inventory.StockItem {
 	t.Helper()
 	item, err := read.Load(context.Background(), sku)
-	if err != nil {
-		t.Fatalf("読み込み 失敗: %v", err)
-	}
+	require.NoError(t, err, "読み込み")
 	return item
 }

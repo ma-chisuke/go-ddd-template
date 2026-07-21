@@ -110,6 +110,28 @@
 - 適用順は **schema → roles/GRANT → seed →（dev のみ）fixtures**（GRANT/seed はテーブルの
   存在を前提とするため schema の後）。この順序は bring-up の init コンテナが担います。
 
+## テスト
+
+- テストランナーは標準の `testing`。アサーションは **testify**（`require` は前提が崩れたら
+  即中断する致命的検証、`assert` は独立した検証を続行）で書きます。
+- **ポート相互作用の検証には uber-go/mock（gomock）** を使います。application 層のポート
+  （interface）から `go generate`（`go tool mockgen`）でモックを生成し、`internal/mock`
+  パッケージに**コミット**します（手編集しない・再生成で冪等）。「use case がポートを正しい
+  順序・回数で呼ぶか」を `EXPECT()` で表明する用途です。カバレッジ計測（domain + application）
+  を汚さないよう、生成モックは計測グロブの外（`internal/mock`）へ置きます。
+- **インメモリ実装（`adapter/outbound/memory`）はモックではなく本物のアダプタ**です。擬似
+  トランザクションや楽観的排他制御まで含めた統合的な振る舞いを、DB 非依存で高速に検証する
+  ために使います（gomock とは役割が別で、置き換えではなく併用）。
+- コンテキストを跨ぐ **seam（腐敗防止層）は `httptest`** でピア契約どおりのスタブを立てて
+  検証します。
+- **PostgreSQL アダプタの統合テスト**は build tag `integration` を付けたときだけ実行します
+  （ローカル DB / docker-compose 前提）。
+- ドメイン層とアプリケーション層は**行カバレッジ 80% 以上**を維持します
+  （`scripts/coverage-gate.sh`、CI のマージ前ゲート）。生成コード（ogen / sqlc / mockgen）と
+  アダプタ結線はこの閾値の対象にしません。
+- テスト用の外部依存（testify / gomock）は**本番コードに持ち込みません**。テストファイルと
+  `internal/mock` だけが import してよく、とりわけドメイン層の純粋性を保ちます。
+
 ## 整形・静的解析
 
 - `gofmt` と `goimports` で整形し、`go vet` と `golangci-lint` を通します（CI ゲート）。
