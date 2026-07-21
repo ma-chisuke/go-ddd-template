@@ -9,16 +9,17 @@
 
 ## 破ってはいけない規則
 
-1. **生成コードを手で編集しない。** ogen（`internal/interfaces/openapi/`）と
-   sqlc（`internal/infrastructure/postgres/sqlcgen/`）の出力は生成物です。挙動を変えたい
+1. **生成コードを手で編集しない。** ogen（`internal/adapter/inbound/openapi/`）と
+   sqlc（`internal/adapter/outbound/postgres/sqlcgen/`）の出力は生成物です。挙動を変えたい
    ときは、元の契約（`contracts/inventory/openapi.yaml`）や SQL（`contexts/inventory/db/`）を
    編集して `go generate ./...` で再生成し、生成物をコミットします。
-2. **業務ルールはドメイン層に置く。** infrastructure / interfaces 層には業務ロジックを
+2. **業務ルールはドメイン層に置く。** adapter（inbound / outbound）層には業務ロジックを
    置きません。オーケストレーションはアプリケーション層です。
-3. **ドメイン層を純粋に保つ。** `internal/domain/**` から永続化・HTTP・IO・フレームワークを
-   import しません（`net/http`, `database/sql`, `github.com/jackc/pgx`,
-   `github.com/ogen-go/ogen` など）。この規則は depguard で機械的に強制されており、
-   違反するとビルドが止まります。
+3. **ドメイン層を純粋に保つ。** `internal/domain/**` から永続化・HTTP・IO・フレームワーク・
+   アダプタを import しません（`net/http`, `database/sql`, `github.com/jackc/pgx`,
+   `github.com/ogen-go/ogen`、`internal/adapter/**` など）。この規則は depguard で
+   機械的に強制されており、違反するとビルドが止まります。さらに、入口（inbound）と
+   出口（outbound）が互いを直接 import することも depguard で禁止しています。
 4. **トランザクションを `context.Context` に載せない。** 書き込みは必ず
    `UnitOfWork.Within` の内側で、コールバック引数のリポジトリ束から取得したリポジトリを
    使って行います。`context.Context` には相関 ID などの付帯情報だけを載せます。
@@ -32,8 +33,9 @@
 | --- | --- |
 | 集約・値オブジェクト・不変条件・ドメインイベント | `internal/domain/inventory/` |
 | ユースケース、ポート（interface） | `internal/application/` |
-| ポートの実装（DB・インメモリ・ログ） | `internal/infrastructure/` |
-| HTTP ハンドラ・エラー変換・ミドルウェア | `internal/interfaces/` |
+| ポートの実装（DB・インメモリ・ログ）＝出口アダプタ | `internal/adapter/outbound/`（`memory` / `postgres` / `logging`） |
+| HTTP ハンドラ・エラー変換・ミドルウェア＝入口アダプタ | `internal/adapter/inbound/http/`（パッケージ `httpapi`） |
+| ogen 生成の HTTP サーバ | `internal/adapter/inbound/openapi/` |
 | 依存の結線（合成ルート） | `inventory.go`（ファサード）と `cmd/inventory/` |
 | 公開 HTTP 契約 | `contracts/inventory/openapi.yaml` |
 | DB スキーマ・クエリ | `contexts/inventory/db/schema.sql`, `queries.sql` |
@@ -54,14 +56,15 @@
 
 1. `contracts/inventory/openapi.yaml` を編集する。
 2. `cd contexts/inventory && go generate ./...` で ogen を再生成する。
-3. `internal/interfaces/handler.go` の薄いハンドラを、生成された型に合わせて更新する。
-   エラーの HTTP 変換は `internal/interfaces/errmap.go` の `NewError` を更新する。
+3. `internal/adapter/inbound/http/handler.go` の薄いハンドラを、生成された型に合わせて
+   更新する。エラーの HTTP 変換は `internal/adapter/inbound/http/errmap.go` の
+   `NewError` を更新する。
 
 ### 永続化のクエリ／スキーマを変更する
 
 1. `contexts/inventory/db/schema.sql` または `queries.sql` を編集する。
 2. `go generate ./...` で sqlc を再生成する。
-3. `internal/infrastructure/postgres/store.go` を、生成された型・関数に合わせて更新する。
+3. `internal/adapter/outbound/postgres/store.go` を、生成された型・関数に合わせて更新する。
 
 ## 機械可読な契約（真実の源）
 

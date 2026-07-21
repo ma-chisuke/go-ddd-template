@@ -1,14 +1,19 @@
-// Package interfaces はヘキサゴナルアーキテクチャのインターフェース層（driving adapter）。
-// ogen が生成した HTTP サーバのハンドラを実装し、HTTP とアプリケーション層の
-// 相互変換だけを担う。業務ロジックはここには置かない。
-package interfaces
+// Package httpapi は受信アダプタ（inbound adapter＝駆動側）の HTTP 実装。
+// ヘキサゴナルアーキテクチャの「入口」であり、外の世界（HTTP リクエスト）を
+// アプリケーション層のユースケース呼び出しへ翻訳して届ける。ogen が生成した
+// HTTP サーバのハンドラを実装し、HTTP とアプリケーション層の相互変換だけを担う。
+// 業務ロジックはここには置かない。
+//
+// パッケージ名を httpapi にしているのは、取り込み側で標準ライブラリ net/http と
+// 識別子（http）が衝突しないようにするため。ディレクトリ名は入口の輸送手段を表す http。
+package httpapi
 
 import (
 	"context"
 	"log/slog"
 
+	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/openapi"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/interfaces/openapi"
 )
 
 // Handler は ogen が生成した openapi.Handler を実装する薄いアダプタ。

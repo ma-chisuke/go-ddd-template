@@ -15,11 +15,14 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	// ディレクトリ名 http とパッケージ名 httpapi が異なるため、明示的に別名を付ける
+	// （パッケージ名を httpapi にしているのは、取り込み側で標準ライブラリ net/http と
+	// 識別子が衝突しないようにするため）。
+	httpapi "github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/http"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/openapi"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/logging"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/postgres"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/infrastructure/logging"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/infrastructure/postgres"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/interfaces"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/interfaces/openapi"
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
@@ -56,14 +59,14 @@ func New(deps Deps) (*Module, error) {
 	// 読み取り経路: 書き込み用の作業単位を使わず、プール直結の読み取りストアを注入する。
 	viewer := application.NewStockViewer(postgres.NewReadStockStore(deps.Pool), log)
 
-	apiHandler := interfaces.NewHandler(replenisher, viewer, log)
+	apiHandler := httpapi.NewHandler(replenisher, viewer, log)
 	server, err := openapi.NewServer(apiHandler)
 	if err != nil {
 		return nil, fmt.Errorf("inventory: HTTP サーバの構築に失敗しました: %w", err)
 	}
 
 	return &Module{
-		handler: interfaces.CorrelationMiddleware(server),
+		handler: httpapi.CorrelationMiddleware(server),
 	}, nil
 }
 

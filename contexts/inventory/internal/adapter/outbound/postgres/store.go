@@ -1,5 +1,6 @@
-// Package postgres は PostgreSQL（pgx + sqlc）を用いたインフラストラクチャ層の
-// アダプタを提供する。application 層のポート（StockStore、UnitOfWork）を実装する。
+// Package postgres は PostgreSQL（pgx + sqlc）を用いた送信アダプタ
+// （outbound adapter＝被駆動側）を提供する。ヘキサゴナルアーキテクチャの「出口」であり、
+// application 層のポート（StockStore、UnitOfWork）を実装して外の世界（DB）へ書き出す。
 package postgres
 
 import (
@@ -10,8 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/postgres/sqlcgen"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/infrastructure/postgres/sqlcgen"
 	"github.com/example/go-ddd-template/shared/uow"
 )
 

@@ -1,4 +1,4 @@
-package interfaces
+package httpapi
 
 import (
 	"context"
@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/openapi"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/interfaces/openapi"
 	"github.com/example/go-ddd-template/shared/uow"
 )
 

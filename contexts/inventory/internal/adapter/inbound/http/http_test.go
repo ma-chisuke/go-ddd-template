@@ -1,4 +1,4 @@
-package interfaces_test
+package httpapi_test
 
 import (
 	"bytes"
@@ -10,10 +10,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	httpapi "github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/http"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/openapi"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/infrastructure/memory"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/interfaces"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/interfaces/openapi"
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
@@ -32,12 +32,12 @@ func newServer(t *testing.T) *httptest.Server {
 	replenisher := application.NewReplenisher(exec, work, dispatcher, log)
 	viewer := application.NewStockViewer(read, log)
 
-	h := interfaces.NewHandler(replenisher, viewer, log)
+	h := httpapi.NewHandler(replenisher, viewer, log)
 	server, err := openapi.NewServer(h)
 	if err != nil {
 		t.Fatalf("ogen サーバの構築に失敗: %v", err)
 	}
-	ts := httptest.NewServer(interfaces.CorrelationMiddleware(server))
+	ts := httptest.NewServer(httpapi.CorrelationMiddleware(server))
 	t.Cleanup(ts.Close)
 	return ts
 }

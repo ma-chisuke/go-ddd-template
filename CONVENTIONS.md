@@ -10,8 +10,8 @@
   例: `inventory.SKU` とし、`inventory.InventorySKU` とはしません。
 - **1 ファイル 1 主要型**を基本とし、ファイル名は型名の snake_case にします。
   例: `StockItem` → `stock_item.go`、`SKU` → `sku.go`。
-- **生成ファイルは隔離**します。ogen は `internal/interfaces/openapi/` に、
-  sqlc は `internal/infrastructure/postgres/sqlcgen/` に出力し、**手で編集しません**。
+- **生成ファイルは隔離**します。ogen は `internal/adapter/inbound/openapi/` に、
+  sqlc は `internal/adapter/outbound/postgres/sqlcgen/` に出力し、**手で編集しません**。
 
 ## 命名
 
@@ -38,16 +38,22 @@
 
 ## 層の分離（ヘキサゴナル / DDD）
 
+コードは 4 層に分けます。アダプタは方向で対称に **adapter/inbound（入口＝駆動側）** と
+**adapter/outbound（出口＝被駆動側）** に分けます。ポートは application 層に置きます。
+
 - **純粋なドメイン**: ドメイン層はリポジトリ（そのポート interface も含む）や
-  永続化・IO・フレームワークを import しません。この純粋性は静的解析（depguard）で
-  機械的に強制しています。
-- **ポートはアプリケーション層に定義**し、**アダプタは infrastructure 層で実装**します。
+  永続化・IO・フレームワーク・アダプタを import しません。この純粋性は静的解析（depguard）
+  で機械的に強制しています。
+- **ポートはアプリケーション層に定義**し、**アダプタは adapter/outbound 層で実装**します。
   リポジトリのポートも、翻訳（腐敗防止）のポートも、application 層に置きます。
+  application 層はアダプタに依存しません（依存はポート経由で逆転させます）。
+- **入口（inbound）と出口（outbound）は互いを直接 import しません**。両者の結線は
+  合成ルート（ファサード / cmd）だけで行います。方向ルールは depguard で強制しています。
 - ユースケースは **「読み込み → ドメイン操作 → 保存」** を作業単位の内側で行います。
   ドメインサービスはユースケースから受け取ったデータで動き、自分でリポジトリを
   参照しません。
 - **業務ルールはドメイン層**（オーケストレーションはアプリケーション層）に置きます。
-  infrastructure / interfaces 層に業務ロジックを置きません。
+  adapter（inbound / outbound）層に業務ロジックを置きません。
 
 ## 値オブジェクト
 

@@ -19,9 +19,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/postgres"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/infrastructure/postgres"
 	"github.com/example/go-ddd-template/shared/uow"
 )
 

@@ -7,9 +7,9 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/infrastructure/memory"
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
