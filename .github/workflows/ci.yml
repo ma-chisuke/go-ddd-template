@@ -1,4 +1,13 @@
-# CI: ビルド・整形検査・静的解析・テスト、そしてコード生成の冪等性検証。
+# CI: ビルド・整形検査・静的解析・テスト・コード生成の冪等性、
+#     カバレッジゲート、そして契約ガバナンス（API / メッセージスキーマの後方互換）。
+#
+# セキュリティ方針:
+#   - permissions は最小権限（contents: read）。書き込み権限は付与しない。
+#   - シークレットは一切使わない。したがって fork からの PR でも安全に実行できる
+#     （pull_request イベントは fork PR にシークレットを渡さない。危険な
+#      pull_request_target は使わない）。
+#   - アクションはバージョンでピン留めする。ゲート用ツール（oasdiff 等）は Go ツールチェーンで
+#     バージョン指定して導入し、ランタイム依存には持ち込まない。
 name: CI
 
 on:
@@ -11,10 +20,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# 最小権限。読み取りのみ。
 permissions:
   contents: read
 
 jobs:
+  # ビルド・静的解析・テスト・生成冪等性・カバレッジ。
   ci:
     runs-on: ubuntu-latest
     steps:
@@ -52,11 +63,11 @@ jobs:
       - name: 整形検査（gofmt / goimports）
         run: |
           set -euo pipefail
-          if [ -n "$(gofmt -l shared clients contexts)" ]; then
-            echo "::error::gofmt 未整形のファイルがあります:"; gofmt -l shared clients contexts; exit 1
+          if [ -n "$(gofmt -l shared clients contexts cmd)" ]; then
+            echo "::error::gofmt 未整形のファイルがあります:"; gofmt -l shared clients contexts cmd; exit 1
           fi
-          if [ -n "$(goimports -l shared clients contexts)" ]; then
-            echo "::error::goimports 未整形のファイルがあります:"; goimports -l shared clients contexts; exit 1
+          if [ -n "$(goimports -l shared clients contexts cmd)" ]; then
+            echo "::error::goimports 未整形のファイルがあります:"; goimports -l shared clients contexts cmd; exit 1
           fi
 
       - name: go vet
@@ -66,26 +77,61 @@ jobs:
           (cd clients/inventory && go vet ./...)
           (cd contexts/inventory && go vet ./...)
           (cd contexts/ordering && go vet ./...)
+          (cd cmd/dev && go vet ./...)
 
-      - name: golangci-lint
+      - name: golangci-lint（depguard による層／seam の境界強制を含む）
         run: |
           set -euo pipefail
           (cd shared && golangci-lint run ./...)
           (cd clients/inventory && golangci-lint run ./...)
           (cd contexts/inventory && golangci-lint run ./...)
           (cd contexts/ordering && golangci-lint run ./...)
+          (cd cmd/dev && golangci-lint run ./...)
 
-      - name: ビルド
+      - name: ビルド（統合タグのコンパイル検証を含む）
         run: |
           set -euo pipefail
           (cd shared && go build ./...)
           (cd clients/inventory && go build ./...)
-          (cd contexts/inventory && go build ./...)
-          (cd contexts/ordering && go build ./...)
+          # 通常ビルドに加え、統合テスト（build tag integration、DB 接続時のみ実行）が
+          # コンパイル可能であることを -run='^$' で検証する（DB 不要・テストは実行しない）。
+          (cd contexts/inventory && go build ./... && go test -tags=integration -run='^$' ./...)
+          (cd contexts/ordering && go build ./... && go test -tags=integration -run='^$' ./...)
+          (cd cmd/dev && go build ./...)
 
-      - name: テスト
+      - name: テスト（-race）
         run: |
           set -euo pipefail
           (cd shared && go test -race ./...)
           (cd contexts/inventory && go test -race ./...)
           (cd contexts/ordering && go test -race ./...)
+          (cd cmd/dev && go test -race ./...)
+
+      - name: カバレッジゲート（domain + application >= 80%／モジュール）
+        run: bash scripts/coverage-gate.sh
+
+  # 契約ガバナンス: API / メッセージスキーマの後方互換ゲート。
+  # コード変更とは独立した関心事なので別ジョブにする。
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Go をセットアップ
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: 契約ゲート用ツールをインストール
+        run: |
+          set -euo pipefail
+          # oasdiff は OpenAPI の破壊的変更検出ツール（dev/CI 専用。ランタイム依存ではない）。
+          # jq は Ubuntu ランナーにプリインストール済み（イベントスキーマの互換チェックに使う）。
+          go install github.com/oasdiff/oasdiff@v1.23.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: OpenAPI 契約の後方互換（oasdiff、released ベースライン比較）
+        run: bash contracts/check-openapi-compat.sh
+
+      - name: メッセージ契約の後方互換（イベント／コマンドの JSON スキーマ）
+        run: bash contracts/events/check-compat.sh

@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
@@ -12,9 +13,18 @@ import (
 
 // UnitOfWork はインメモリの擬似トランザクションによる作業単位。
 // 注文ストアとアウトボックスを同一トランザクションに束ね、コミット時にまとめて確定させる。
+//
+// 任意で「同期配送シンク（sink）」を持てる（WithSyncDelivery）。設定されている場合、
+// トランザクションのコミット成功直後に、そのトランザクションで積まれたメッセージを
+// その場で（同期的に）シンクへ送出する。これは Docker/DB を使わない開発ハーネス
+// （cmd/dev）向けの機構で、集約書き込みと同一トランザクションで積んだメッセージを、
+// 別プロセスの送信中継（outbox.Runner）を介さずに決定的にピアへ届けるためのもの。
+// 本番の耐障害な配送は outbox.Runner（ポーリング中継）が担う。
 type UnitOfWork struct {
 	store  *Store
 	outbox *OutboxStore
+	sink   outbox.Publisher
+	log    *slog.Logger
 }
 
 // NewUnitOfWork はインメモリの作業単位を生成する。
@@ -22,11 +32,22 @@ func NewUnitOfWork(store *Store, outboxStore *OutboxStore) *UnitOfWork {
 	return &UnitOfWork{store: store, outbox: outboxStore}
 }
 
+// WithSyncDelivery は開発用の同期配送シンクを設定する（本番では使わない）。設定すると、
+// コミット成功直後に、そのトランザクションで積まれたメッセージを同期的に sink へ送出し、
+// 送出できたものは送信済みとして記録する（背景の Runner が二重送出しないように）。
+// これにより「集約の保存 → クロスコンテキストメッセージの配送」が 1 コールで決定的に完結する。
+func (u *UnitOfWork) WithSyncDelivery(sink outbox.Publisher, log *slog.Logger) *UnitOfWork {
+	u.sink = sink
+	u.log = log
+	return u
+}
+
 // コンパイル時にポートを満たしていることを確認する。
 var _ application.UnitOfWork = (*UnitOfWork)(nil)
 
 // Within は擬似トランザクションを開く。fn が成功すれば staging をコミットし、
-// エラーを返せば staging を破棄（ロールバック）する。
+// エラーを返せば staging を破棄（ロールバック）する。コミット成功後、同期配送シンクが
+// 設定されていれば、そのトランザクションで積まれたメッセージをその場で送出する。
 func (u *UnitOfWork) Within(ctx context.Context, fn func(ctx context.Context, r application.Repos) error) error {
 	tx := &txState{store: u.store, outbox: u.outbox}
 	r := repos{
@@ -36,7 +57,30 @@ func (u *UnitOfWork) Within(ctx context.Context, fn func(ctx context.Context, r 
 	if err := fn(ctx, r); err != nil {
 		return err // staging を破棄してロールバック
 	}
-	return tx.commit()
+	if err := tx.commit(); err != nil {
+		return err
+	}
+	u.deliverSync(ctx, tx.stagedMsgs)
+	return nil
+}
+
+// deliverSync は同期配送シンクが設定されている場合に、コミット済みメッセージをその場で
+// 送出する。配送失敗はログに留め、コミット済みの操作は成功として扱う（本番では outbox.Runner
+// が at-least-once で再送する。この開発用シンクにはその再送は無いことを明示する）。
+func (u *UnitOfWork) deliverSync(ctx context.Context, msgs []outbox.Message) {
+	if u.sink == nil || len(msgs) == 0 {
+		return
+	}
+	for _, m := range msgs {
+		if err := u.sink.Publish(ctx, m); err != nil {
+			if u.log != nil {
+				u.log.WarnContext(ctx, "同期配送に失敗しました（開発用シンクには再送がない点に注意）",
+					slog.String("id", m.ID), slog.String("type", m.Type), slog.Any("error", err))
+			}
+			continue
+		}
+		_ = u.outbox.MarkPublished(ctx, m.ID)
+	}
 }
 
 // repos は application.Repos の実装。

@@ -32,6 +32,12 @@
    この規則は depguard で機械的に強制されています。コンテキスト間で受け渡すのは翻訳済みの
    公開型（`port` パッケージの DTO や、`contracts/events/` のメッセージ契約）だけで、内部の
    ドメイン値オブジェクトは渡しません。相手の番兵エラーも自コンテキストの番兵へ翻訳します。
+   開発ハーネス `cmd/dev` も同様に、公開ファサード + 公開 `port` + `shared` + `clients` だけを
+   使い、各コンテキストの `internal/` には到達しません（Go の `internal/` 規則 + depguard）。
+7. **秘密情報をハードコードしない。** DB 接続文字列・パスワード・トークンをコードや
+   イメージに焼き込みません。実行時に環境変数 / シークレットマネージャから注入します
+   （`docker-compose.yml` の認証情報はすべて**デモ専用**であることを明記済み）。入力は
+   境界（HTTP ハンドラ・契約）で検証します。
 
 ## どこに何を書くか
 
@@ -46,7 +52,11 @@
 | 公開 HTTP ハンドラ・エラー変換・ミドルウェア＝入口アダプタ | `internal/adapter/inbound/http/`（パッケージ `httpapi`） |
 | ogen 生成の HTTP サーバ | `internal/adapter/inbound/openapi/`（在庫の内部 API は `openapiinternal/`） |
 | 依存の結線（合成ルート） | ファサード（`inventory.go` / `ordering.go`）と `cmd/<ctx>/` |
+| Docker 不要の開発ハーネス（両コンテキストを 1 プロセスで結線） | `cmd/dev/`（公開ファサード + `port` + `shared` + `clients` のみ） |
 | DB スキーマ・クエリ | `db/schema.sql`, `db/queries.sql` |
+| 最小権限ロール/GRANT・本番参照データ・dev/test フィクスチャ・psqldef スコープ | `db/roles.sql`, `db/seed.sql`, `db/fixtures.sql`, `db/sqldef.yml` |
+| bring-up オーケストレーション（schema → roles → seed → fixtures） | `deploy/migrate.Dockerfile`, `deploy/apply.sh`, `docker-compose.yml` |
+| 契約ガバナンスゲート（後方互換・カバレッジ） | `contracts/check-openapi-compat.sh`, `contracts/events/check-compat.sh`, `scripts/coverage-gate.sh` |
 | **腐敗防止層（ACL）ポート** `StockReserver` と番兵 `ErrReservationRejected` / `ErrReservationUnavailable`（注文） | `contexts/ordering/internal/application/acl.go` |
 | **ACL の HTTP 実装**（生成クライアントで在庫を予約・解放 + trace 伝播）（注文） | `contexts/ordering/internal/adapter/outbound/aclhttp/` |
 | **アウトボックス送信トランスポート**（在庫の `/events` へ HTTP push）（注文） | `contexts/ordering/internal/adapter/outbound/eventhttp/` |
@@ -139,8 +149,17 @@ go vet ./...
 golangci-lint run ./...
 go test ./...
 
-# DB ありの統合テスト（docker compose で DB を起動してから）
-DATABASE_URL=postgres://app:app@localhost:5432/app?sslmode=disable \
+# Docker 不要の開発ハーネス（両コンテキストを 1 プロセスで結線して一気に動かす）
+go run ./cmd/dev
+
+# 契約ガバナンス・カバレッジのゲート（CI と同じものをローカルで再現）
+bash contracts/check-openapi-compat.sh   # OpenAPI 後方互換（oasdiff）
+bash contracts/events/check-compat.sh    # メッセージ契約の後方互換
+bash scripts/coverage-gate.sh            # domain + application >= 80%
+
+# DB ありの統合テスト（テスト用オーバーレイで Postgres を公開してから）
+docker compose -f docker-compose.yml -f docker-compose.test.yml up -d db migrate
+DATABASE_URL=postgres://app:app_admin_demo@localhost:5432/app?sslmode=disable \
   go test -tags=integration ./...
 ```
 

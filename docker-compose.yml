@@ -1,49 +1,70 @@
 # デモ用の docker compose 定義。
 #
-# `docker compose up` で「PostgreSQL の起動 → スキーマ適用 → 在庫サービス・注文サービスの
-# 起動」まで手作業なしで立ち上がる。分散構成（サービスごとに独立コンテナ）を体験できる。
+# `docker compose up --build` の 1 コマンドで、手作業なしに次までを立ち上げる:
+#   PostgreSQL 起動 → （init コンテナで）スキーマ適用 → 最小権限ロール/GRANT → 本番参照データ
+#   → dev/test フィクスチャ → 在庫サービス・注文サービスの起動。
+# 分散構成（サービスごとに独立コンテナ、1 つの物理 DB を schema-per-context で論理分割）を体験できる。
 #
-# 重要（セキュリティ）: 以下の認証情報はすべてデモ専用である。
-# 本番環境では絶対に使わず、秘密情報は環境変数や秘密管理サービスから注入すること。
-# 認証情報はイメージには一切焼き込んでいない（すべて実行時の環境変数）。
+# 適用順は専用の init コンテナ（migrate）が担い、compose の depends_on で決定的に強制する:
+#   - migrate は db の healthcheck（service_healthy）を待ってから起動する。
+#   - 各サービスは migrate の正常終了（service_completed_successfully）を待ってから起動する。
+#
+# ネットワーク境界（既定 = デモ）:
+#   - 公開 API ポートだけをホストに publish する（在庫 8080 / 注文 8082）。
+#   - 在庫の内部 API（8081）と PostgreSQL（5432）は compose ネットワーク内に留め、ホストへ露出しない。
+#     サービス間はサービス名で解決する（注文 → 在庫の内部 API は http://inventory-service:8081）。
+#   - Postgres-adapter の統合テスト（-tags=integration）でホストから DB へ接続したいときは、
+#     テスト専用のオーバーレイ（docker-compose.test.yml）で 5432 を publish する（既定は非公開）。
+#
+# セキュリティ（重要）:
+#   - 以下の認証情報はすべてデモ専用である。本番では絶対に使わず、秘密は環境変数や
+#     シークレットマネージャから注入すること（compose ファイルに本番秘密を commit しない。
+#     .env は gitignore 済み）。認証情報はイメージには一切焼き込まない（すべて実行時の環境変数）。
+#   - サービスは superuser ではなく、自スキーマだけにスコープした最小権限ロールで接続する。
+#     スキーマ適用（管理者ロール）は init コンテナに閉じ、実行時は superuser を使わない。
 
 services:
   # PostgreSQL 本体。1 つの物理 DB を、コンテキストごとのスキーマ（inventory / ordering）で
-  # 論理分割する（schema-per-context）。各サービスは自分のスキーマだけを読み書きする。
+  # 論理分割する（schema-per-context）。ホストにはポートを publish しない（内部ネットワークのみ）。
   db:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: app         # デモ専用
-      POSTGRES_PASSWORD: app      # デモ専用（本番では秘密管理を使うこと）
+      POSTGRES_USER: app                                          # 管理者ロール（デモ専用）
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app_admin_demo}     # デモ専用（本番は秘密管理を使う）
       POSTGRES_DB: app
-    ports:
-      - "5432:5432"
+    # ports: 既定では publish しない（ホストへ露出しない）。テスト時のみ override で publish する。
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app -d app"]
       interval: 2s
       timeout: 3s
       retries: 30
 
-  # スキーマ適用用の使い捨てコンテナ（両コンテキストの宣言的スキーマの初期適用）。
-  # db が healthy になってから inventory / ordering の schema.sql を psql で流し込む。
-  # schema.sql は IF NOT EXISTS を使った冪等な DDL なので、再実行しても安全。
-  # スキーマが育ってきたら、差分適用ツール（sqldef 等）へ置き換えるとよい。
+  # スキーマ適用・ロール/GRANT・seed・（dev）fixtures を順に流し込む使い捨て init コンテナ。
+  # db が healthy になってから、各コンテキストの db/ をマウントして deploy/apply.sh を実行する。
+  # psqldef で宣言的スキーマを incremental・非破壊に適用し、psql で冪等なロール/seed を適用する。
   migrate:
-    image: postgres:17-alpine
+    build:
+      context: .
+      dockerfile: deploy/migrate.Dockerfile
     depends_on:
       db:
         condition: service_healthy
     environment:
-      PGPASSWORD: app   # デモ専用
+      PGHOST: db
+      PGPORT: "5432"
+      PGUSER: app
+      PGPASSWORD: ${POSTGRES_PASSWORD:-app_admin_demo}            # 管理者（schema/role 適用用・デモ専用）
+      PGDATABASE: app
+      INVENTORY_SVC_PASSWORD: ${INVENTORY_SVC_PASSWORD:-inventory_svc_demo}  # サービスロール（デモ専用）
+      ORDERING_SVC_PASSWORD: ${ORDERING_SVC_PASSWORD:-ordering_svc_demo}     # サービスロール（デモ専用）
+      APPLY_FIXTURES: "true"   # デモでは dev/test フィクスチャも投入する（本番経路では false）
     volumes:
-      - ./contexts/inventory/db/schema.sql:/inventory.sql:ro
-      - ./contexts/ordering/db/schema.sql:/ordering.sql:ro
-    entrypoint:
-      - "sh"
-      - "-c"
-      - "psql -h db -U app -d app -v ON_ERROR_STOP=1 -f /inventory.sql && psql -h db -U app -d app -v ON_ERROR_STOP=1 -f /ordering.sql"
+      - ./contexts/inventory/db:/db/inventory:ro
+      - ./contexts/ordering/db:/db/ordering:ro
+    restart: "no"
 
   # 在庫サービス。db が healthy かつ migrate が正常終了してから起動する。
+  # 自スキーマ（inventory）だけにスコープした最小権限ロールで接続する。
   inventory-service:
     build:
       context: .
@@ -54,16 +75,16 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      # デモ専用の接続情報。実行時の環境変数として渡す（イメージには含めない）。
-      DATABASE_URL: "postgres://app:app@db:5432/app?sslmode=disable"
+      # デモ専用の接続情報（inventory_svc = 自スキーマのみ）。実行時の環境変数として渡す。
+      DATABASE_URL: "postgres://inventory_svc:${INVENTORY_SVC_PASSWORD:-inventory_svc_demo}@db:5432/app?sslmode=disable"
       HTTP_ADDR: ":8080"           # 公開 API（補充・照会）
       INTERNAL_HTTP_ADDR: ":8081"  # 内部 API（予約・確定・解放・取り込み）
     ports:
-      - "8080:8080"
-      - "8081:8081"
+      - "8080:8080"  # 公開 API のみ publish（内部 API 8081 は publish しない）
 
   # 注文サービス。在庫サービスへは腐敗防止層（生成クライアント）越しに HTTP で到達する。
   # クロスコンテキストのメッセージ（予約確定・注文取消）は在庫の内部 API の /events へ送出する。
+  # 自スキーマ（ordering）だけにスコープした最小権限ロールで接続する。
   ordering-service:
     build:
       context: .
@@ -76,8 +97,8 @@ services:
       inventory-service:
         condition: service_started
     environment:
-      DATABASE_URL: "postgres://app:app@db:5432/app?sslmode=disable"
-      HTTP_ADDR: ":8082"                                    # 公開 API（作成・照会・取消）
-      INVENTORY_INTERNAL_URL: "http://inventory-service:8081" # 在庫の内部 API（ACL / event-ingest）
+      DATABASE_URL: "postgres://ordering_svc:${ORDERING_SVC_PASSWORD:-ordering_svc_demo}@db:5432/app?sslmode=disable"
+      HTTP_ADDR: ":8082"                                      # 公開 API（作成・照会・取消）
+      INVENTORY_INTERNAL_URL: "http://inventory-service:8081" # 在庫の内部 API（ACL / event-ingest。内部ネットワークで解決）
     ports:
-      - "8082:8082"
+      - "8082:8082"  # 公開 API のみ publish

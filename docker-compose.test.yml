@@ -1,0 +1,23 @@
+# テスト専用の compose オーバーレイ。
+#
+# 既定の docker-compose.yml では PostgreSQL をホストに publish しない（内部ネットワークのみ）。
+# 一方、Postgres-adapter の統合テスト（build tag integration）は、ホスト側の `go test` から
+# docker-compose の PostgreSQL へ接続する必要がある。この「テスト時のみ公開」は意図した明示的な
+# 例外であり、既定（デモ）経路の非公開方針とは分けてこのオーバーレイに閉じ込める。
+#
+# 使い方:
+#   # DB（+ init コンテナ）をテスト用に起動し、5432 をホストへ公開する
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml up -d db migrate
+#
+#   # ホストから統合テストを実行する（管理者ロールでスキーマ横断の後始末をするため app を用いる）
+#   DATABASE_URL='postgres://app:app_admin_demo@localhost:5432/app?sslmode=disable' \
+#     bash -c 'cd contexts/inventory && go test -tags=integration ./...'
+#   DATABASE_URL='postgres://app:app_admin_demo@localhost:5432/app?sslmode=disable' \
+#     bash -c 'cd contexts/ordering && go test -tags=integration ./...'
+#
+# 認証情報はいずれもデモ専用（docker-compose.yml と同じ既定値）。本番では使わない。
+
+services:
+  db:
+    ports:
+      - "5432:5432"  # テスト実行時のみホストへ公開する（既定の非公開方針の明示的例外）

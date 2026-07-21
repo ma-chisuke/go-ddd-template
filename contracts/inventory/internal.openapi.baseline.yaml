@@ -1,0 +1,221 @@
+openapi: 3.0.3
+# 在庫コンテキストの「内部」HTTP 契約（コントラクトファースト）。
+# 公開 API（openapi.yaml：補充・照会）とは別に、サービス間連携のための内部エンドポイントを
+# 定義する。予約・確定・解放と、クロスコンテキストメッセージの取り込み（event-ingest）を提供する。
+#
+# この内部サーバは公開サーバとは別の「サーバ / ルート群」として動かす（合成ルートで結線）。
+# ogen によってサーバコードを生成し、生成物はコミットして手で編集しない。
+info:
+  title: Inventory Internal API
+  version: 0.1.0
+  description: |
+    在庫コンテキストの内部 API。サービス間連携（予約の二相コミットや取消の反映）と、
+    アウトボックスのメッセージ取り込み（event-ingest → outbox.Router.Deliver）に用いる。
+    数量や参照の妥当性検証は、単一の真実の源であるドメイン層に委譲する。
+
+servers:
+  - url: /
+
+paths:
+  /reservations:
+    post:
+      operationId: reserveStock
+      summary: 在庫を予約する（マルチ SKU・全か無か）
+      description: 1 つの予約参照に対して複数 SKU をまとめて仮予約する。1 つでも在庫不足なら全体を失敗させる。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReserveCommand'
+      responses:
+        '200':
+          description: 予約結果の確認応答
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ack'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /reservations/{ref}/confirm:
+    post:
+      operationId: confirmReservation
+      summary: 予約を確定する（pending → confirmed）
+      description: 指定参照の予約を確定する。有効な予約が無ければ 404 を返す。
+      parameters:
+        - $ref: '#/components/parameters/RefPath'
+      responses:
+        '200':
+          description: 確定結果の確認応答
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ack'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /reservations/{ref}/release:
+    post:
+      operationId: releaseReservation
+      summary: 予約を解放する
+      description: 指定参照の予約を解放して在庫を戻す。未知・解放済みの参照でも冪等に成功する。
+      parameters:
+        - $ref: '#/components/parameters/RefPath'
+      responses:
+        '200':
+          description: 解放結果の確認応答
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ack'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /events:
+    post:
+      operationId: ingestEvent
+      summary: クロスコンテキストメッセージを取り込む
+      description: |
+        受信したメッセージを outbox.Router へ委譲し、message_type に応じた Consumer が処理する。
+        未登録の種別は 422 を返す（黙って捨てない）。payload は翻訳済み契約のシリアライズ（JSON 文字列）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InboundMessage'
+      responses:
+        '200':
+          description: 取り込み結果の確認応答
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ack'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+components:
+  parameters:
+    RefPath:
+      name: ref
+      in: path
+      required: true
+      description: 予約参照（不透明な相関 ID）
+      schema:
+        type: string
+        minLength: 1
+
+  responses:
+    ProblemResponse:
+      description: RFC 9457 形式のエラー詳細
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+
+  schemas:
+    ReserveCommand:
+      type: object
+      required:
+        - ref
+        - lines
+      properties:
+        ref:
+          type: string
+          description: 予約参照（不透明な相関 ID）
+        lines:
+          type: array
+          description: 予約する SKU と数量の一覧
+          items:
+            $ref: '#/components/schemas/ReserveLine'
+      example:
+        ref: ORDER-1
+        lines:
+          - sku: WIDGET-001
+            quantity: 3
+
+    ReserveLine:
+      type: object
+      required:
+        - sku
+        - quantity
+      properties:
+        sku:
+          type: string
+          description: 在庫識別子
+        quantity:
+          type: integer
+          description: 予約する数量。値の妥当性検証はドメイン層が行う。
+
+    InboundMessage:
+      type: object
+      description: アウトボックスの受信メッセージ封筒
+      required:
+        - id
+        - type
+        - payload
+      properties:
+        id:
+          type: string
+          description: メッセージの一意な識別子
+        type:
+          type: string
+          description: message_type（Consumer を選択する種別）
+        payload:
+          type: string
+          description: 翻訳済み契約のシリアライズ（JSON 文字列）
+        trace_id:
+          type: string
+          description: seam を跨ぐ相関 ID
+        occurred_at:
+          type: string
+          format: date-time
+          description: メッセージ発生時刻
+      example:
+        id: msg-1
+        type: ordering.order.cancelled
+        payload: '{"reservation_ref":"ORDER-1"}'
+        trace_id: trace-1
+
+    Ack:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          description: "処理結果（例 accepted）"
+      example:
+        status: accepted
+
+    ProblemDetails:
+      type: object
+      description: RFC 9457 (Problem Details for HTTP APIs) に準拠したエラー表現
+      required:
+        - type
+        - title
+        - status
+      properties:
+        type:
+          type: string
+          format: uri
+          description: 問題の種別を示す URI。既定は "about:blank"。
+        title:
+          type: string
+          description: 問題種別の短い人間可読な要約
+        status:
+          type: integer
+          description: HTTP ステータスコード
+        detail:
+          type: string
+          description: 今回の発生に固有の人間可読な説明
+        instance:
+          type: string
+          format: uri
+          description: 問題が発生した具体的なリソースを示す URI
+      example:
+        type: about:blank
+        title: Not Found
+        status: 404
+        detail: 予約が見つかりません

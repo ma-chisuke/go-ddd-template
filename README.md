@@ -145,35 +145,75 @@ Go でドメイン駆動設計（DDD）とヘキサゴナルアーキテクチ�
   ドメインのセンチネルエラーを HTTP ステータスへ翻訳します（見つからない → 404、
   入力検証 → 422、排他衝突 → 409）。
 
+## 読み進め方（段階的読解パス）
+
+このリポジトリは、まず 2 つの層で DDD のコアを理解し、そのうえで本番形状のインフラを
+読む、という順序で読み進められるよう構成しています。「最小」なのは**ドメインの題材**で
+あって、リポジトリ全体ではありません。インフラや横断的関心事が本番形状で厚いのは意図した
+特徴であり、この読解パスがその順序を制御します。
+
+1. **ドメイン** — `contexts/<ctx>/internal/domain/`。純粋なドメイン（集約・値オブジェクト・
+   不変条件・ドメインイベント・ドメインサービス）。外側を一切知りません。
+2. **アプリケーション（ユースケース）** — `contexts/<ctx>/internal/application/`。
+   「読み込み → ドメイン操作 → 保存」のオーケストレーションと、依存を逆転させるポート。
+3. **戦略的シーム（ACL + イベント）** — コンテキスト間の縫い目。配置時の同期予約（腐敗防止層
+   `aclhttp`）、確定コマンドと取消イベントのメッセージ契約（`contracts/events/`）。
+   全体像は [docs/context-map.md](docs/context-map.md) を参照。
+4. **インフラの堅牢化** — 作業単位（`shared/uow`）・トランザクショナルアウトボックス
+   （`shared/outbox`）・楽観的排他制御・宣言的 DB（`contexts/<ctx>/db/`）・契約ガバナンス
+   （`contracts/` + CI ゲート）。ここは本番形状で厚く、後から読みます。
+
+### ドキュメント
+
+- [CONVENTIONS.md](CONVENTIONS.md) — Go / SQL / DDD の規約（命名・層分離・`UnitOfWork[R]` など）。
+- [AGENTS.md](AGENTS.md) / [CLAUDE.md](CLAUDE.md) — AI エージェント向けガイド（機械可読契約への案内・禁止事項）。
+- [docs/context-map.md](docs/context-map.md) — seam の 3 フロー（同期予約 / 確定コマンド / 取消イベント）。
+- [docs/copy-a-context.md](docs/copy-a-context.md) — 1 コンテキストを切り出して自分のプロジェクトの出発点にする手順。
+- [docs/add-a-use-case.md](docs/add-a-use-case.md) — 新しいユースケースを足すレシピ。
+
 ## ディレクトリ構成
 
 ```
 .
 ├── go.work                     … 複数モジュールのワークスペース
+├── docker-compose.yml          … 分散サービスのローカル起動（DB + init + 2 サービス）
+├── docker-compose.test.yml     … 統合テスト時のみ Postgres をホスト公開するオーバーレイ
+├── deploy/                     … bring-up 用の使い捨て init コンテナ（psqldef + psql）
+│   ├── migrate.Dockerfile        … スキーマ適用・ロール/seed 適用イメージ
+│   └── apply.sh                  … 適用オーケストレーション（schema → roles → seed → fixtures）
+├── docs/                       … 追加ドキュメント（context-map / copy-a-context / add-a-use-case）
+├── scripts/coverage-gate.sh    … カバレッジゲート（domain + application >= 80%）
 ├── contracts/                  … コード生成の入力（契約 = 真実の源。集中管理）
+│   ├── check-openapi-compat.sh   … OpenAPI 後方互換ゲート（oasdiff）
 │   ├── inventory/
 │   │   ├── openapi.yaml          … 公開 OpenAPI（補充・照会）
 │   │   ├── internal.openapi.yaml … 内部 OpenAPI（予約・確定・解放・取り込み = ACL サーフェス）
+│   │   ├── *.baseline.yaml       … リリース済み契約のベースライン（互換ゲートの基準）
 │   │   └── client.ogen.yaml      … 上記内部 API から「クライアントのみ」を生成する設定
 │   ├── ordering/
 │   │   └── openapi.yaml          … 公開 OpenAPI（作成・照会・取消）
 │   └── events/                  … クロスコンテキストのメッセージ契約（JSON スキーマ）
 │       ├── confirm_reservation.schema.json … 予約確定コマンド
-│       └── order_cancelled.schema.json     … 注文取消イベント
+│       ├── order_cancelled.schema.json     … 注文取消イベント
+│       ├── *.baseline.schema.json          … ベースライン（互換ゲートの基準）
+│       └── check-compat.sh                 … メッセージ契約の後方互換ゲート
 ├── clients/                    … 共有の生成クライアント（消費側が import・コミット・手編集しない）
 │   └── inventory/              … 在庫の内部 API から生成した Go クライアント（invclient）
+├── cmd/dev/                    … Docker 不要の開発ハーネス（両コンテキストを 1 プロセスで結線）
 ├── shared/                     … ドメイン非依存の共有モジュール（uow / event / outbox / id / correlation / testutil）
 └── contexts/
     ├── inventory/              … 「在庫」境界づけられたコンテキスト（1 モジュール）
-    │   ├── inventory.go         … 公開ファサード（Module, New, HTTPHandler, InternalHTTPHandler, StartWorkers）
+    │   ├── inventory.go         … 公開ファサード（Module, New, NewInMemory, HTTPHandler, InternalHTTPHandler,
+    │   │                          Reserve/Confirm/Release/Deliver/Sweep のシーム, StartWorkers）
     │   ├── cmd/inventory/       … サービスの合成ルート（main）
-    │   ├── db/ · sqlc.yaml      … schema.sql / queries.sql（sqlc の入力）
+    │   ├── port/                … 公開の翻訳済み DTO（SKUQty）
+    │   ├── db/ · sqlc.yaml      … schema.sql / queries.sql（sqlc の入力）/ roles.sql / seed.sql / fixtures.sql / sqldef.yml
     │   └── internal/{domain, application, adapter/{inbound, outbound}}
     └── ordering/               … 「注文」境界づけられたコンテキスト（1 モジュール）
-        ├── ordering.go          … 公開ファサード（Module, New, HTTPHandler, StartWorkers）
+        ├── ordering.go          … 公開ファサード（Module, New, NewInMemory, HTTPHandler, StartWorkers）
         ├── cmd/ordering/        … サービスの合成ルート（main。ACL / イベント送出クライアントを結線）
-        ├── port/                … 公開の翻訳済み DTO（ReserveLine）
-        ├── db/ · sqlc.yaml      … schema.sql / queries.sql（orders / order_lines / outbox）
+        ├── port/                … 公開の翻訳済み DTO（ReserveLine）と ACL の番兵（ErrReservationRejected など）
+        ├── db/ · sqlc.yaml      … schema.sql / queries.sql（orders / order_lines / outbox）/ roles.sql / seed.sql / fixtures.sql / sqldef.yml
         └── internal/
             ├── domain/order/    … 純粋なドメイン（Order / OrderLine / VO / イベント）
             ├── application/     … ユースケース（PlaceOrder / GetOrder / CancelOrder）/ ポート / ACL ポート
@@ -194,27 +234,52 @@ Go でドメイン駆動設計（DDD）とヘキサゴナルアーキテクチ�
 
 ## 動かし方
 
-### 1) Docker なしで動かす（インメモリ / テスト）
+2 つの実行モードがあります。**まず動かす**なら Docker 不要の `go run ./cmd/dev`、
+**分散構成を体験する**なら `docker compose up` です。
 
-DB を用意せずに、ドメインとアプリケーションの縦切りを検証できます。インメモリ実装は
-モックではなく、擬似トランザクションと楽観的排他制御を備えた**本物のアダプタ**です。
+> **タイミングに関する注意（誤解しないために）**: `cmd/dev` は同期 in-process publisher で
+> クロスコンテキストメッセージを即時配送します。これは「注文が在庫のドメイン型を知らずに
+> 契約だけで到達する」という **decoupling** を示しますが、実運用の**遅延ある eventual
+> consistency（結果整合）のタイミング**は示しません。遅延を伴う本物の結果整合は、PostgreSQL
+> のアウトボックス + 送信中継（`docker compose` 経路）で観察できます。
+
+### 1) Docker なしで動かす（`go run ./cmd/dev` と `go test`）
+
+DB もコンテナも要らずに、両コンテキストを 1 プロセスで結線して「まず動く」様子を確認できます。
+インメモリ実装はモックではなく、擬似トランザクションと楽観的排他制御を備えた**本物のアダプタ**です。
 
 ```sh
+# 開発ハーネス: 補充 → 注文（予約 + 確定）→ 照会 → 取消（解放）→ 在庫不足で拒否 を一気に実行
+go run ./cmd/dev
+
 # 全モジュールのテスト（相関 ID・作業単位・排他衝突・RFC 9457・seam の翻訳まで通しで検証）
 cd shared && go test ./...
 cd ../contexts/inventory && go test ./...
 cd ../ordering && go test ./...
+cd ../../cmd/dev && go test ./...   # 開発ハーネスの端から端までのスモークテスト
 ```
+
+`cmd/dev` は各コンテキストの**公開ファサード**（`inventory.Module` / `ordering.Module`）と
+公開 `port` だけを結線します。注文には在庫を直接呼ぶ in-process ACL と、コミット時にピアへ
+同期配送する publisher を注入します（Go の `internal/` 規則により、ハーネスは各コンテキストの
+内部実装へは到達できません）。
 
 > 注文コンテキストのテストには、腐敗防止層（`aclhttp`）が在庫の内部 API 契約どおりに要求を
 > 組み立て、在庫のエラー（409 / 5xx / タイムアウト）を注文側の番兵へ翻訳し、`trace_id` が
 > 作成 → 予約でサービスを跨いで伝播することの検証（httptest スタブ）が含まれます。
 
-### 2) docker compose で動かす（PostgreSQL）
+### 2) docker compose で動かす（PostgreSQL・分散サービス）
 
-`docker compose up` で、PostgreSQL の起動 → 両コンテキストのスキーマ適用 →
-在庫サービス・注文サービスの起動までを手作業なしで行います（分散構成: サービスごとに独立
-コンテナ、1 つの物理 DB をスキーマで論理分割）。
+`docker compose up --build` の 1 コマンドで、手作業なしに次までを立ち上げます:
+PostgreSQL 起動 →（init コンテナで）**宣言的スキーマ適用（psqldef）→ 最小権限ロール/GRANT →
+本番参照データ → dev/test フィクスチャ** → 在庫サービス・注文サービスの起動。分散構成
+（サービスごとに独立コンテナ、1 つの物理 DB を schema-per-context で論理分割）を体験できます。
+
+- 適用順は専用の init コンテナ（`migrate`）が担い、`depends_on`（`service_healthy` /
+  `service_completed_successfully`）で決定的に強制します。
+- サービスは superuser ではなく、**自スキーマだけにスコープした最小権限ロール**で接続します。
+- **公開 API ポートだけをホストに publish** します（在庫 8080 / 注文 8082）。在庫の内部 API
+  （8081）と PostgreSQL（5432）は compose ネットワーク内に留めます。
 
 ```sh
 docker compose up --build
@@ -234,23 +299,10 @@ curl localhost:8080/stock/WIDGET-001
 curl -i localhost:8080/stock/UNKNOWN
 ```
 
-内部 API（別ポート 8081）で予約のライフサイクルを試せます。
-
-```sh
-# 予約（マルチ SKU・全か無か）
-curl -X POST localhost:8081/reservations \
-  -H 'Content-Type: application/json' \
-  -d '{"ref":"ORDER-1","lines":[{"sku":"WIDGET-001","quantity":3}]}'
-
-# 確定（pending → confirmed）
-curl -X POST localhost:8081/reservations/ORDER-1/confirm
-
-# 解放（在庫を戻す）
-curl -X POST localhost:8081/reservations/ORDER-1/release
-
-# 照会すると reserved が反映されている（公開 API 側）
-curl localhost:8080/stock/WIDGET-001
-```
+在庫の**内部 API**（予約・確定・解放）は既定ではホストに publish しません（compose ネットワーク
+内でのみ到達可能）。注文サービスはこの内部 API へ `http://inventory-service:8081` で到達します。
+内部 API を手元から直接叩いて確認したいときは、開発時に限り compose の該当 `ports` を
+一時的に開けてください（本番の分散構成では内部 API はネットワーク隔離が前提です）。
 
 注文サービス（ポート 8082）で、seam を跨ぐ二相予約を端から端まで試せます。
 
@@ -273,8 +325,41 @@ curl -X POST localhost:8082/orders/<ORDER_ID>/cancel
 # 在庫が不足していれば作成は 409（problem+json）、在庫サービスが不達なら 503 を返す
 ```
 
-> `docker-compose.yml` に書かれた認証情報はすべて**デモ専用**です。本番では
-> 使わないでください。秘密情報はイメージに焼き込まず、実行時の環境変数で渡します。
+> `docker-compose.yml` に書かれた認証情報（管理者ロール・各サービスロールのパスワード）は
+> すべて**デモ専用**です。本番では使わないでください。秘密情報はイメージに焼き込まず（すべて
+> 実行時の環境変数）、環境変数やシークレットマネージャから注入します。`.env` は gitignore 済みです。
+
+### 統合テスト（PostgreSQL アダプタ）
+
+`postgres` アダプタの統合テストは build tag `integration` を付けたときだけ実行され、
+`DATABASE_URL` が指す稼働中の PostgreSQL に接続します（未設定ならスキップ）。既定の compose は
+Postgres をホストに publish しないため、テスト時のみオーバーレイで 5432 を公開します。
+
+```sh
+# DB（+ init コンテナ）をテスト用に起動し、5432 をホストへ公開する
+docker compose -f docker-compose.yml -f docker-compose.test.yml up -d db migrate
+
+# ホストから統合テストを実行する（後始末でスキーマ横断するため管理者ロールで接続）
+DATABASE_URL='postgres://app:app_admin_demo@localhost:5432/app?sslmode=disable' \
+  bash -c 'cd contexts/inventory && go test -tags=integration ./...'
+DATABASE_URL='postgres://app:app_admin_demo@localhost:5432/app?sslmode=disable' \
+  bash -c 'cd contexts/ordering && go test -tags=integration ./...'
+```
+
+## 契約ガバナンス（CI ゲート）
+
+契約（OpenAPI / メッセージスキーマ）は真実の源であり、後方互換を CI ゲートで守ります。
+ローカルでも同じスクリプトで再現できます。
+
+```sh
+bash contracts/check-openapi-compat.sh   # OpenAPI 後方互換（oasdiff、released ベースライン比較）
+bash contracts/events/check-compat.sh    # メッセージ契約の後方互換（type/required の不変性）
+bash scripts/coverage-gate.sh            # domain + application のカバレッジ >= 80%
+```
+
+破壊的変更が必要なときは、**既存の契約を「その場で」変えず**、メジャーバージョンを上げて
+ベースライン（`*.baseline.*`）を更新するか、メッセージなら新しい `type`（新スキーマファイル）を
+追加してバージョン移行します。
 
 ## コード生成
 
@@ -296,11 +381,18 @@ cd ../ordering && go generate ./...
 
 ## 前提ツール
 
+いずれも **dev/CI 専用**で、サービスのランタイム依存には持ち込みません。
+
 - Go（最新安定版）
 - Docker / Docker Compose（PostgreSQL で動かす場合）
 - ogen, sqlc（コード生成する場合）
 - golangci-lint, goimports（静的解析・整形）
+- oasdiff（OpenAPI の後方互換ゲート。`go install github.com/oasdiff/oasdiff@v1.23.0`）
+- jq（メッセージスキーマの互換ゲート。多くの環境でプリインストール済み）
+- psqldef（宣言的スキーマ適用。docker compose の init コンテナ内で使用。`go install github.com/sqldef/sqldef/cmd/psqldef@v1.0.7`）
 
 ## ライセンス
 
-MIT License（`LICENSE` を参照）。
+MIT License（`LICENSE` を参照）。依存はすべて寛容ライセンス（copyleft のランタイム依存なし）の
+方針です。`golangci-lint`（GPL-3.0）や `sqldef` などは dev/CI 専用ツールであり、サービスの
+ランタイムには載りません。

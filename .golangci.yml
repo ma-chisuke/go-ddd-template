@@ -89,6 +89,17 @@ linters-settings:
         deny:
           - pkg: "github.com/example/go-ddd-template/contexts/inventory"
             desc: "注文コンテキストは在庫コンテキストの Go パッケージを import してはならない（clients/inventory 経由で HTTP 越しにのみ到達する）"
+      # 6) 開発ハーネス（cmd/dev）は各コンテキストの公開ファサード + 公開 port + shared + clients
+      #    だけを使い、内部層（internal/）へは到達しない。Go の internal パッケージ規則が
+      #    これをコンパイル時に強制するが、意図を明示し二重に守るため depguard でも禁止する。
+      dev-harness-public-only:
+        files:
+          - "**/cmd/dev/**"
+        deny:
+          - pkg: "github.com/example/go-ddd-template/contexts/inventory/internal"
+            desc: "開発ハーネスは在庫コンテキストの internal/ に依存してはならない（公開ファサード inventory.Module と port だけを使う）"
+          - pkg: "github.com/example/go-ddd-template/contexts/ordering/internal"
+            desc: "開発ハーネスは注文コンテキストの internal/ に依存してはならない（公開ファサード ordering.Module と port だけを使う）"
 
 issues:
   # 生成ファイルは検査しない（明示的な保険）。

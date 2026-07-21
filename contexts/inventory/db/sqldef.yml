@@ -1,0 +1,12 @@
+# psqldef の適用スコープ設定（在庫コンテキスト）。
+#
+# 1 つの物理 DB を schema-per-context で論理分割しているため、psqldef が「DB 全体」を
+# 見て他コンテキスト（ordering）のオブジェクトを差分対象に含めてしまうと、意図しない
+# 変更を生む。target_tables で当該スキーマのテーブルだけに管理対象を限定し、psqldef が
+# inventory スキーマ以外に触れないようにする（各コンテキストが自分の db/* を所有する原則）。
+#
+# 併せて psqldef は既定で破壊的変更（テーブル DROP）を行わない（--enable-drop-table 未指定）。
+# incremental・非破壊での適用になり、破壊的差分が必要なときは --dry-run でプレビューして
+# 人手レビューする。
+target_tables: |
+  inventory\..*
