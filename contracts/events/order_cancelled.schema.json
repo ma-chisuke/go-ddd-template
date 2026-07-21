@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://go-ddd-template.example/contracts/events/order_cancelled.schema.json",
+  "title": "OrderCancelled",
+  "description": "注文取消イベント。注文が取り消されたことを通知するドメインイベント。注文コンテキストが発行し、在庫コンテキストの購読ポリシ（OnOrderCancelled）が受信して予約を解放（release）する。下流から上流への同期呼び出しは行わない。",
+  "type": "object",
+  "required": ["id", "type", "payload", "occurred_at"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "メッセージの一意な識別子（受信側の重複排除に使う）。"
+    },
+    "type": {
+      "type": "string",
+      "const": "ordering.order.cancelled",
+      "description": "message_type。このイベントの契約識別子（固定値）。"
+    },
+    "payload": {
+      "type": "string",
+      "description": "翻訳済み契約のシリアライズ（JSON 文字列）。中身は $defs/Payload を参照。"
+    },
+    "trace_id": {
+      "type": "string",
+      "description": "seam を跨ぐ相関 ID。cancel -> release のフローを相関する。"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "メッセージの発生時刻（UTC）。"
+    }
+  },
+  "$defs": {
+    "Payload": {
+      "type": "object",
+      "description": "payload 文字列の中身。在庫コンテキストは reservation_ref のみをデコードし、order_id は無視する（未知フィールドは読み飛ばす）。order_id は運用時の相関・可観測性のために添える。",
+      "required": ["reservation_ref"],
+      "properties": {
+        "reservation_ref": {
+          "type": "string",
+          "description": "解放対象の予約参照（不透明な相関 ID）。在庫側が翻訳して解放する。"
+        },
+        "order_id": {
+          "type": "string",
+          "description": "取り消された注文の識別子（参考情報）。在庫側の解放判断には用いない。"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "id": "msg-3ab7",
+      "type": "ordering.order.cancelled",
+      "payload": "{\"reservation_ref\":\"ORDER-abc\",\"order_id\":\"ORDER-abc\"}",
+      "trace_id": "6f3b2a1c9d8e7f60112233445566aabb",
+      "occurred_at": "2026-07-21T09:05:00Z"
+    }
+  ]
+}

@@ -1,0 +1,266 @@
+openapi: 3.0.3
+# 注文コンテキストの公開 HTTP 契約（コントラクトファースト）。
+# この YAML が唯一の真実（source of truth）であり、ogen によって型安全な
+# サーバコードを生成する。生成物はリポジトリにコミットし、手で編集しない。
+# 契約を変えたいときは、この YAML を編集して `go generate ./...` で再生成する。
+#
+# この契約はコード生成の入力であると同時に、AI や人間の開発者が API の意図を
+# 機械可読な形で読み取るためのガイドとしても機能する。
+info:
+  title: Ordering API
+  version: 0.1.0
+  description: |
+    注文（Ordering）コンテキストの公開 API。注文の作成（place）・照会（get）・
+    取消（cancel）を提供する。金額や数量の妥当性検証は、単一の真実の源である
+    ドメイン層に委譲している。そのため契約側では値域を厳しく制約せず、不正値は
+    ドメインのエラーとして RFC 9457 形式で返す。
+
+    注文の作成は在庫の予約を伴う。作成ハンドラは在庫コンテキストへ腐敗防止層
+    （ACL）越しに同期予約を要求し、予約できたときのみ注文を確定（Confirmed）する。
+    在庫予約が拒否された場合は 409、在庫サービスが不達・タイムアウトの場合は 503 を返す。
+
+servers:
+  - url: /
+
+paths:
+  /orders:
+    post:
+      operationId: placeOrder
+      summary: 注文を作成する
+      description: |
+        注文明細から注文を作成する。作成時に在庫を同期予約し、予約できたときのみ
+        注文を Confirmed 状態で確定する。予約が拒否された場合は注文を作成しない。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaceOrderRequest'
+      responses:
+        '201':
+          description: 作成された注文
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderView'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /orders/{id}:
+    get:
+      operationId: getOrder
+      summary: 注文を照会する
+      description: 指定した注文 ID の現在の状態を返す。
+      parameters:
+        - $ref: '#/components/parameters/OrderIDPath'
+      responses:
+        '200':
+          description: 現在の注文状態
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderView'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /orders/{id}/cancel:
+    post:
+      operationId: cancelOrder
+      summary: 注文を取り消す
+      description: |
+        指定した注文を取り消す。取消できるのは Confirmed 状態の注文のみ。
+        取消に伴う在庫の解放は非同期で行う（注文コンテキストは取消イベントを発行し、
+        在庫コンテキストがそれを購読して解放する）。
+      parameters:
+        - $ref: '#/components/parameters/OrderIDPath'
+      responses:
+        '200':
+          description: 取消後の注文状態
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderView'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+components:
+  parameters:
+    OrderIDPath:
+      name: id
+      in: path
+      required: true
+      description: 注文の識別子（不透明な ID）
+      schema:
+        type: string
+        minLength: 1
+
+  responses:
+    # RFC 9457 (Problem Details for HTTP APIs) 形式の共通エラー応答。
+    # default 応答としてまとめて宣言することで、ogen はハンドラに NewError メソッドを
+    # 生成する。ドメイン／アプリケーションのセンチネルエラーはこの NewError で HTTP
+    # ステータスと problem+json 本文へ翻訳する。
+    ProblemResponse:
+      description: RFC 9457 形式のエラー詳細
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+
+  schemas:
+    Money:
+      type: object
+      description: 金額。最小通貨単位（例 円・セント）の整数と ISO-4217 通貨コードで表す。
+      required:
+        - amount
+        - currency
+      properties:
+        amount:
+          type: integer
+          format: int64
+          description: 最小通貨単位での金額。非負であること（検証はドメイン層）。
+        currency:
+          type: string
+          description: ISO-4217 の通貨コード（例 JPY, USD）。
+      example:
+        amount: 1200
+        currency: JPY
+
+    PlaceOrderLine:
+      type: object
+      required:
+        - sku
+        - quantity
+        - unitPrice
+      properties:
+        sku:
+          type: string
+          description: 在庫識別子
+        quantity:
+          type: integer
+          description: 注文数量。1 以上であること（検証はドメイン層）。
+        unitPrice:
+          $ref: '#/components/schemas/Money'
+
+    PlaceOrderRequest:
+      type: object
+      required:
+        - customerId
+        - lines
+      properties:
+        customerId:
+          type: string
+          description: 注文者（顧客）の識別子
+        lines:
+          type: array
+          description: 注文明細（1 行以上）
+          items:
+            $ref: '#/components/schemas/PlaceOrderLine'
+      example:
+        customerId: CUST-1
+        lines:
+          - sku: WIDGET-001
+            quantity: 3
+            unitPrice:
+              amount: 1200
+              currency: JPY
+
+    OrderLineView:
+      type: object
+      required:
+        - sku
+        - quantity
+        - unitPrice
+        - subtotal
+      properties:
+        sku:
+          type: string
+          description: 在庫識別子
+        quantity:
+          type: integer
+          description: 注文数量
+        unitPrice:
+          $ref: '#/components/schemas/Money'
+        subtotal:
+          $ref: '#/components/schemas/Money'
+
+    OrderView:
+      type: object
+      required:
+        - id
+        - customerId
+        - status
+        - lines
+        - total
+        - reservationRef
+        - version
+      properties:
+        id:
+          type: string
+          description: 注文の識別子
+        customerId:
+          type: string
+          description: 注文者（顧客）の識別子
+        status:
+          type: string
+          description: 注文状態（confirmed / cancelled）
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderLineView'
+        total:
+          $ref: '#/components/schemas/Money'
+        reservationRef:
+          type: string
+          description: この注文が在庫予約に用いた予約参照（相関 ID）
+        version:
+          type: integer
+          description: 楽観的排他制御のためのバージョン番号
+      example:
+        id: ORDER-abc
+        customerId: CUST-1
+        status: confirmed
+        lines:
+          - sku: WIDGET-001
+            quantity: 3
+            unitPrice:
+              amount: 1200
+              currency: JPY
+            subtotal:
+              amount: 3600
+              currency: JPY
+        total:
+          amount: 3600
+          currency: JPY
+        reservationRef: ORDER-abc
+        version: 1
+
+    ProblemDetails:
+      type: object
+      description: RFC 9457 (Problem Details for HTTP APIs) に準拠したエラー表現
+      required:
+        - type
+        - title
+        - status
+      properties:
+        type:
+          type: string
+          format: uri
+          description: 問題の種別を示す URI。既定は "about:blank"。
+        title:
+          type: string
+          description: 問題種別の短い人間可読な要約
+        status:
+          type: integer
+          description: HTTP ステータスコード
+        detail:
+          type: string
+          description: 今回の発生に固有の人間可読な説明
+        instance:
+          type: string
+          format: uri
+          description: 問題が発生した具体的なリソースを示す URI
+      example:
+        type: about:blank
+        title: Conflict
+        status: 409
+        detail: 在庫の予約が拒否されました

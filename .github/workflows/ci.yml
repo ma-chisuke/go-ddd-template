@@ -41,42 +41,51 @@ jobs:
         run: |
           set -euo pipefail
           # 生成物はコミット済み。再生成して差分が出たら失敗させる。
+          (cd clients/inventory && go generate ./...)
           (cd contexts/inventory && go generate ./...)
+          (cd contexts/ordering && go generate ./...)
           if ! git diff --exit-code; then
-            echo "::error::生成物が最新ではありません。'cd contexts/inventory && go generate ./...' を実行してコミットしてください。"
+            echo "::error::生成物が最新ではありません。各モジュールで 'go generate ./...' を実行してコミットしてください。"
             exit 1
           fi
 
       - name: 整形検査（gofmt / goimports）
         run: |
           set -euo pipefail
-          if [ -n "$(gofmt -l shared contexts)" ]; then
-            echo "::error::gofmt 未整形のファイルがあります:"; gofmt -l shared contexts; exit 1
+          if [ -n "$(gofmt -l shared clients contexts)" ]; then
+            echo "::error::gofmt 未整形のファイルがあります:"; gofmt -l shared clients contexts; exit 1
           fi
-          if [ -n "$(goimports -l shared contexts)" ]; then
-            echo "::error::goimports 未整形のファイルがあります:"; goimports -l shared contexts; exit 1
+          if [ -n "$(goimports -l shared clients contexts)" ]; then
+            echo "::error::goimports 未整形のファイルがあります:"; goimports -l shared clients contexts; exit 1
           fi
 
       - name: go vet
         run: |
           set -euo pipefail
           (cd shared && go vet ./...)
+          (cd clients/inventory && go vet ./...)
           (cd contexts/inventory && go vet ./...)
+          (cd contexts/ordering && go vet ./...)
 
       - name: golangci-lint
         run: |
           set -euo pipefail
           (cd shared && golangci-lint run ./...)
+          (cd clients/inventory && golangci-lint run ./...)
           (cd contexts/inventory && golangci-lint run ./...)
+          (cd contexts/ordering && golangci-lint run ./...)
 
       - name: ビルド
         run: |
           set -euo pipefail
           (cd shared && go build ./...)
+          (cd clients/inventory && go build ./...)
           (cd contexts/inventory && go build ./...)
+          (cd contexts/ordering && go build ./...)
 
       - name: テスト
         run: |
           set -euo pipefail
           (cd shared && go test -race ./...)
           (cd contexts/inventory && go test -race ./...)
+          (cd contexts/ordering && go test -race ./...)

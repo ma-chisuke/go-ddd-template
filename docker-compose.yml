@@ -1,30 +1,31 @@
 # デモ用の docker compose 定義。
 #
-# `docker compose up` で「PostgreSQL の起動 → スキーマ適用 → 在庫サービス起動」まで
-# 手作業なしで立ち上がる。
+# `docker compose up` で「PostgreSQL の起動 → スキーマ適用 → 在庫サービス・注文サービスの
+# 起動」まで手作業なしで立ち上がる。分散構成（サービスごとに独立コンテナ）を体験できる。
 #
 # 重要（セキュリティ）: 以下の認証情報はすべてデモ専用である。
 # 本番環境では絶対に使わず、秘密情報は環境変数や秘密管理サービスから注入すること。
 # 認証情報はイメージには一切焼き込んでいない（すべて実行時の環境変数）。
 
 services:
-  # PostgreSQL 本体。
+  # PostgreSQL 本体。1 つの物理 DB を、コンテキストごとのスキーマ（inventory / ordering）で
+  # 論理分割する（schema-per-context）。各サービスは自分のスキーマだけを読み書きする。
   db:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: inventory       # デモ専用
-      POSTGRES_PASSWORD: inventory    # デモ専用（本番では秘密管理を使うこと）
-      POSTGRES_DB: inventory
+      POSTGRES_USER: app         # デモ専用
+      POSTGRES_PASSWORD: app      # デモ専用（本番では秘密管理を使うこと）
+      POSTGRES_DB: app
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U inventory -d inventory"]
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
       interval: 2s
       timeout: 3s
       retries: 30
 
-  # スキーマ適用用の使い捨てコンテナ（宣言的スキーマの初期適用）。
-  # db が healthy になってから schema.sql を psql で流し込む。
+  # スキーマ適用用の使い捨てコンテナ（両コンテキストの宣言的スキーマの初期適用）。
+  # db が healthy になってから inventory / ordering の schema.sql を psql で流し込む。
   # schema.sql は IF NOT EXISTS を使った冪等な DDL なので、再実行しても安全。
   # スキーマが育ってきたら、差分適用ツール（sqldef 等）へ置き換えるとよい。
   migrate:
@@ -33,10 +34,14 @@ services:
       db:
         condition: service_healthy
     environment:
-      PGPASSWORD: inventory   # デモ専用
+      PGPASSWORD: app   # デモ専用
     volumes:
-      - ./contexts/inventory/db/schema.sql:/schema.sql:ro
-    entrypoint: ["sh", "-c", "psql -h db -U inventory -d inventory -v ON_ERROR_STOP=1 -f /schema.sql"]
+      - ./contexts/inventory/db/schema.sql:/inventory.sql:ro
+      - ./contexts/ordering/db/schema.sql:/ordering.sql:ro
+    entrypoint:
+      - "sh"
+      - "-c"
+      - "psql -h db -U app -d app -v ON_ERROR_STOP=1 -f /inventory.sql && psql -h db -U app -d app -v ON_ERROR_STOP=1 -f /ordering.sql"
 
   # 在庫サービス。db が healthy かつ migrate が正常終了してから起動する。
   inventory-service:
@@ -50,9 +55,29 @@ services:
         condition: service_completed_successfully
     environment:
       # デモ専用の接続情報。実行時の環境変数として渡す（イメージには含めない）。
-      DATABASE_URL: "postgres://inventory:inventory@db:5432/inventory?sslmode=disable"
+      DATABASE_URL: "postgres://app:app@db:5432/app?sslmode=disable"
       HTTP_ADDR: ":8080"           # 公開 API（補充・照会）
       INTERNAL_HTTP_ADDR: ":8081"  # 内部 API（予約・確定・解放・取り込み）
     ports:
       - "8080:8080"
       - "8081:8081"
+
+  # 注文サービス。在庫サービスへは腐敗防止層（生成クライアント）越しに HTTP で到達する。
+  # クロスコンテキストのメッセージ（予約確定・注文取消）は在庫の内部 API の /events へ送出する。
+  ordering-service:
+    build:
+      context: .
+      dockerfile: contexts/ordering/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      inventory-service:
+        condition: service_started
+    environment:
+      DATABASE_URL: "postgres://app:app@db:5432/app?sslmode=disable"
+      HTTP_ADDR: ":8082"                                    # 公開 API（作成・照会・取消）
+      INVENTORY_INTERNAL_URL: "http://inventory-service:8081" # 在庫の内部 API（ACL / event-ingest）
+    ports:
+      - "8082:8082"

@@ -1,0 +1,11 @@
+# 在庫コンテキストの「内部 API」からクライアントを生成するための ogen 設定。
+# サーバ側（openapiinternal）は internal.ogen.yaml でサーバのみを生成するのに対し、
+# こちらはその鏡像で「クライアントのみ」を生成する（サーバ生成を無効化）。
+# 生成先は共有クライアントモジュール clients/inventory であり、注文コンテキストの
+# 腐敗防止層（ACL）が import して在庫サービスへ HTTP 越しに到達するために使う。
+# 生成物はコミットし、手で編集しない。
+generator:
+  features:
+    disable:
+      - "paths/server"
+      - "ogen/otel"

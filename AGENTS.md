@@ -26,20 +26,34 @@
 5. **サービスとして本番デプロイしない。** これはテンプレートです。リリースは
    git タグと GitHub Releases（SemVer）で行います。唯一の実行時依存（PostgreSQL）は
    デモ・テスト用に docker compose でローカル起動するだけです。
+6. **コンテキストの seam（縫い目）を跨がない。** 注文コンテキストは在庫コンテキストの
+   Go パッケージ（`contexts/inventory/**`）を決して import しません。在庫へは生成クライアント
+   `clients/inventory`（在庫の内部 OpenAPI から生成）を介して HTTP 越しにのみ到達します。
+   この規則は depguard で機械的に強制されています。コンテキスト間で受け渡すのは翻訳済みの
+   公開型（`port` パッケージの DTO や、`contracts/events/` のメッセージ契約）だけで、内部の
+   ドメイン値オブジェクトは渡しません。相手の番兵エラーも自コンテキストの番兵へ翻訳します。
 
 ## どこに何を書くか
 
+パスはコンテキストのモジュール（`contexts/inventory/` または `contexts/ordering/`）からの相対です。
+両コンテキストは同じ 4 層構造を持ちます。
+
 | 関心事 | 置き場所 |
 | --- | --- |
-| 集約・値オブジェクト・不変条件・ドメインイベント・ドメインサービス | `internal/domain/inventory/` |
+| 集約・値オブジェクト・不変条件・ドメインイベント・ドメインサービス | `internal/domain/<ctx>/`（在庫は `inventory`、注文は `order`） |
 | ユースケース、ポート（interface）、サブスクライバ、Reaper | `internal/application/` |
 | ポートの実装（DB・インメモリ・ログ）＝出口アダプタ | `internal/adapter/outbound/`（`memory` / `postgres` / `logging`） |
 | 公開 HTTP ハンドラ・エラー変換・ミドルウェア＝入口アダプタ | `internal/adapter/inbound/http/`（パッケージ `httpapi`） |
-| 内部 HTTP ハンドラ（予約・確定・解放・取り込み）＝入口アダプタ | `internal/adapter/inbound/internalhttp/` |
-| ogen 生成の HTTP サーバ（公開 / 内部） | `internal/adapter/inbound/openapi/` / `openapiinternal/` |
-| 依存の結線（合成ルート） | `inventory.go`（ファサード）と `cmd/inventory/` |
-| 公開 HTTP 契約 / 内部 HTTP 契約 | `contracts/inventory/openapi.yaml` / `internal.openapi.yaml` |
-| DB スキーマ・クエリ | `contexts/inventory/db/schema.sql`, `queries.sql` |
+| ogen 生成の HTTP サーバ | `internal/adapter/inbound/openapi/`（在庫の内部 API は `openapiinternal/`） |
+| 依存の結線（合成ルート） | ファサード（`inventory.go` / `ordering.go`）と `cmd/<ctx>/` |
+| DB スキーマ・クエリ | `db/schema.sql`, `db/queries.sql` |
+| **腐敗防止層（ACL）ポート** `StockReserver` と番兵 `ErrReservationRejected` / `ErrReservationUnavailable`（注文） | `contexts/ordering/internal/application/acl.go` |
+| **ACL の HTTP 実装**（生成クライアントで在庫を予約・解放 + trace 伝播）（注文） | `contexts/ordering/internal/adapter/outbound/aclhttp/` |
+| **アウトボックス送信トランスポート**（在庫の `/events` へ HTTP push）（注文） | `contexts/ordering/internal/adapter/outbound/eventhttp/` |
+| **公開の翻訳済み DTO**（境界を跨ぐ型） | `contexts/<ctx>/port/` |
+| 公開 HTTP 契約 / 在庫の内部 HTTP 契約（= ACL サーフェス） | `contracts/inventory/{openapi,internal.openapi}.yaml`, `contracts/ordering/openapi.yaml` |
+| **クロスコンテキストのメッセージ契約**（コマンド / イベント） | `contracts/events/*.schema.json` |
+| **共有の生成クライアント**（消費側が import・手編集しない） | `clients/inventory/invclient/` |
 | コンテキスト横断の汎用機構 | `shared/`（`uow` / `event` / `outbox` / `id` / `correlation` / `testutil`） |
 
 ## よくある作業のレシピ
@@ -64,16 +78,38 @@
 
 ### 永続化のクエリ／スキーマを変更する
 
-1. `contexts/inventory/db/schema.sql` または `queries.sql` を編集する。
+1. `db/schema.sql` または `queries.sql` を編集する。
 2. `go generate ./...` で sqlc を再生成する。
 3. `internal/adapter/outbound/postgres/store.go` を、生成された型・関数に合わせて更新する。
 
+### コンテキストを跨ぐ呼び出し（ACL / イベント）を扱う
+
+- **同期の在庫予約（ACL）**: 注文のユースケースは `application.StockReserver` ポート越しにのみ
+  在庫を呼ぶ。呼び出しは **作業単位の外**（HTTP がトランザクションを跨いで保持されるのを避ける）。
+  実装は `aclhttp` が生成クライアント `clients/inventory` で行い、`port.ReserveLine` をクライアントの
+  request 型へ写像し、在庫の 409 / 5xx / タイムアウトを注文側の `ErrReservationRejected` /
+  `ErrReservationUnavailable` へ翻訳する（在庫の番兵は漏らさない）。
+- **確定コマンド（`ConfirmReservation`）**: アプリケーション層が組み立ててアウトボックスへ **直接** 積む
+  コマンド。ドメインイベントの `PullEvents` 経路は通らない。作成の成功時に `Save` と同一 `uow.Run`
+  クロージャ内で `repos.Outbox().Enqueue(...)` する。
+- **クロスコンテキストイベント（`OrderCancelled`）**: ドメインが append したイベントを取消の
+  `uow.Run` 内で `PullEvents()` して収集し、`contracts/events/` の契約へ翻訳してアウトボックスへ積む
+  （保存と同一トランザクション）。在庫側が購読して非同期に解放する。
+- **メッセージ契約を変える**: `contracts/events/*.schema.json`（`type` 文字列 = 契約識別子）を編集し、
+  送信側（注文の `messages.go`）と受信側（在庫の `subscriber.go`）の双方を整合させる。破壊的変更は
+  `type` を新設してバージョン移行する。
+- **trace 相関**: 入口ミドルウェアが W3C traceparent / X-Correlation-ID を受理（無ければ採番）し、
+  相関 ID を context に載せる。ACL / イベント送出はそれをヘッダとメッセージの `TraceID` に伝播する。
+  遅延／消失した確定の整合はコード分岐で解かず、両サービスのログを `trace_id` で相関して運用で行う。
+
 ## 機械可読な契約（真実の源）
 
-- 公開 HTTP 契約: `contracts/inventory/openapi.yaml`（RFC 9457 の ProblemDetails を含む）
-- 内部 HTTP 契約: `contracts/inventory/internal.openapi.yaml`（予約・確定・解放・取り込み）
-- DB スキーマ: `contexts/inventory/db/schema.sql`（stock_items / stock_reservations / outbox）
-- DB クエリ: `contexts/inventory/db/queries.sql`
+- 在庫の公開 HTTP 契約: `contracts/inventory/openapi.yaml`（RFC 9457 の ProblemDetails を含む）
+- 在庫の内部 HTTP 契約（= ACL サーフェス）: `contracts/inventory/internal.openapi.yaml`
+- 注文の公開 HTTP 契約: `contracts/ordering/openapi.yaml`（作成・照会・取消）
+- クロスコンテキストのメッセージ契約: `contracts/events/{confirm_reservation,order_cancelled}.schema.json`
+- DB スキーマ / クエリ: `contexts/<ctx>/db/schema.sql`, `queries.sql`
+  （在庫: stock_items / stock_reservations / outbox、注文: orders / order_lines / outbox）
 
 ## 予約・アウトボックスを扱うときの要点
 
@@ -92,8 +128,10 @@
 ## コマンド
 
 ```sh
-# 生成（ogen + sqlc）
-cd contexts/inventory && go generate ./...
+# 生成（ogen + sqlc）。クライアント → 各コンテキストの順に。
+cd clients/inventory && go generate ./...
+cd ../../contexts/inventory && go generate ./...
+cd ../ordering && go generate ./...
 
 # ビルド・静的解析・テスト（各モジュールで）
 go build ./...
@@ -102,7 +140,7 @@ golangci-lint run ./...
 go test ./...
 
 # DB ありの統合テスト（docker compose で DB を起動してから）
-DATABASE_URL=postgres://inventory:inventory@localhost:5432/inventory?sslmode=disable \
+DATABASE_URL=postgres://app:app@localhost:5432/app?sslmode=disable \
   go test -tags=integration ./...
 ```
 
@@ -112,5 +150,8 @@ DATABASE_URL=postgres://inventory:inventory@localhost:5432/inventory?sslmode=dis
   版が食い違えば `uow.ErrConcurrencyConflict` を返し、`uow.Run` が再試行する。
 - **RFC 9457**: エラーは `application/problem+json` で返す。ドメインのセンチネルを
   HTTP ステータスへ翻訳する（未検出 → 404、入力検証 → 422、排他衝突 → 409）。
-- **境界を跨ぐ型**: 将来コンテキストを跨ぐときは、内部のドメイン値オブジェクトをそのまま
-  渡さず、翻訳した公開型（文字列や素の DTO）を使う。
+- **境界を跨ぐ型**: コンテキストを跨ぐときは、内部のドメイン値オブジェクトをそのまま渡さず、
+  翻訳した公開型（`port` の DTO、生成クライアントの wire 型、`contracts/events/` のメッセージ）を使う。
+  値オブジェクトはコンテキストごとに独立所有する（例: 注文の `Quantity` は n ≥ 1、在庫は n ≥ 0）。
+- **番兵エラーの翻訳**: 相手コンテキスト由来の失敗は自コンテキストの番兵へ翻訳する（`%w` で原因を
+  保持しつつ `errors.Join` で自番兵に一致させる）。相手の番兵名をそのまま公開・alias しない。

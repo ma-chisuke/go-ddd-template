@@ -1,16 +1,17 @@
 # syntax=docker/dockerfile:1
 
 # 在庫サービスのマルチステージビルド。
-# ビルドコンテキストはリポジトリのルート（go.work・shared・contexts を含む）を想定する。
+# ビルドコンテキストはリポジトリのルート（shared・contexts を含む）を想定する。
+# 単一モジュールモード（GOWORK=off）でビルドするため go.work は不要。在庫モジュールの
+# replace ディレクティブがローカルの shared を解決する（コンテキストを単独で切り出せる）。
 
 # ---- ビルドステージ ----
 FROM golang:1.25-alpine AS build
 WORKDIR /src
-# 静的バイナリを作る（distroless で動かすため CGO を無効化）。
-ENV CGO_ENABLED=0 GOOS=linux
+# 静的バイナリを作る（distroless で動かすため CGO を無効化）。単一モジュールでビルドする。
+ENV CGO_ENABLED=0 GOOS=linux GOWORK=off
 
-# ワークスペースと各モジュールをコピーする。
-COPY go.work ./
+# 依存モジュールと在庫サービスをコピーする。
 COPY shared/ ./shared/
 COPY contexts/inventory/ ./contexts/inventory/
 

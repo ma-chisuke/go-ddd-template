@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://go-ddd-template.example/contracts/events/confirm_reservation.schema.json",
+  "title": "ConfirmReservation",
+  "description": "予約確定コマンド。注文が durable になったことを受けて、在庫の仮予約（pending）を確定（confirmed）へ進めるよう依頼するクロスコンテキストコマンド。注文コンテキストが送信し、在庫コンテキストの購読ポリシ（OnConfirmReservation）が受信して確定へ進める。",
+  "type": "object",
+  "required": ["id", "type", "payload", "occurred_at"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "メッセージの一意な識別子（受信側の重複排除に使う）。"
+    },
+    "type": {
+      "type": "string",
+      "const": "ordering.reservation.confirm_requested",
+      "description": "message_type。このコマンドの契約識別子（固定値）。"
+    },
+    "payload": {
+      "type": "string",
+      "description": "翻訳済み契約のシリアライズ（JSON 文字列）。中身は $defs/Payload を参照。"
+    },
+    "trace_id": {
+      "type": "string",
+      "description": "seam を跨ぐ相関 ID。place -> reserve -> confirm のフローを相関する。"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "メッセージの発生時刻（UTC）。"
+    }
+  },
+  "$defs": {
+    "Payload": {
+      "type": "object",
+      "description": "payload 文字列の中身。在庫コンテキストはこの reservation_ref のみをデコードする。",
+      "required": ["reservation_ref"],
+      "properties": {
+        "reservation_ref": {
+          "type": "string",
+          "description": "確定対象の予約参照（不透明な相関 ID）。注文側の OrderID は送信側の腐敗防止層でこの参照へ翻訳済み。"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "id": "msg-9f1c",
+      "type": "ordering.reservation.confirm_requested",
+      "payload": "{\"reservation_ref\":\"ORDER-abc\"}",
+      "trace_id": "6f3b2a1c9d8e7f60112233445566aabb",
+      "occurred_at": "2026-07-21T09:00:00Z"
+    }
+  ]
+}

@@ -39,6 +39,10 @@ linters-settings:
             desc: "ドメイン層は永続化に依存してはならない"
           - pkg: "github.com/example/go-ddd-template/contexts/inventory/internal/adapter"
             desc: "ドメイン層はアダプタ（inbound/outbound）に依存してはならない"
+          - pkg: "github.com/example/go-ddd-template/contexts/ordering/internal/adapter"
+            desc: "ドメイン層はアダプタ（inbound/outbound）に依存してはならない"
+          - pkg: "github.com/example/go-ddd-template/clients/inventory"
+            desc: "ドメイン層は生成クライアント（外部サービスの契約）に依存してはならない"
       # 2) アプリケーション層: ポート（interface）を定義する側。アダプタに依存しない
       #    （依存はポート経由で逆転させる = 依存性逆転の原則）。
       #    テストは統合検証のためにアダプタを結線してよいので _test.go は対象外にする。
@@ -49,6 +53,10 @@ linters-settings:
         deny:
           - pkg: "github.com/example/go-ddd-template/contexts/inventory/internal/adapter"
             desc: "アプリケーション層はアダプタに依存してはならない（ポートを定義し、アダプタに実装させる）"
+          - pkg: "github.com/example/go-ddd-template/contexts/ordering/internal/adapter"
+            desc: "アプリケーション層はアダプタに依存してはならない（ポートを定義し、アダプタに実装させる）"
+          - pkg: "github.com/example/go-ddd-template/clients/inventory"
+            desc: "アプリケーション層は生成クライアントに直接依存してはならない（ACL ポートを定義し、aclhttp に実装させる）"
       # 3) 受信アダプタ(inbound=入口)は送信アダプタ(outbound=出口)を直接 import しない。
       #    取り違え防止。両者の結線は合成ルート（ファサード / cmd）だけで行う。
       #    テスト（httptest 等）はアダプタを結線してよいので _test.go は対象外にする。
@@ -59,6 +67,8 @@ linters-settings:
         deny:
           - pkg: "github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound"
             desc: "受信アダプタ(inbound)は送信アダプタ(outbound)を直接 import してはならない（結線は合成ルートで）"
+          - pkg: "github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound"
+            desc: "受信アダプタ(inbound)は送信アダプタ(outbound)を直接 import してはならない（結線は合成ルートで）"
       # 4) 送信アダプタ(outbound=出口)は受信アダプタ(inbound=入口)を直接 import しない。
       outbound-not-inbound:
         files:
@@ -67,6 +77,18 @@ linters-settings:
         deny:
           - pkg: "github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound"
             desc: "送信アダプタ(outbound)は受信アダプタ(inbound)を直接 import してはならない"
+          - pkg: "github.com/example/go-ddd-template/contexts/ordering/internal/adapter/inbound"
+            desc: "送信アダプタ(outbound)は受信アダプタ(inbound)を直接 import してはならない"
+      # 5) 注文コンテキストは在庫コンテキストの Go パッケージを import しない（seam の境界規則）。
+      #    在庫へは生成クライアント clients/inventory を介して HTTP 越しにのみ到達する。
+      #    腐敗防止層（aclhttp）が clients/inventory を使い、contexts/inventory は決して使わない。
+      #    テストも含めてこの境界を守る（_test.go を除外しない）。
+      ordering-no-inventory-context:
+        files:
+          - "**/contexts/ordering/**"
+        deny:
+          - pkg: "github.com/example/go-ddd-template/contexts/inventory"
+            desc: "注文コンテキストは在庫コンテキストの Go パッケージを import してはならない（clients/inventory 経由で HTTP 越しにのみ到達する）"
 
 issues:
   # 生成ファイルは検査しない（明示的な保険）。

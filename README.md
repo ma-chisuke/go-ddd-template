@@ -12,9 +12,15 @@ Go でドメイン駆動設計（DDD）とヘキサゴナルアーキテクチ�
 
 ## 実装済みのもの
 
-ひとつの境界づけられたコンテキスト **Inventory（在庫）** のドメインを、DDD の主要パターンで
-ひととおり実装しています。まず最小の縦切り（walking skeleton）で背骨を通し、そのうえに
-予約のライフサイクルと、コンテキストを跨ぐための汎用機構を載せています。
+2 つの境界づけられたコンテキスト **Inventory（在庫）** と **Ordering（注文）** を、DDD の
+主要パターンでひととおり実装し、両者を **分散サービス** として結ぶ **腐敗防止層（ACL）**と
+**クロスコンテキストのイベント／コマンド契約** まで通しています。まず在庫側で最小の縦切り
+（walking skeleton）から予約のライフサイクルと汎用機構を整え、そのうえに注文コンテキストと
+コンテキスト間の seam（縫い目）を載せています。
+
+このテンプレートの中心的な差別化点は、この **seam の実装** です。注文コンテキストは在庫の
+ドメイン型を一切知らず、生成クライアント（在庫の内部 OpenAPI から生成）越しに HTTP でのみ
+到達し、在庫のエラーは注文側自身の番兵へ翻訳されます。
 
 **公開 API（補充・照会）**
 
@@ -47,10 +53,30 @@ Go でドメイン駆動設計（DDD）とヘキサゴナルアーキテクチ�
 リポジトリ（インメモリ実装と PostgreSQL 実装の両方）」という構成で、端から端まで
 テストで保証しています。
 
-> 2 つ目のコンテキスト（注文）と、その送信側（`ConfirmReservation` / `OrderCancelled` の
-> 発行）、コンテキスト間の腐敗防止層（anti-corruption layer）は、この段階の対象外です
-> （後続で追加します）。在庫側の **受信ポリシ**（`OnConfirmReservation` /
-> `OnOrderCancelled`）と内部エンドポイントは先に用意してあります。
+**公開 API（作成・照会・取消）— Ordering（注文）**
+
+- **注文の作成** `POST /orders`（在庫を同期予約できたときのみ Confirmed で確定）
+- **注文の照会** `GET /orders/{id}`
+- **注文の取消** `POST /orders/{id}/cancel`（在庫の解放は非同期）
+
+**コンテキスト間の seam（この段階の主眼）**
+
+- **二相予約（分散）** — 作成は、注文 ID から決定的に導出した予約参照で在庫を **同期予約**
+  （腐敗防止層 `aclhttp` → 生成クライアント `clients/inventory` → 在庫の内部 API）し、
+  成功したときのみ、同一の作業単位で注文を Confirmed 保存し `ConfirmReservation` コマンドを
+  アウトボックスへ積みます。確定はアウトボックス経由で at-least-once に在庫へ届きます。
+- **腐敗防止層（ACL）とエラー翻訳** — 注文は在庫の Go パッケージを import せず、翻訳済み
+  DTO（`port.ReserveLine`）だけを渡します。在庫不足（409）は注文側の `ErrReservationRejected`
+  （→ HTTP 409）、不達・タイムアウト・5xx は `ErrReservationUnavailable`（→ HTTP 503）へ
+  翻訳し、在庫側の番兵はそのまま漏らしません。
+- **非同期の在庫解放** — 取消は `OrderCancelled` を（保存と同一トランザクションで）アウトボックスへ
+  積み、在庫側が購読して非同期に解放します。下流から上流への同期呼び出しはしません。
+- **契約の正本** — クロスコンテキストのメッセージ契約は `contracts/events/` に、在庫の内部 API
+  契約は `contracts/inventory/internal.openapi.yaml` に集中管理します。サーバはコンテキストごとに、
+  クライアントは共有モジュール `clients/inventory` に生成します（生成物はコミット）。
+- **遅延／消失した確定の整合** — 分散トポロジでは、注文側に照会用のコード分岐や `Failed` 状態は
+  持たせません。整合は運用レベルで、両サービスのログを共有 `trace_id`（W3C traceparent）で
+  相関して行います（在庫側 `OnConfirmReservation` は該当予約が無ければ良性の警告ログを残します）。
 
 ## アーキテクチャ（4 つの層）
 
@@ -124,37 +150,47 @@ Go でドメイン駆動設計（DDD）とヘキサゴナルアーキテクチ�
 ```
 .
 ├── go.work                     … 複数モジュールのワークスペース
-├── contracts/                  … コード生成の入力（契約 = 真実の源）
-│   └── inventory/
-│       ├── openapi.yaml          … 公開 OpenAPI（補充・照会）
-│       └── internal.openapi.yaml … 内部 OpenAPI（予約・確定・解放・取り込み）
-├── shared/                     … ドメイン非依存の共有モジュール
-│   ├── uow/                     … 作業単位（明示的トランザクション + 楽観的再試行）
-│   ├── event/                   … プロセス内イベント配信
-│   ├── outbox/                  … トランザクショナルアウトボックス（Runner / Router）
-│   ├── id/                      … ID 生成（crypto/rand）
-│   ├── correlation/             … 相関 ID の context ヘルパー
-│   └── testutil/                … 擬似時計・アサーション補助（テスト用）
+├── contracts/                  … コード生成の入力（契約 = 真実の源。集中管理）
+│   ├── inventory/
+│   │   ├── openapi.yaml          … 公開 OpenAPI（補充・照会）
+│   │   ├── internal.openapi.yaml … 内部 OpenAPI（予約・確定・解放・取り込み = ACL サーフェス）
+│   │   └── client.ogen.yaml      … 上記内部 API から「クライアントのみ」を生成する設定
+│   ├── ordering/
+│   │   └── openapi.yaml          … 公開 OpenAPI（作成・照会・取消）
+│   └── events/                  … クロスコンテキストのメッセージ契約（JSON スキーマ）
+│       ├── confirm_reservation.schema.json … 予約確定コマンド
+│       └── order_cancelled.schema.json     … 注文取消イベント
+├── clients/                    … 共有の生成クライアント（消費側が import・コミット・手編集しない）
+│   └── inventory/              … 在庫の内部 API から生成した Go クライアント（invclient）
+├── shared/                     … ドメイン非依存の共有モジュール（uow / event / outbox / id / correlation / testutil）
 └── contexts/
-    └── inventory/              … 「在庫」境界づけられたコンテキスト（1 モジュール）
-        ├── inventory.go         … 公開ファサード（Module, New, HTTPHandler, InternalHTTPHandler, StartWorkers）
-        ├── cmd/inventory/       … サービスの合成ルート（main）
-        ├── db/                  … schema.sql / queries.sql（sqlc の入力）
-        ├── sqlc.yaml            … sqlc の設定
+    ├── inventory/              … 「在庫」境界づけられたコンテキスト（1 モジュール）
+    │   ├── inventory.go         … 公開ファサード（Module, New, HTTPHandler, InternalHTTPHandler, StartWorkers）
+    │   ├── cmd/inventory/       … サービスの合成ルート（main）
+    │   ├── db/ · sqlc.yaml      … schema.sql / queries.sql（sqlc の入力）
+    │   └── internal/{domain, application, adapter/{inbound, outbound}}
+    └── ordering/               … 「注文」境界づけられたコンテキスト（1 モジュール）
+        ├── ordering.go          … 公開ファサード（Module, New, HTTPHandler, StartWorkers）
+        ├── cmd/ordering/        … サービスの合成ルート（main。ACL / イベント送出クライアントを結線）
+        ├── port/                … 公開の翻訳済み DTO（ReserveLine）
+        ├── db/ · sqlc.yaml      … schema.sql / queries.sql（orders / order_lines / outbox）
         └── internal/
-            ├── domain/          … 純粋なドメイン（StockItem / Reservation / ReservationService …）
-            ├── application/     … ユースケース / ポート / サブスクライバ / Reaper
-            └── adapter/         … アダプタ（入口 / 出口で対称）
-                ├── inbound/     … 入口（駆動側）
-                │   ├── http/            … 公開 API の薄いハンドラ（パッケージ httpapi）
-                │   ├── openapi/         … ogen 生成サーバ（公開）
-                │   ├── internalhttp/    … 内部 API の薄いハンドラ
-                │   └── openapiinternal/ … ogen 生成サーバ（内部）
-                └── outbound/    … 出口（被駆動側）
-                    ├── memory/   … インメモリ実装（在庫 + アウトボックス）
-                    ├── postgres/ … pgx + sqlc 実装（sqlcgen/ を含む）
-                    └── logging/  … 構造化ログ + 開発用パブリッシャ
+            ├── domain/order/    … 純粋なドメイン（Order / OrderLine / VO / イベント）
+            ├── application/     … ユースケース（PlaceOrder / GetOrder / CancelOrder）/ ポート / ACL ポート
+            └── adapter/
+                ├── inbound/{http, openapi}     … 公開 API の薄いハンドラ + ogen 生成サーバ
+                └── outbound/
+                    ├── memory/    … インメモリ実装（注文 + アウトボックス）
+                    ├── postgres/  … pgx + sqlc 実装（sqlcgen/ を含む）
+                    ├── aclhttp/   … 腐敗防止層（生成クライアントで StockReserver を実装 + trace 伝播）
+                    ├── eventhttp/ … アウトボックス送信トランスポート（在庫の /events へ HTTP push）
+                    └── logging/   … 構造化ログ + 開発用パブリッシャ
 ```
+
+> **境界規則（depguard で強制）**: 注文コンテキストは `contexts/inventory` の Go パッケージを
+> 決して import しません。在庫へは `clients/inventory` を介して HTTP 越しにのみ到達します。
+> 各コンテキストのドメインは純粋（永続化・IO・生成クライアントに非依存）で、値オブジェクトは
+> コンテキストごとに独立所有します（例: 注文の `Quantity` は n ≥ 1、在庫の `Quantity` は n ≥ 0）。
 
 ## 動かし方
 
@@ -164,15 +200,21 @@ DB を用意せずに、ドメインとアプリケーションの縦切りを�
 モックではなく、擬似トランザクションと楽観的排他制御を備えた**本物のアダプタ**です。
 
 ```sh
-# 全モジュールのテスト（相関 ID・作業単位・排他衝突・RFC 9457 まで通しで検証）
+# 全モジュールのテスト（相関 ID・作業単位・排他衝突・RFC 9457・seam の翻訳まで通しで検証）
 cd shared && go test ./...
 cd ../contexts/inventory && go test ./...
+cd ../ordering && go test ./...
 ```
+
+> 注文コンテキストのテストには、腐敗防止層（`aclhttp`）が在庫の内部 API 契約どおりに要求を
+> 組み立て、在庫のエラー（409 / 5xx / タイムアウト）を注文側の番兵へ翻訳し、`trace_id` が
+> 作成 → 予約でサービスを跨いで伝播することの検証（httptest スタブ）が含まれます。
 
 ### 2) docker compose で動かす（PostgreSQL）
 
-`docker compose up` で、PostgreSQL の起動 → スキーマ適用 → 在庫サービス起動までを
-手作業なしで行います。
+`docker compose up` で、PostgreSQL の起動 → 両コンテキストのスキーマ適用 →
+在庫サービス・注文サービスの起動までを手作業なしで行います（分散構成: サービスごとに独立
+コンテナ、1 つの物理 DB をスキーマで論理分割）。
 
 ```sh
 docker compose up --build
@@ -210,6 +252,27 @@ curl -X POST localhost:8081/reservations/ORDER-1/release
 curl localhost:8080/stock/WIDGET-001
 ```
 
+注文サービス（ポート 8082）で、seam を跨ぐ二相予約を端から端まで試せます。
+
+```sh
+# まず在庫を補充しておく
+curl -X POST localhost:8080/stock/WIDGET-001/replenish \
+  -H 'Content-Type: application/json' -d '{"quantity":10}'
+
+# 注文を作成する（在庫を同期予約 → 成功で Confirmed。ConfirmReservation が在庫へ届く）
+curl -X POST localhost:8082/orders \
+  -H 'Content-Type: application/json' \
+  -d '{"customerId":"CUST-1","lines":[{"sku":"WIDGET-001","quantity":3,"unitPrice":{"amount":1200,"currency":"JPY"}}]}'
+
+# 注文を照会する（作成レスポンスの id を使う）
+curl localhost:8082/orders/<ORDER_ID>
+
+# 注文を取り消す（OrderCancelled を発行 → 在庫側が非同期に解放）
+curl -X POST localhost:8082/orders/<ORDER_ID>/cancel
+
+# 在庫が不足していれば作成は 409（problem+json）、在庫サービスが不達なら 503 を返す
+```
+
 > `docker-compose.yml` に書かれた認証情報はすべて**デモ専用**です。本番では
 > 使わないでください。秘密情報はイメージに焼き込まず、実行時の環境変数で渡します。
 
@@ -221,11 +284,15 @@ curl localhost:8080/stock/WIDGET-001
 go install github.com/ogen-go/ogen/cmd/ogen@latest
 go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 
-# 契約 / SQL を編集したら再生成する（生成物はコミットする）
-cd contexts/inventory && go generate ./...
+# 契約 / SQL を編集したら各モジュールで再生成する（生成物はコミットする）
+cd clients/inventory && go generate ./...   # 在庫内部 API → 共有クライアント（invclient）
+cd ../../contexts/inventory && go generate ./...
+cd ../ordering && go generate ./...
 ```
 
-CI では再生成後に差分が出ないこと（冪等性）を検証します。
+サーバはコンテキストごとに、クライアントは共有の `clients/inventory` に、同じ内部 OpenAPI から
+鏡像の生成設定（サーバ側は `paths/client` を無効化、クライアント側は `paths/server` を無効化）で
+生成します。CI では再生成後に差分が出ないこと（冪等性）を検証します。
 
 ## 前提ツール
 

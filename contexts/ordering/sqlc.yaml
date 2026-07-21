@@ -1,0 +1,16 @@
+# sqlc のコード生成設定。db/schema.sql と db/queries.sql から
+# 型安全な Go コードを internal/adapter/outbound/postgres/sqlcgen へ生成する。
+# 生成物はコミットし、手で編集しない。
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "db/schema.sql"
+    queries: "db/queries.sql"
+    gen:
+      go:
+        package: "sqlcgen"
+        out: "internal/adapter/outbound/postgres/sqlcgen"
+        sql_package: "pgx/v5"
+        emit_interface: true
+        emit_json_tags: false
+        emit_empty_slices: true

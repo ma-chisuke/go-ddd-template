@@ -6,6 +6,8 @@
 go 1.25.0
 
 use (
+	./clients/inventory
 	./contexts/inventory
+	./contexts/ordering
 	./shared
 )
