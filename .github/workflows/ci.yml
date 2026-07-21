@@ -135,3 +135,33 @@ jobs:
 
       - name: メッセージ契約の後方互換（イベント／コマンドの JSON スキーマ）
         run: bash contracts/events/check-compat.sh
+
+  # サプライチェーン: 依存関係の既知脆弱性スキャン（govulncheck）。
+  # コード・契約とは独立した関心事なので別ジョブにする。脆弱性データベースは
+  # 実行時に取得されるため、常に最新の検出内容でスキャンされる。
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Go をセットアップ
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: govulncheck をインストール
+        run: |
+          set -euo pipefail
+          # govulncheck は Go 公式のサプライチェーン脆弱性スキャナ（dev/CI 専用。
+          # ランタイム依存には持ち込まない）。バージョンはピン留めする。
+          go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: 既知脆弱性スキャン（govulncheck、全モジュール）
+        run: |
+          set -euo pipefail
+          (cd shared && govulncheck ./...)
+          (cd clients/inventory && govulncheck ./...)
+          (cd contexts/inventory && govulncheck ./...)
+          (cd contexts/ordering && govulncheck ./...)
+          (cd cmd/dev && govulncheck ./...)
