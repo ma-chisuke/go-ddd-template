@@ -1,0 +1,82 @@
+# CI: ビルド・整形検査・静的解析・テスト、そしてコード生成の冪等性検証。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 同時実行を抑制（同一 ref の古い実行はキャンセル）。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Go をセットアップ
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: ツールをインストール
+        run: |
+          set -euo pipefail
+          # ogen / sqlc / goimports / golangci-lint を、CI の Go(1.25) でビルドして導入する。
+          # golangci-lint は「ビルドに使った Go のバージョン >= 対象モジュールの go ディレクティブ」
+          # を要求するため、CI の Go でビルドして 1.25 対応にする。
+          go install github.com/ogen-go/ogen/cmd/ogen@v1.23.0
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+          go install golang.org/x/tools/cmd/goimports@latest
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.5
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: コード生成の冪等性を検証
+        run: |
+          set -euo pipefail
+          # 生成物はコミット済み。再生成して差分が出たら失敗させる。
+          (cd contexts/inventory && go generate ./...)
+          if ! git diff --exit-code; then
+            echo "::error::生成物が最新ではありません。'cd contexts/inventory && go generate ./...' を実行してコミットしてください。"
+            exit 1
+          fi
+
+      - name: 整形検査（gofmt / goimports）
+        run: |
+          set -euo pipefail
+          if [ -n "$(gofmt -l shared contexts)" ]; then
+            echo "::error::gofmt 未整形のファイルがあります:"; gofmt -l shared contexts; exit 1
+          fi
+          if [ -n "$(goimports -l shared contexts)" ]; then
+            echo "::error::goimports 未整形のファイルがあります:"; goimports -l shared contexts; exit 1
+          fi
+
+      - name: go vet
+        run: |
+          set -euo pipefail
+          (cd shared && go vet ./...)
+          (cd contexts/inventory && go vet ./...)
+
+      - name: golangci-lint
+        run: |
+          set -euo pipefail
+          (cd shared && golangci-lint run ./...)
+          (cd contexts/inventory && golangci-lint run ./...)
+
+      - name: ビルド
+        run: |
+          set -euo pipefail
+          (cd shared && go build ./...)
+          (cd contexts/inventory && go build ./...)
+
+      - name: テスト
+        run: |
+          set -euo pipefail
+          (cd shared && go test -race ./...)
+          (cd contexts/inventory && go test -race ./...)

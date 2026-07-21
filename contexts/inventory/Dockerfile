@@ -1,0 +1,26 @@
+# syntax=docker/dockerfile:1
+
+# 在庫サービスのマルチステージビルド。
+# ビルドコンテキストはリポジトリのルート（go.work・shared・contexts を含む）を想定する。
+
+# ---- ビルドステージ ----
+FROM golang:1.25-alpine AS build
+WORKDIR /src
+# 静的バイナリを作る（distroless で動かすため CGO を無効化）。
+ENV CGO_ENABLED=0 GOOS=linux
+
+# ワークスペースと各モジュールをコピーする。
+COPY go.work ./
+COPY shared/ ./shared/
+COPY contexts/inventory/ ./contexts/inventory/
+
+# 在庫サービスのバイナリをビルドする。-trimpath と -ldflags でサイズを削る。
+RUN go build -trimpath -ldflags="-s -w" -o /out/inventory ./contexts/inventory/cmd/inventory
+
+# ---- ランタイムステージ ----
+# distroless の static:nonroot は最小構成かつ非 root 実行。シェルもパッケージも持たない。
+FROM gcr.io/distroless/static:nonroot
+COPY --from=build /out/inventory /inventory
+USER nonroot:nonroot
+EXPOSE 8080
+ENTRYPOINT ["/inventory"]

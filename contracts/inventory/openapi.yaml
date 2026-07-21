@@ -1,0 +1,153 @@
+openapi: 3.0.3
+# 在庫コンテキストの公開 HTTP 契約（コントラクトファースト）。
+# この YAML が唯一の真実（source of truth）であり、ogen によって型安全な
+# サーバコードを生成する。生成物はリポジトリにコミットし、手で編集しない。
+# 契約を変えたいときは、この YAML を編集して `go generate ./...` で再生成する。
+#
+# この契約はコード生成の入力であると同時に、AI や人間の開発者が API の意図を
+# 機械可読な形で読み取るためのガイドとしても機能する。
+info:
+  title: Inventory API
+  version: 0.1.0
+  description: |
+    在庫（Inventory）コンテキストの公開 API。
+    在庫の補充（replenish）と在庫数の照会（query）のみを提供する最小スライス。
+    数量の妥当性（非負など）の検証は、単一の真実の源であるドメイン層に委譲している。
+    そのため契約側では値域を厳しく制約せず、不正値はドメインのエラーとして
+    RFC 9457 形式で返す。
+
+servers:
+  - url: /
+
+paths:
+  /stock/{sku}/replenish:
+    post:
+      operationId: replenishStock
+      summary: 在庫を補充する
+      description: 指定した SKU の在庫を補充する。SKU が未登録の場合は新規に作成してから補充する。
+      parameters:
+        - $ref: '#/components/parameters/SKUPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplenishRequest'
+      responses:
+        '200':
+          description: 補充後の在庫状態
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockView'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /stock/{sku}:
+    get:
+      operationId: getStock
+      summary: 在庫を照会する
+      description: 指定した SKU の現在の在庫状態を返す。
+      parameters:
+        - $ref: '#/components/parameters/SKUPath'
+      responses:
+        '200':
+          description: 現在の在庫状態
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockView'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+components:
+  parameters:
+    SKUPath:
+      name: sku
+      in: path
+      required: true
+      description: 在庫識別子（Stock Keeping Unit）
+      schema:
+        type: string
+        minLength: 1
+
+  responses:
+    # RFC 9457 (Problem Details for HTTP APIs) 形式の共通エラー応答。
+    # default 応答としてまとめて宣言することで、ogen はハンドラに NewError メソッドを
+    # 生成する。ドメインのセンチネルエラーはこの NewError で HTTP ステータスと
+    # problem+json 本文へ翻訳する。
+    ProblemResponse:
+      description: RFC 9457 形式のエラー詳細
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+
+  schemas:
+    ReplenishRequest:
+      type: object
+      required:
+        - quantity
+      properties:
+        quantity:
+          type: integer
+          description: 補充する数量。値の妥当性検証はドメイン層が行う。
+      example:
+        quantity: 10
+
+    StockView:
+      type: object
+      required:
+        - sku
+        - available
+        - reserved
+        - version
+      properties:
+        sku:
+          type: string
+          description: 在庫識別子
+        available:
+          type: integer
+          description: 利用可能在庫数
+        reserved:
+          type: integer
+          description: 引当済み在庫数（本スライスでは常に 0）
+        version:
+          type: integer
+          description: 楽観的排他制御のためのバージョン番号
+      example:
+        sku: WIDGET-001
+        available: 10
+        reserved: 0
+        version: 1
+
+    ProblemDetails:
+      type: object
+      description: RFC 9457 (Problem Details for HTTP APIs) に準拠したエラー表現
+      required:
+        - type
+        - title
+        - status
+      properties:
+        type:
+          type: string
+          format: uri
+          description: 問題の種別を示す URI。既定は "about:blank"。
+        title:
+          type: string
+          description: 問題種別の短い人間可読な要約
+        status:
+          type: integer
+          description: HTTP ステータスコード
+        detail:
+          type: string
+          description: 今回の発生に固有の人間可読な説明
+        instance:
+          type: string
+          format: uri
+          description: 問題が発生した具体的なリソースを示す URI
+      example:
+        type: about:blank
+        title: Not Found
+        status: 404
+        detail: 在庫項目が見つかりません

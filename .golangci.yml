@@ -1,0 +1,50 @@
+# golangci-lint の設定。CI のマージ前ゲートとして実行する。
+# 生成ファイル（ogen / sqlc の出力）は "Code generated ... DO NOT EDIT." ヘッダにより
+# 既定で解析対象外になる。
+run:
+  timeout: 5m
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gofmt
+    - goimports
+    - misspell
+    - depguard
+
+linters-settings:
+  goimports:
+    local-prefixes: github.com/example/go-ddd-template
+  depguard:
+    # depguard で「純粋なドメイン層」を機械的に守る。
+    # ドメイン層が永続化・HTTP・フレームワークへ依存したらビルドを止める。
+    rules:
+      domain-purity:
+        files:
+          - "**/internal/domain/**"
+        deny:
+          - pkg: "github.com/jackc/pgx"
+            desc: "ドメイン層は永続化に依存してはならない（application 層のポート経由で分離する）"
+          - pkg: "github.com/ogen-go/ogen"
+            desc: "ドメイン層は HTTP/フレームワークに依存してはならない"
+          - pkg: "net/http"
+            desc: "ドメイン層は IO/フレームワークに依存してはならない"
+          - pkg: "database/sql"
+            desc: "ドメイン層は永続化に依存してはならない"
+
+issues:
+  # 生成ファイルは検査しない（明示的な保険）。
+  exclude-rules:
+    - path: (oas_.*_gen\.go|sqlcgen/.*\.go)
+      linters:
+        - errcheck
+        - staticcheck
+        - unused
+        - govet
+        - gofmt
+        - goimports
