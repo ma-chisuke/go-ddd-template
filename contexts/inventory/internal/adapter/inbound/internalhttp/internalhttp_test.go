@@ -25,7 +25,7 @@ func newInternalServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewOutboxStore())
+	work := memory.NewUnitOfWork(store, memory.NewOutboxStore(), memory.NewEventStore())
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 	dispatcher := application.NewInProcessDispatcher(log)
 

@@ -10,6 +10,11 @@
 // 具体的な MessageStore(自スキーマの outbox テーブル)は各コンテキストの送信アダプタが実装し、
 // トランスポート(Publisher)も配置側が差し替える。
 //
+// 関心の分離: outbox は「一時的な配送キュー」であり、送信に成功した行は削除される
+// (delete-after-publish)。発行したメッセージの恒久的な履歴は、Enqueue と同一
+// トランザクションで書かれる events テーブル(追記専用の恒久イベントログ)が担う。
+// これにより配送キューは肥大化せず、監査に必要な履歴は失われない。
+//
 // 送信側(Runner)は at-least-once（少なくとも1回）で配送する。Publish 成功後・MarkPublished
 // 前にクラッシュすると同じメッセージが再送されうるため、受信側の Consumer は必ず冪等に書く。
 package outbox
@@ -50,12 +55,21 @@ type Message struct {
 
 // MessageStore はコンテキストが自スキーマの outbox テーブルに対して実装する送信側ストア。
 // Enqueue は集約書き込みと同一トランザクション(UoW)で呼ばれ、二重書き込みを避ける。
+//
+// outbox は「一時的な配送キュー」である。送信に成功した行は残さず削除するため、
+// outbox には常に「まだ送っていないもの」だけが存在する。何を発行したかの恒久的な
+// 履歴は、Enqueue と同一トランザクションで書かれる events テーブル(恒久イベントログ)が
+// 担う。配送(Runner)は events を読まない。
 type MessageStore interface {
 	// Enqueue はメッセージを未送信状態で outbox に積む。UoW の内側で呼ぶこと。
+	// 実装は同一トランザクションで恒久イベントログ(events)にも記録する。
 	Enqueue(ctx context.Context, m Message) error
 	// Unpublished は未送信(未 publish)のメッセージを最大 limit 件返す。
+	// 送信済みの行は削除されているため、outbox に残っている行はすべて未送信である。
 	Unpublished(ctx context.Context, limit int) ([]Message, error)
-	// MarkPublished は指定 ID のメッセージを送信済みとして記録する。
+	// MarkPublished は指定 ID のメッセージを配送キューから取り除く(=行を削除する)。
+	// 送信済みフラグを立てるのではなく行そのものを消す点に注意すること。
+	// 恒久的な発行履歴は events テーブルに残るため、ここで削除しても記録は失われない。
 	MarkPublished(ctx context.Context, ids ...string) error
 }
 
@@ -133,6 +147,10 @@ func (r *Runner) Run(ctx context.Context) error {
 // RunOnce は 1 回だけ未送信分を送出する。テストや起動直後の即時ドレインに使う。
 // 戻り値は今回送信できた件数。ある 1 件の送出が失敗したら、その時点で中断して
 // 件数とエラーを返す(残りは次回に再試行される)。
+//
+// 順序 Unpublished → Publish → MarkPublished(=削除) は at-least-once の要である。
+// 送出に成功した後にのみ配送キューから消すため、Publish と削除の間でクラッシュしても
+// 行は残り、次のポーリングで再送される。この順序は変えてはならない。
 func (r *Runner) RunOnce(ctx context.Context) (int, error) {
 	msgs, err := r.store.Unpublished(ctx, r.batch)
 	if err != nil {
@@ -144,7 +162,7 @@ func (r *Runner) RunOnce(ctx context.Context) (int, error) {
 			return sent, fmt.Errorf("メッセージ %q の送出に失敗しました: %w", m.ID, err)
 		}
 		if err := r.store.MarkPublished(ctx, m.ID); err != nil {
-			return sent, fmt.Errorf("メッセージ %q の送信済み記録に失敗しました: %w", m.ID, err)
+			return sent, fmt.Errorf("メッセージ %q の配送キューからの削除に失敗しました: %w", m.ID, err)
 		}
 		sent++
 	}

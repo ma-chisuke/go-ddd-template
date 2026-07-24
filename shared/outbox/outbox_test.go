@@ -17,13 +17,14 @@ import (
 func testLogger() *slog.Logger { return slog.New(slog.NewJSONHandler(io.Discard, nil)) }
 
 // fakeStore は MessageStore のインメモリ実装(テスト用)。
+// outbox は一時的な配送キューであり、送信済みの行は保持しない(delete-after-publish)。
+// そのため msgs に残っているものが常に「未送信」である。
 type fakeStore struct {
-	msgs      []outbox.Message
-	published map[string]bool
+	msgs []outbox.Message
 }
 
 func newFakeStore(msgs ...outbox.Message) *fakeStore {
-	return &fakeStore{msgs: msgs, published: make(map[string]bool)}
+	return &fakeStore{msgs: msgs}
 }
 
 func (s *fakeStore) Enqueue(_ context.Context, m outbox.Message) error {
@@ -34,9 +35,6 @@ func (s *fakeStore) Enqueue(_ context.Context, m outbox.Message) error {
 func (s *fakeStore) Unpublished(_ context.Context, limit int) ([]outbox.Message, error) {
 	var out []outbox.Message
 	for _, m := range s.msgs {
-		if s.published[m.ID] {
-			continue
-		}
 		out = append(out, m)
 		if len(out) >= limit {
 			break
@@ -45,10 +43,20 @@ func (s *fakeStore) Unpublished(_ context.Context, limit int) ([]outbox.Message,
 	return out, nil
 }
 
+// MarkPublished は指定 ID の行を配送キューから取り除く(=削除する)。
 func (s *fakeStore) MarkPublished(_ context.Context, ids ...string) error {
+	drop := make(map[string]bool, len(ids))
 	for _, id := range ids {
-		s.published[id] = true
+		drop[id] = true
 	}
+	kept := s.msgs[:0]
+	for _, m := range s.msgs {
+		if drop[m.ID] {
+			continue
+		}
+		kept = append(kept, m)
+	}
+	s.msgs = kept
 	return nil
 }
 
@@ -80,10 +88,15 @@ func TestRunner_RunOncePublishesAndMarks(t *testing.T) {
 	assert.Equal(t, 2, sent, "送信件数")
 	assert.Len(t, pub.sent, 2, "Publisher へ渡った件数")
 
-	// 2 回目は全て published 済みなので 0 件。
+	// 送信に成功した行は配送キューから削除される（delete-after-publish）。
+	remaining, err := store.Unpublished(ctx, 10)
+	require.NoError(t, err, "Unpublished 失敗")
+	assert.Empty(t, remaining, "送信済みの行は配送キューに残らない")
+
+	// 2 回目は配送キューが空なので 0 件。
 	sent, err = runner.RunOnce(ctx)
 	require.NoError(t, err, "想定外のエラー")
-	assert.Equal(t, 0, sent, "2 回目の送信件数(既に送信済み)")
+	assert.Equal(t, 0, sent, "2 回目の送信件数(配送キューは空)")
 }
 
 func TestRunner_PublishFailureLeavesUnpublished(t *testing.T) {

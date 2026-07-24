@@ -13,17 +13,23 @@ type Querier interface {
 	// 生成物はコミットし、手で編集しない。クエリを変えたいときはこの SQL を編集して再生成する。
 	// ID で注文を 1 件取得する。存在しなければ pgx.ErrNoRows が返る。
 	GetOrderByID(ctx context.Context, id string) (GetOrderByIDRow, error)
+	// 恒久イベントログへ発行メッセージを 1 件記録する（recorded_at は既定値 now()）。
+	// InsertOutboxMessage と同一トランザクションで実行し、原子的に確定させる。
+	InsertEvent(ctx context.Context, arg InsertEventParams) error
 	// 注文を新規挿入する（version は 1 から始まる）。
 	InsertOrder(ctx context.Context, arg InsertOrderParams) error
 	// 注文明細を 1 件挿入する。
 	InsertOrderLine(ctx context.Context, arg InsertOrderLineParams) error
-	// アウトボックスへメッセージを積む（集約書き込みと同一トランザクションで実行する）。
+	// アウトボックス（一時的な配送キュー）へメッセージを積む。
+	// 集約書き込み・InsertEvent と同一トランザクションで実行する。
 	InsertOutboxMessage(ctx context.Context, arg InsertOutboxMessageParams) error
 	// 注文が保持する明細を行番号順に取得する。
 	ListOrderLines(ctx context.Context, orderID string) ([]OrderingOrderLine, error)
 	// 未送信のメッセージを occurred_at 昇順で最大 $1 件取得する。
-	ListUnpublishedOutbox(ctx context.Context, limit int32) ([]ListUnpublishedOutboxRow, error)
-	// 指定 ID のメッセージを送信済みとして記録する。
+	// 送信済みの行は削除されるため、この表に残っている行はすべて未送信である。
+	ListUnpublishedOutbox(ctx context.Context, limit int32) ([]OrderingOutbox, error)
+	// 送信に成功した ID の行を配送キューから削除する（delete-after-publish）。
+	// 発行履歴は events テーブルに残るため、ここで削除しても記録は失われない。
 	MarkOutboxPublished(ctx context.Context, id string) error
 	// 楽観的排他制御つきの更新。期待バージョンが一致する行だけを更新し、影響行数を返す。
 	// 0 行なら版が食い違っている（＝衝突）ことを意味する。注文の可変部分は状態のみ。

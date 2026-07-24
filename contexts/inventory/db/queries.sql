@@ -55,20 +55,27 @@ INSERT INTO inventory.stock_reservations (stock_item_id, ref, quantity, status, 
 VALUES ($1, $2, $3, $4, $5);
 
 -- name: InsertOutboxMessage :exec
--- アウトボックスへメッセージを積む（集約書き込みと同一トランザクションで実行する）。
+-- アウトボックス（一時的な配送キュー）へメッセージを積む。
+-- 集約書き込み・InsertEvent と同一トランザクションで実行する。
 INSERT INTO inventory.outbox (id, message_type, payload, trace_id, occurred_at)
+VALUES ($1, $2, $3, $4, $5);
+
+-- name: InsertEvent :exec
+-- 恒久イベントログへ発行メッセージを 1 件記録する（recorded_at は既定値 now()）。
+-- InsertOutboxMessage と同一トランザクションで実行し、原子的に確定させる。
+INSERT INTO inventory.events (id, message_type, payload, trace_id, occurred_at)
 VALUES ($1, $2, $3, $4, $5);
 
 -- name: ListUnpublishedOutbox :many
 -- 未送信のメッセージを occurred_at 昇順で最大 $1 件取得する。
+-- 送信済みの行は削除されるため、この表に残っている行はすべて未送信である。
 SELECT id, message_type, payload, trace_id, occurred_at
 FROM inventory.outbox
-WHERE published_at IS NULL
 ORDER BY occurred_at ASC
 LIMIT $1;
 
 -- name: MarkOutboxPublished :exec
--- 指定 ID のメッセージを送信済みとして記録する。
-UPDATE inventory.outbox
-SET published_at = now()
+-- 送信に成功した ID の行を配送キューから削除する（delete-after-publish）。
+-- 発行履歴は events テーブルに残るため、ここで削除しても記録は失われない。
+DELETE FROM inventory.outbox
 WHERE id = $1;

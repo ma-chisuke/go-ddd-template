@@ -8,6 +8,15 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type OrderingEvent struct {
+	ID          string
+	MessageType string
+	Payload     []byte
+	TraceID     string
+	OccurredAt  pgtype.Timestamptz
+	RecordedAt  pgtype.Timestamptz
+}
+
 type OrderingOrder struct {
 	ID             string
 	CustomerID     string
@@ -35,5 +44,4 @@ type OrderingOutbox struct {
 	Payload     []byte
 	TraceID     string
 	OccurredAt  pgtype.Timestamptz
-	PublishedAt pgtype.Timestamptz
 }

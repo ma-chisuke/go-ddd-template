@@ -124,9 +124,12 @@ func NewInMemory(deps InMemoryDeps) (*Module, error) {
 	log := orLoggerDefault(deps.Logger)
 
 	store := memory.NewStore()
+	// 配送キュー（送信後に削除される一時的なもの）と恒久イベントログ（追記のみ）を
+	// 分けて生成し、同一コミットで両方へ確定させる。
 	outboxStore := memory.NewOutboxStore()
+	eventsStore := memory.NewEventStore()
 	// コミット時にその場でピアへ配送する同期シンクを結線する（store/poll なし・決定的）。
-	work := memory.NewUnitOfWork(store, outboxStore).WithSyncDelivery(deps.Publisher, log)
+	work := memory.NewUnitOfWork(store, outboxStore, eventsStore).WithSyncDelivery(deps.Publisher, log)
 	readStore := memory.NewReadOrderStore(store)
 
 	// 同期配送が送信を担うため、背景の送信中継（Runner）は起動しない（runner = nil）。

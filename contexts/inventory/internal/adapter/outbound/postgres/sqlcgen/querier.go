@@ -17,7 +17,11 @@ type Querier interface {
 	// 生成物はコミットし、手で編集しない。クエリを変えたいときはこの SQL を編集して再生成する。
 	// SKU で在庫項目を 1 件取得する。存在しなければ pgx.ErrNoRows が返る。
 	GetStockItemBySKU(ctx context.Context, sku string) (GetStockItemBySKURow, error)
-	// アウトボックスへメッセージを積む（集約書き込みと同一トランザクションで実行する）。
+	// 恒久イベントログへ発行メッセージを 1 件記録する（recorded_at は既定値 now()）。
+	// InsertOutboxMessage と同一トランザクションで実行し、原子的に確定させる。
+	InsertEvent(ctx context.Context, arg InsertEventParams) error
+	// アウトボックス（一時的な配送キュー）へメッセージを積む。
+	// 集約書き込み・InsertEvent と同一トランザクションで実行する。
 	InsertOutboxMessage(ctx context.Context, arg InsertOutboxMessageParams) error
 	// 予約を 1 件挿入する。
 	InsertReservation(ctx context.Context, arg InsertReservationParams) error
@@ -30,8 +34,10 @@ type Querier interface {
 	// 指定の予約参照を持つ在庫項目の ID 一覧を取得する（Confirm / Release のマルチ SKU ロード）。
 	ListStockItemIDsByReservationRef(ctx context.Context, ref string) ([]string, error)
 	// 未送信のメッセージを occurred_at 昇順で最大 $1 件取得する。
-	ListUnpublishedOutbox(ctx context.Context, limit int32) ([]ListUnpublishedOutboxRow, error)
-	// 指定 ID のメッセージを送信済みとして記録する。
+	// 送信済みの行は削除されるため、この表に残っている行はすべて未送信である。
+	ListUnpublishedOutbox(ctx context.Context, limit int32) ([]InventoryOutbox, error)
+	// 送信に成功した ID の行を配送キューから削除する（delete-after-publish）。
+	// 発行履歴は events テーブルに残るため、ここで削除しても記録は失われない。
 	MarkOutboxPublished(ctx context.Context, id string) error
 	// 楽観的排他制御つきの更新。期待バージョンが一致する行だけを更新し、
 	// 影響行数を返す。0 行なら版が食い違っている（＝衝突）ことを意味する。

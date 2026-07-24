@@ -12,15 +12,19 @@ import (
 )
 
 // UnitOfWork はインメモリの擬似トランザクションによる作業単位。
-// 在庫ストアとアウトボックスを同一トランザクションに束ね、コミット時にまとめて確定させる。
+// 在庫ストア・アウトボックス（一時的な配送キュー）・イベントログ（恒久記録）を
+// 同一トランザクションに束ね、コミット時にまとめて確定させる。
 type UnitOfWork struct {
 	store  *Store
 	outbox *OutboxStore
+	events *EventStore
 }
 
 // NewUnitOfWork はインメモリの作業単位を生成する。
-func NewUnitOfWork(store *Store, outboxStore *OutboxStore) *UnitOfWork {
-	return &UnitOfWork{store: store, outbox: outboxStore}
+// eventsStore は発行メッセージの恒久ログで、outboxStore と同じコミットで追記される
+// （PostgreSQL 構成で outbox と events を同一トランザクションに書くのと同じ意味論）。
+func NewUnitOfWork(store *Store, outboxStore *OutboxStore, eventsStore *EventStore) *UnitOfWork {
+	return &UnitOfWork{store: store, outbox: outboxStore, events: eventsStore}
 }
 
 // コンパイル時にポートを満たしていることを確認する。
@@ -29,7 +33,7 @@ var _ application.UnitOfWork = (*UnitOfWork)(nil)
 // Within は擬似トランザクションを開く。fn が成功すれば staging をコミットし、
 // エラーを返せば staging を破棄（ロールバック）する。
 func (u *UnitOfWork) Within(ctx context.Context, fn func(ctx context.Context, r application.Repos) error) error {
-	tx := &txState{store: u.store, outbox: u.outbox}
+	tx := &txState{store: u.store, outbox: u.outbox, events: u.events}
 	r := repos{
 		stock:  &txStore{tx: tx},
 		outbox: &txOutbox{tx: tx},
@@ -53,14 +57,19 @@ func (r repos) Outbox() application.MessagePublisher { return r.outbox }
 type txState struct {
 	store      *Store
 	outbox     *OutboxStore
+	events     *EventStore
 	staged     []record
 	stagedMsgs []outbox.Message
 }
 
-// commit は staging された在庫行とアウトボックスメッセージを確定ストアへ適用する。
+// commit は staging された在庫行とメッセージを確定ストアへ適用する。
 // 版チェックと集約への版反映（MarkPersisted）は Save の時点で済ませているため、
 // ここでは確定ストアへの書き込みだけを行う。ロールバック（fn がエラー）時は staged を
 // 破棄するだけでよく、確定ストアは変化しない。
+//
+// メッセージは配送キュー（outbox）と恒久イベントログ（events）の両方へ同じコミットで
+// 積む。PostgreSQL 構成で Enqueue が同一トランザクションに両表を書くのと同じ意味論で、
+// 片方だけ残ることはない。
 func (tx *txState) commit() error {
 	if len(tx.staged) > 0 {
 		tx.store.mu.Lock()
@@ -70,6 +79,7 @@ func (tx *txState) commit() error {
 		tx.store.mu.Unlock()
 	}
 	tx.outbox.appendCommitted(tx.stagedMsgs)
+	tx.events.appendCommitted(tx.stagedMsgs)
 	return nil
 }
 

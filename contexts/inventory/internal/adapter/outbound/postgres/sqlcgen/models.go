@@ -8,13 +8,21 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type InventoryEvent struct {
+	ID          string
+	MessageType string
+	Payload     []byte
+	TraceID     string
+	OccurredAt  pgtype.Timestamptz
+	RecordedAt  pgtype.Timestamptz
+}
+
 type InventoryOutbox struct {
 	ID          string
 	MessageType string
 	Payload     []byte
 	TraceID     string
 	OccurredAt  pgtype.Timestamptz
-	PublishedAt pgtype.Timestamptz
 }
 
 type InventoryStockItem struct {

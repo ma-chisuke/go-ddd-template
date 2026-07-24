@@ -23,18 +23,22 @@ import (
 type UnitOfWork struct {
 	store  *Store
 	outbox *OutboxStore
+	events *EventStore
 	sink   outbox.Publisher
 	log    *slog.Logger
 }
 
 // NewUnitOfWork はインメモリの作業単位を生成する。
-func NewUnitOfWork(store *Store, outboxStore *OutboxStore) *UnitOfWork {
-	return &UnitOfWork{store: store, outbox: outboxStore}
+// eventsStore は発行メッセージの恒久ログで、outboxStore と同じコミットで追記される
+// （PostgreSQL 構成で outbox と events を同一トランザクションに書くのと同じ意味論）。
+func NewUnitOfWork(store *Store, outboxStore *OutboxStore, eventsStore *EventStore) *UnitOfWork {
+	return &UnitOfWork{store: store, outbox: outboxStore, events: eventsStore}
 }
 
 // WithSyncDelivery は開発用の同期配送シンクを設定する（本番では使わない）。設定すると、
 // コミット成功直後に、そのトランザクションで積まれたメッセージを同期的に sink へ送出し、
-// 送出できたものは送信済みとして記録する（背景の Runner が二重送出しないように）。
+// 送出できたものは配送キューから取り除く（背景の Runner が二重送出しないように）。
+// 恒久イベントログ（events）には残るため、削除しても発行の記録は失われない。
 // これにより「集約の保存 → クロスコンテキストメッセージの配送」が 1 コールで決定的に完結する。
 func (u *UnitOfWork) WithSyncDelivery(sink outbox.Publisher, log *slog.Logger) *UnitOfWork {
 	u.sink = sink
@@ -49,7 +53,7 @@ var _ application.UnitOfWork = (*UnitOfWork)(nil)
 // エラーを返せば staging を破棄（ロールバック）する。コミット成功後、同期配送シンクが
 // 設定されていれば、そのトランザクションで積まれたメッセージをその場で送出する。
 func (u *UnitOfWork) Within(ctx context.Context, fn func(ctx context.Context, r application.Repos) error) error {
-	tx := &txState{store: u.store, outbox: u.outbox}
+	tx := &txState{store: u.store, outbox: u.outbox, events: u.events}
 	r := repos{
 		orders: &txStore{tx: tx},
 		outbox: &txOutbox{tx: tx},
@@ -67,6 +71,9 @@ func (u *UnitOfWork) Within(ctx context.Context, fn func(ctx context.Context, r 
 // deliverSync は同期配送シンクが設定されている場合に、コミット済みメッセージをその場で
 // 送出する。配送失敗はログに留め、コミット済みの操作は成功として扱う（本番では outbox.Runner
 // が at-least-once で再送する。この開発用シンクにはその再送は無いことを明示する）。
+//
+// Runner と同じく「送出に成功してから配送キューから消す」順序を守るため、送出に失敗した
+// メッセージはキューに残る（前進性は delete 意味論でも変わらない）。
 func (u *UnitOfWork) deliverSync(ctx context.Context, msgs []outbox.Message) {
 	if u.sink == nil || len(msgs) == 0 {
 		return
@@ -96,11 +103,16 @@ func (r repos) Outbox() application.MessagePublisher { return r.outbox }
 type txState struct {
 	store      *Store
 	outbox     *OutboxStore
+	events     *EventStore
 	staged     []record
 	stagedMsgs []outbox.Message
 }
 
-// commit は staging された注文行とアウトボックスメッセージを確定ストアへ適用する。
+// commit は staging された注文行とメッセージを確定ストアへ適用する。
+//
+// メッセージは配送キュー（outbox）と恒久イベントログ（events）の両方へ同じコミットで
+// 積む。PostgreSQL 構成で Enqueue が同一トランザクションに両表を書くのと同じ意味論で、
+// 片方だけ残ることはない。
 func (tx *txState) commit() error {
 	if len(tx.staged) > 0 {
 		tx.store.mu.Lock()
@@ -110,6 +122,7 @@ func (tx *txState) commit() error {
 		tx.store.mu.Unlock()
 	}
 	tx.outbox.appendCommitted(tx.stagedMsgs)
+	tx.events.appendCommitted(tx.stagedMsgs)
 	return nil
 }
 

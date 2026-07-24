@@ -18,7 +18,7 @@ import (
 func newRouterFixture(t *testing.T) (reserveFixture, *outbox.Router) {
 	t.Helper()
 	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewOutboxStore())
+	work := memory.NewUnitOfWork(store, memory.NewOutboxStore(), memory.NewEventStore())
 	f := newReserveFixture(t, work, store)
 
 	router := outbox.NewRouter()
@@ -73,7 +73,7 @@ func TestRouter_UnknownTypeReturnsErrNoRoute(t *testing.T) {
 func TestOnConfirmReservation_BenignNoopWhenNotFound(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewOutboxStore())
+	work := memory.NewUnitOfWork(store, memory.NewOutboxStore(), memory.NewEventStore())
 	log := testLogger()
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 	confirmer := application.NewConfirmer(exec, work, application.NewInProcessDispatcher(log), log)
