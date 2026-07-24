@@ -7,7 +7,7 @@
 // 独立したサービス（コンテナ）として動かす（docker-compose を参照）。
 module github.com/example/go-ddd-template/cmd/dev
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/example/go-ddd-template/contexts/inventory v0.0.0

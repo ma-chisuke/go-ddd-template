@@ -270,7 +270,8 @@ cd ../../cmd/dev && go test ./...   # 開発ハーネスの端から端までの
 
 ### 2) docker compose で動かす（PostgreSQL・分散サービス）
 
-`docker compose up --build` の 1 コマンドで、手作業なしに次までを立ち上げます:
+下の 1 コマンド（`tools/versions.env` を export してから compose を呼ぶ）で、手作業なしに次までを
+立ち上げます:
 PostgreSQL 起動 →（init コンテナで）**宣言的スキーマ適用（psqldef）→ 最小権限ロール/GRANT →
 本番参照データ → dev/test フィクスチャ** → 在庫サービス・注文サービスの起動。分散構成
 （サービスごとに独立コンテナ、1 つの物理 DB を schema-per-context で論理分割）を体験できます。
@@ -282,7 +283,9 @@ PostgreSQL 起動 →（init コンテナで）**宣言的スキーマ適用（p
   （8081）と PostgreSQL（5432）は compose ネットワーク内に留めます。
 
 ```sh
-docker compose up --build
+# tools/versions.env を export してから compose を呼ぶ（migrate の psqldef 版を build.args で渡すため）。
+# export 方式なので compose 既定の root .env 自動読込（デモ資格情報の上書き）も維持される。
+set -a && . ./tools/versions.env && set +a && docker compose up --build
 ```
 
 起動後、別ターミナルから：
@@ -337,7 +340,9 @@ Postgres をホストに publish しないため、テスト時のみオーバ�
 
 ```sh
 # DB（+ init コンテナ）をテスト用に起動し、5432 をホストへ公開する
-docker compose -f docker-compose.yml -f docker-compose.test.yml up -d db migrate
+# （migrate をビルドするため tools/versions.env を export してから compose を呼ぶ）
+set -a && . ./tools/versions.env && set +a && \
+  docker compose -f docker-compose.yml -f docker-compose.test.yml up -d db migrate
 
 # ホストから統合テストを実行する（後始末でスキーマ横断するため管理者ロールで接続）
 DATABASE_URL='postgres://app:app_admin_demo@localhost:5432/app?sslmode=disable' \
@@ -363,12 +368,11 @@ bash scripts/coverage-gate.sh            # domain + application のカバレッ�
 
 ## コード生成
 
-生成にはコマンドラインツールが必要です。
+生成ツール（ogen / sqlc / mockgen）は各モジュールの go.mod `tool` ディレクティブで版を固定して
+いるため、手元へ別途インストールする必要はありません。`go generate ./...` が `go tool` 経由で
+ピン留めした版を解決します（開発者のローカル環境に依存せず同一の生成物になります）。
 
 ```sh
-go install github.com/ogen-go/ogen/cmd/ogen@latest
-go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
-
 # 契約 / SQL を編集したら各モジュールで再生成する（生成物はコミットする）
 cd clients/inventory && go generate ./...   # 在庫内部 API → 共有クライアント（invclient）
 cd ../../contexts/inventory && go generate ./...
@@ -381,15 +385,19 @@ cd ../ordering && go generate ./...
 
 ## 前提ツール
 
-いずれも **dev/CI 専用**で、サービスのランタイム依存には持ち込みません。
+いずれも **dev/CI 専用**で、サービスのランタイム依存には持ち込みません。版の固定は 2 段構えです
+— コード生成ツールは go.mod の `tool` ディレクティブ、横断／Docker ツールは
+[`tools/versions.env`](tools/versions.env) を単一情報源とし、版番号を他所へハードコードしません。
 
-- Go（最新安定版）
+- Go 1.26 以上（最新安定版。go.work と各 go.mod は `go 1.26.0` を要求）
 - Docker / Docker Compose（PostgreSQL で動かす場合）
-- ogen, sqlc（コード生成する場合）
-- golangci-lint, goimports（静的解析・整形）
-- oasdiff（OpenAPI の後方互換ゲート。`go install github.com/oasdiff/oasdiff@v1.23.0`）
+- ogen, sqlc, mockgen（コード生成）— 版は各モジュールの go.mod `tool` ディレクティブで固定。
+  手動インストールは不要で、`go generate ./...` が `go tool` で解決する
+- golangci-lint, goimports（静的解析・整形）— 版は `tools/versions.env`
+- oasdiff（OpenAPI の後方互換ゲート）— 版は `tools/versions.env`（`OASDIFF_VERSION`）
 - jq（メッセージスキーマの互換ゲート。多くの環境でプリインストール済み）
-- psqldef（宣言的スキーマ適用。docker compose の init コンテナ内で使用。`go install github.com/sqldef/sqldef/cmd/psqldef@v1.0.7`）
+- psqldef（宣言的スキーマ適用。docker compose の init コンテナ内で使用）— 版は
+  `tools/versions.env`（`PSQLDEF_VERSION`）で、Dockerfile へ `ARG` で注入する
 
 ## ライセンス
 

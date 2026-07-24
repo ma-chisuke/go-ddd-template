@@ -151,3 +151,21 @@
 - `gofmt` と `goimports` で整形し、`go vet` と `golangci-lint` を通します（CI ゲート）。
   層／seam の境界は `depguard` で機械的に強制します。
 - 生成コード以外は原則コメント付きで、意図が読み取れるようにします。
+
+## 版管理（ツールのバージョン固定）
+
+ツールの版は**ちょうど 1 箇所**に置き、それ以外へはハードコードしません（単一情報源）。用途で
+固定先を 2 段に分けます。
+
+- **コード生成ツール（ogen / sqlc / mockgen）は go.mod の `tool` ディレクティブ**で固定します。
+  `//go:generate` は `go tool <tool>` で呼び、`go.sum` で完全再現されるため、開発者のローカル環境に
+  依存せず同一の生成物になります（`go generate ./...` だけで足り、手動 install は不要）。
+- **横断／Docker ツール（golangci-lint / oasdiff / govulncheck / goimports / psqldef）は
+  `tools/versions.env`**（リポジトリ直下の `KEY=VALUE`）を単一情報源にします。CI・スクリプト・
+  compose は `set -a && . ./tools/versions.env && set +a` で読み込み、Dockerfile は `ARG` で受けます
+  （既定値は置かない = 未指定ならビルドを失敗させ、第 2 の版情報源を作らない）。
+- CI・スクリプト・Dockerfile・compose・README・AGENTS・docs に**版番号を直接書きません**。
+  `ogen@… / sqlc@… / golangci-lint@… / oasdiff@… / govulncheck@… / psqldef@…` のようなツール名アンカーの
+  grep で、`tools/versions.env`・`go.mod`・`go.sum`・`*.baseline.*` 以外にヒットが無いことを保てます。
+- Go 言語版は `go.work` と各 `go.mod` の `go` ディレクティブ（現行 `go 1.26.0`）を情報源にし、
+  CI の `go-version` と各 Dockerfile のベースイメージ（`golang:1.26-alpine`）を一致させます。

@@ -52,7 +52,8 @@ go build ./... && go vet ./... && golangci-lint run ./... && go test ./...
 go generate ./...
 
 # 分散構成の起動（DB スキーマ適用 → サービス起動）
-docker compose up --build
+# migrate の psqldef 版を渡すため tools/versions.env を export してから compose を呼ぶ。
+set -a && . ./tools/versions.env && set +a && docker compose up --build
 ```
 
 新しいコンテキストの足し方は [add-a-use-case.md](./add-a-use-case.md) と、コンテキスト間の

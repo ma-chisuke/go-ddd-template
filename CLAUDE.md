@@ -30,5 +30,6 @@
 
 - `go run ./cmd/dev` — Docker 不要。両コンテキストを 1 プロセスで結線して一気に動かす
   （同期 in-process 配送。decoupling は示すが遅延ある結果整合は示さない）。
-- `docker compose up --build` — 分散サービス。init コンテナが schema（psqldef）→ ロール/GRANT
-  → seed →（dev）fixtures を適用してから 2 サービスを起動する。公開 API のみホスト公開。
+- `set -a && . ./tools/versions.env && set +a && docker compose up --build` — 分散サービス。
+  init コンテナが schema（psqldef）→ ロール/GRANT → seed →（dev）fixtures を適用してから
+  2 サービスを起動する。公開 API のみホスト公開。versions.env の export は migrate の psqldef 版を渡すため。

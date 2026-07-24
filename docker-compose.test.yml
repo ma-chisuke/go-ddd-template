@@ -7,7 +7,9 @@
 #
 # 使い方:
 #   # DB（+ init コンテナ）をテスト用に起動し、5432 をホストへ公開する
-#   docker compose -f docker-compose.yml -f docker-compose.test.yml up -d db migrate
+#   # migrate をビルドするため tools/versions.env を export してから compose を呼ぶ。
+#   set -a && . ./tools/versions.env && set +a && \
+#     docker compose -f docker-compose.yml -f docker-compose.test.yml up -d db migrate
 #
 #   # ホストから統合テストを実行する（管理者ロールでスキーマ横断の後始末をするため app を用いる）
 #   DATABASE_URL='postgres://app:app_admin_demo@localhost:5432/app?sslmode=disable' \

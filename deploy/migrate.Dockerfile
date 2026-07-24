@@ -6,10 +6,13 @@
 # ビルドコンテキストはリポジトリのルート（deploy/apply.sh を含む）を想定する。
 
 # ---- ビルドステージ: psqldef を導入 ----
-FROM golang:1.25-alpine AS build
+FROM golang:1.26-alpine AS build
 ENV CGO_ENABLED=0
-# psqldef は sqldef リポジトリのサブコマンド。バージョンをピン留めして再現性を保つ。
-RUN go install github.com/sqldef/sqldef/cmd/psqldef@v1.0.7
+# psqldef は sqldef リポジトリのサブコマンド。版は tools/versions.env（PSQLDEF_VERSION）を
+# 単一情報源とし、ビルド ARG で受け取る（既定値は置かない = 未指定ならビルドを失敗させ、
+# Dockerfile 側に第 2 の版情報源を作らない。R-6）。compose からは build.args で渡す。
+ARG PSQLDEF_VERSION
+RUN go install github.com/sqldef/sqldef/cmd/psqldef@${PSQLDEF_VERSION}
 
 # ---- ランタイムステージ: psql（postgres クライアント）+ psqldef ----
 FROM postgres:17-alpine
