@@ -92,6 +92,16 @@
   （`repos.Outbox().Enqueue(...)`）。集約の保存とメッセージ Enqueue を原子的にコミットして
   二重書き込みを避けます。一方、在庫予約の同期 ACL 呼び出しは**トランザクションの外**で
   行います（HTTP 呼び出しが DB トランザクションを跨いで保持されるのを避けるため）。
+- 作業単位の**ドライバ実装は `shared/uow/<driver>uow` サブパッケージ**に置きます
+  （dir=package。現行は pgx 版の `pgxuow`、将来 database/sql 版を足すなら `sqluow`）。
+  Begin/Commit/Rollback といったドライバ固有のトランザクション・ライフサイクルはこの 1 箇所へ
+  集約し、各コンテキストの outbound アダプタ（`postgres`）だけが import します
+  （`NewUnitOfWork` は buildRepos クロージャを供給する薄い factory に縮小します）。
+  一方、純粋な `shared/uow` パッケージは契約（`UnitOfWork[R]` インターフェース）と
+  再試行機構（`Run`）だけを持ち **driver 非依存**に保つため、application 層は `shared/uow` を
+  import してもドライバ（pgx）を直接にも推移的にも引き込みません。パッケージ名をドライバ名
+  そのもの（`pgx`）にしないのは、`pgx.Tx` を使う import 側と識別子が衝突するのを避けるためで、
+  `<driver>uow` と名付けます。
 
 ## SQL と宣言的 DB
 
