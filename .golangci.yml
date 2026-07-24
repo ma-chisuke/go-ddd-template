@@ -44,13 +44,17 @@ linters-settings:
           - pkg: "github.com/example/go-ddd-template/clients/inventory"
             desc: "ドメイン層は生成クライアント（外部サービスの契約）に依存してはならない"
       # 2) アプリケーション層: ポート（interface）を定義する側。アダプタに依存しない
-      #    （依存はポート経由で逆転させる = 依存性逆転の原則）。
+      #    （依存はポート経由で逆転させる = 依存性逆転の原則）。永続化ドライバ（pgx）にも
+      #    直接依存しない: 純粋な shared/uow のみを import し、その pgx 実装
+      #    shared/uow/pgxuow は outbound アダプタ環に閉じる。
       #    テストは統合検証のためにアダプタを結線してよいので _test.go は対象外にする。
       application-no-adapter:
         files:
           - "**/internal/application/**"
           - "!**/*_test.go"
         deny:
+          - pkg: "github.com/jackc/pgx"
+            desc: "アプリケーション層は永続化ドライバ（pgx）に依存してはならない（純粋な shared/uow のみを import し、pgx 実装 shared/uow/pgxuow は outbound アダプタ環に閉じる）"
           - pkg: "github.com/example/go-ddd-template/contexts/inventory/internal/adapter"
             desc: "アプリケーション層はアダプタに依存してはならない（ポートを定義し、アダプタに実装させる）"
           - pkg: "github.com/example/go-ddd-template/contexts/ordering/internal/adapter"

@@ -1,13 +1,12 @@
 package postgres
 
 import (
-	"context"
-	"fmt"
-
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/postgres/sqlcgen"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
+	"github.com/example/go-ddd-template/shared/uow/pgxuow"
 )
 
 // repos は application.Repos の実装。ひとつのトランザクションに束ねた
@@ -21,49 +20,28 @@ func (r repos) Stock() application.StockStore        { return r.stock }
 func (r repos) Outbox() application.MessagePublisher { return r.outbox }
 
 // UnitOfWork は pgxpool を用いた実トランザクションの作業単位。
-// Within がトランザクションを開き、そのトランザクションに束ねた Repos を組み立てて
-// コールバックへ渡す。トランザクション境界の所有者は Within である。
-type UnitOfWork struct {
-	pool *pgxpool.Pool
-}
+// トランザクション・ライフサイクル（Begin/Commit/Rollback）は共有の pgx ドライバ
+// 実装 shared/uow/pgxuow に集約してあり、ここでは型エイリアスで従来の型名を温存する。
+// これにより NewUnitOfWork の戻り型名も統合テストの *postgres.UnitOfWork 参照も
+// そのまま有効で、呼び出し側・テストの変更は発生しない。R は在庫コンテキストの
+// リポジトリ束 application.Repos に固定する。
+type UnitOfWork = pgxuow.UnitOfWork[application.Repos]
 
-// NewUnitOfWork は書き込み用の作業単位を生成する。
+// NewUnitOfWork は書き込み用の作業単位を生成する。トランザクションに束ねた Queries
+// から在庫コンテキストの Repos 束を組み立てる buildRepos クロージャだけを供給する
+// 薄い factory であり、トランザクション境界の所有は pgxuow.Within が担う。
+// 在庫ストアとアウトボックスが同一トランザクションに参加する（原子的コミット）。
 func NewUnitOfWork(pool *pgxpool.Pool) *UnitOfWork {
-	return &UnitOfWork{pool: pool}
+	return pgxuow.New(pool, func(tx pgx.Tx) application.Repos {
+		q := sqlcgen.New(tx)
+		return repos{stock: newStockStore(q), outbox: newOutboxStore(q)}
+	})
 }
 
 // コンパイル時にポートを満たしていることを確認する。
+// UnitOfWork（= pgxuow.UnitOfWork[application.Repos]）が application.UnitOfWork
+// （= uow.UnitOfWork[Repos]）を満たすことを、具象 R とともにここで検証する。
 var _ application.UnitOfWork = (*UnitOfWork)(nil)
-
-// Within はトランザクションを開始し、fn が nil を返せばコミット、
-// エラーを返せばロールバックする。
-func (u *UnitOfWork) Within(ctx context.Context, fn func(ctx context.Context, r application.Repos) error) error {
-	tx, err := u.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("トランザクションの開始に失敗しました: %w", err)
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			// コミット済みなら Rollback は no-op。念のため常に呼ぶ。
-			_ = tx.Rollback(ctx)
-		}
-	}()
-
-	// トランザクションに束ねた Queries から Repos を組み立てる。
-	// 在庫ストアとアウトボックスが同一トランザクションに参加する（原子的コミット）。
-	q := sqlcgen.New(tx)
-	r := repos{stock: newStockStore(q), outbox: newOutboxStore(q)}
-	if err := fn(ctx, r); err != nil {
-		return err
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("コミットに失敗しました: %w", err)
-	}
-	committed = true
-	return nil
-}
 
 // NewReadStockStore はコネクションプールに直結した読み取り用 StockStore を返す。
 // 読み取り専用ユースケース（在庫照会）で用いる。書き込みには使わないこと
