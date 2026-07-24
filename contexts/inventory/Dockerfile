@@ -6,7 +6,7 @@
 # replace ディレクティブがローカルの shared を解決する（コンテキストを単独で切り出せる）。
 
 # ---- ビルドステージ ----
-FROM golang:1.25-alpine AS build
+FROM golang:1.26-alpine AS build
 WORKDIR /src
 # 静的バイナリを作る（distroless で動かすため CGO を無効化）。単一モジュールでビルドする。
 ENV CGO_ENABLED=0 GOOS=linux GOWORK=off

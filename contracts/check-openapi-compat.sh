@@ -12,9 +12,13 @@
 #   破壊的変更」を PR 単位で検出できる。破壊的変更が必要なときは、メジャーバージョンを上げ、
 #   ベースライン更新を意図的なリリース作業として行う。
 #
-# 前提ツール: oasdiff（`go install github.com/oasdiff/oasdiff@v1.23.0`）。
+# 前提ツール: oasdiff。版は tools/versions.env（OASDIFF_VERSION）を単一情報源とする
+# （ここには版番号をハードコードしない）。
 set -euo pipefail
 cd "$(dirname "$0")"
+
+# 版の単一情報源を読み込む（このスクリプトは contracts/ にいるためリポジトリ直下は ../）。
+set -a && . ../tools/versions.env && set +a
 
 # 互換性を守る対象の契約一覧（公開 2 本 + 在庫の内部 API 1 本）。
 specs=(
@@ -24,7 +28,7 @@ specs=(
 )
 
 if ! command -v oasdiff >/dev/null 2>&1; then
-  echo "::error::oasdiff が見つかりません。'go install github.com/oasdiff/oasdiff@v1.23.0' を実行してください。"
+  echo "::error::oasdiff が見つかりません。'go install github.com/oasdiff/oasdiff@${OASDIFF_VERSION}' を実行してください。"
   exit 1
 fi
 

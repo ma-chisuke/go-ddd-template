@@ -9,5 +9,5 @@ package ordering
 //
 // パスはこのファイルのあるディレクトリ（コンテキストのモジュールルート）からの相対。
 
-//go:generate ogen --config ../../contracts/ordering/.ogen.yaml --target internal/adapter/inbound/openapi --package openapi --clean ../../contracts/ordering/openapi.yaml
-//go:generate sqlc generate
+//go:generate go tool ogen --config ../../contracts/ordering/.ogen.yaml --target internal/adapter/inbound/openapi --package openapi --clean ../../contracts/ordering/openapi.yaml
+//go:generate go tool sqlc generate

@@ -6,8 +6,11 @@
 #   - シークレットは一切使わない。したがって fork からの PR でも安全に実行できる
 #     （pull_request イベントは fork PR にシークレットを渡さない。危険な
 #      pull_request_target は使わない）。
-#   - アクションはバージョンでピン留めする。ゲート用ツール（oasdiff 等）は Go ツールチェーンで
-#     バージョン指定して導入し、ランタイム依存には持ち込まない。
+#   - アクションはバージョンでピン留めする。横断／Docker ツール（golangci-lint / oasdiff /
+#     govulncheck / goimports）の版は tools/versions.env を単一情報源として参照する。
+#     コード生成ツール（ogen / sqlc / mockgen）は各モジュールの go.mod tool ディレクティブで
+#     固定し、go generate は `go tool` 経由で解決する（PATH 依存の手動 install は不要）。
+#     いずれも dev/CI 専用でランタイム依存には持ち込まない。
 name: CI
 
 on:
@@ -34,18 +37,25 @@ jobs:
       - name: Go をセットアップ
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
 
-      - name: ツールをインストール
+      - name: 版を読み込む（tools/versions.env → GITHUB_ENV）
         run: |
           set -euo pipefail
-          # ogen / sqlc / goimports / golangci-lint を、CI の Go(1.25) でビルドして導入する。
-          # golangci-lint は「ビルドに使った Go のバージョン >= 対象モジュールの go ディレクティブ」
-          # を要求するため、CI の Go でビルドして 1.25 対応にする。
-          go install github.com/ogen-go/ogen/cmd/ogen@v1.23.0
-          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
-          go install golang.org/x/tools/cmd/goimports@latest
-          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.5
+          # 横断ツールの版は tools/versions.env を単一情報源として読み込む。golangci-lint-action
+          # の with: は bash 展開（${VAR}）が効かないため、GITHUB_ENV 経由で後続 step から
+          # ${{ env.GOLANGCI_LINT_VERSION }} として参照できるようにする（goimports も同様に流す）。
+          set -a && . ./tools/versions.env && set +a
+          echo "GOLANGCI_LINT_VERSION=$GOLANGCI_LINT_VERSION" >> "$GITHUB_ENV"
+          echo "GOIMPORTS_VERSION=$GOIMPORTS_VERSION" >> "$GITHUB_ENV"
+
+      - name: ツールをインストール（goimports）
+        run: |
+          set -euo pipefail
+          # ogen / sqlc は go.mod の tool ディレクティブで解決するため手動 install しない
+          # （go generate が `go tool` で呼ぶ）。golangci-lint は下の公式 action が導入する。
+          # ここで導入するのは整形チェック用の goimports のみ（版は versions.env 由来）。
+          go install golang.org/x/tools/cmd/goimports@${GOIMPORTS_VERSION}
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: コード生成の冪等性を検証
@@ -79,14 +89,50 @@ jobs:
           (cd contexts/ordering && go vet ./...)
           (cd cmd/dev && go vet ./...)
 
-      - name: golangci-lint（depguard による層／seam の境界強制を含む）
-        run: |
-          set -euo pipefail
-          (cd shared && golangci-lint run ./...)
-          (cd clients/inventory && golangci-lint run ./...)
-          (cd contexts/inventory && golangci-lint run ./...)
-          (cd contexts/ordering && golangci-lint run ./...)
-          (cd cmd/dev && golangci-lint run ./...)
+      # golangci-lint（depguard による層／seam の境界強制を含む）。
+      # 版は tools/versions.env が単一情報源（上の「版を読み込む」step で GITHUB_ENV に流した
+      # ${{ env.GOLANGCI_LINT_VERSION }} を参照）。install-mode: goinstall で、その版をソースから
+      # CI の Go(1.26) でビルドして実行する。※ 既定の binary モードは配布済みバイナリを取得するが、
+      # golangci-lint は「ビルドに使った Go >= 対象モジュールの go ディレクティブ」を要求するため、
+      # 古い Go でビルドされた配布バイナリでは go 1.26.0 のモジュールを lint できない（版は据え置き、
+      # ビルドに使う Go だけを 1.26 にして解決する）。
+      # go.work のマルチモジュール構成では 1 モジュールずつ working-directory を指定し、
+      # 5 モジュール（shared / clients/inventory / contexts/inventory / contexts/ordering / cmd/dev）
+      # を漏れなく lint する（従来の 5 回実行と同等の網羅を保つ）。
+      - name: golangci-lint（shared）
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          install-mode: goinstall
+          working-directory: shared
+
+      - name: golangci-lint（clients/inventory）
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          install-mode: goinstall
+          working-directory: clients/inventory
+
+      - name: golangci-lint（contexts/inventory）
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          install-mode: goinstall
+          working-directory: contexts/inventory
+
+      - name: golangci-lint（contexts/ordering）
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          install-mode: goinstall
+          working-directory: contexts/ordering
+
+      - name: golangci-lint（cmd/dev）
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          install-mode: goinstall
+          working-directory: cmd/dev
 
       - name: ビルド（統合タグのコンパイル検証を含む）
         run: |
@@ -120,14 +166,16 @@ jobs:
       - name: Go をセットアップ
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
 
-      - name: 契約ゲート用ツールをインストール
+      - name: 契約ゲート用ツールをインストール（oasdiff）
         run: |
           set -euo pipefail
           # oasdiff は OpenAPI の破壊的変更検出ツール（dev/CI 専用。ランタイム依存ではない）。
+          # 版は tools/versions.env を単一情報源として参照する（ハードコードしない）。
           # jq は Ubuntu ランナーにプリインストール済み（イベントスキーマの互換チェックに使う）。
-          go install github.com/oasdiff/oasdiff@v1.23.0
+          set -a && . ./tools/versions.env && set +a
+          go install github.com/oasdiff/oasdiff@${OASDIFF_VERSION}
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: OpenAPI 契約の後方互換（oasdiff、released ベースライン比較）
@@ -147,14 +195,15 @@ jobs:
       - name: Go をセットアップ
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
 
       - name: govulncheck をインストール
         run: |
           set -euo pipefail
           # govulncheck は Go 公式のサプライチェーン脆弱性スキャナ（dev/CI 専用。
-          # ランタイム依存には持ち込まない）。バージョンはピン留めする。
-          go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+          # ランタイム依存には持ち込まない）。版は tools/versions.env を単一情報源として参照する。
+          set -a && . ./tools/versions.env && set +a
+          go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: 既知脆弱性スキャン（govulncheck、全モジュール）

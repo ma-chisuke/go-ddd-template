@@ -161,7 +161,9 @@ bash contracts/events/check-compat.sh    # メッセージ契約の後方互換
 bash scripts/coverage-gate.sh            # domain + application >= 80%
 
 # DB ありの統合テスト（テスト用オーバーレイで Postgres を公開してから）
-docker compose -f docker-compose.yml -f docker-compose.test.yml up -d db migrate
+# migrate をビルドするため tools/versions.env を export してから compose を呼ぶ。
+set -a && . ./tools/versions.env && set +a && \
+  docker compose -f docker-compose.yml -f docker-compose.test.yml up -d db migrate
 DATABASE_URL=postgres://app:app_admin_demo@localhost:5432/app?sslmode=disable \
   go test -tags=integration ./...
 ```

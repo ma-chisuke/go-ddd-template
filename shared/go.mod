@@ -5,7 +5,7 @@
 // 安全に共有できる技術的な建材だけである。
 module github.com/example/go-ddd-template/shared
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/jackc/pgx/v5 v5.10.0

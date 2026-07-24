@@ -1,6 +1,7 @@
 # デモ用の docker compose 定義。
 #
-# `docker compose up --build` の 1 コマンドで、手作業なしに次までを立ち上げる:
+# `set -a && . ./tools/versions.env && set +a && docker compose up --build` の 1 コマンドで、
+# 手作業なしに次までを立ち上げる（versions.env の export は migrate の psqldef 版を build.args で渡すため）:
 #   PostgreSQL 起動 → （init コンテナで）スキーマ適用 → 最小権限ロール/GRANT → 本番参照データ
 #   → dev/test フィクスチャ → 在庫サービス・注文サービスの起動。
 # 分散構成（サービスごとに独立コンテナ、1 つの物理 DB を schema-per-context で論理分割）を体験できる。
@@ -46,6 +47,11 @@ services:
     build:
       context: .
       dockerfile: deploy/migrate.Dockerfile
+      # psqldef の版は tools/versions.env（PSQLDEF_VERSION）が単一情報源。
+      # compose を呼ぶ前に `set -a && . ./tools/versions.env && set +a` で export しておくと、
+      # シェル env から解決される（root .env の自動読込も維持される）。未 export ならビルドが失敗する。
+      args:
+        PSQLDEF_VERSION: ${PSQLDEF_VERSION}
     depends_on:
       db:
         condition: service_healthy
