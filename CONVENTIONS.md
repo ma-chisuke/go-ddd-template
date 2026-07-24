@@ -101,6 +101,10 @@
   非破壊に適用**します（drop-and-recreate をしない。破壊的差分は `--dry-run` でプレビュー）。
   `target_tables` で当該スキーマに限定し、psqldef が他コンテキストのオブジェクトに触れない
   ようにします（`db/sqldef.yml`）。
+- **psqldef の DDL パーサ制約**: 列 CHECK 制約に `IN (...)` は使えません（パースエラーになる）。
+  列挙は `CHECK (status = 'a' OR status = 'b')` で書きます。これは PostgreSQL が保持する形と
+  一致するため psqldef の適用も冪等になります（`IN (...)` は内部的に `= ANY(ARRAY[...])` へ
+  正規化される）。
 - `db/queries.sql` は sqlc の入力で、そこから型安全な Go を生成します。**生成物はコミットし、
   手で編集しません**。
 - 権限は宣言的な**冪等ロール/GRANT SQL**（`db/roles.sql`）で与え、各サービスが**自スキーマ

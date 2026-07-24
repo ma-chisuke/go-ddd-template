@@ -15,8 +15,11 @@ ENV CGO_ENABLED=0 GOOS=linux GOWORK=off
 COPY shared/ ./shared/
 COPY contexts/inventory/ ./contexts/inventory/
 
-# 在庫サービスのバイナリをビルドする。-trimpath と -ldflags でサイズを削る。
-RUN go build -trimpath -ldflags="-s -w" -o /out/inventory ./contexts/inventory/cmd/inventory
+# 在庫サービスのバイナリをビルドする（-trimpath と -ldflags でサイズを削る）。
+# GOWORK=off の単一モジュールモードでは go.mod のあるモジュールルートから実行する
+# （replace の ../../shared は /src/shared に解決される）。
+WORKDIR /src/contexts/inventory
+RUN go build -trimpath -ldflags="-s -w" -o /out/inventory ./cmd/inventory
 
 # ---- ランタイムステージ ----
 # distroless の static:nonroot は最小構成かつ非 root 実行。シェルもパッケージも持たない。

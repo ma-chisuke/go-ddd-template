@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS inventory.stock_reservations (
     -- 予約数量（1 以上）。
     quantity      integer     NOT NULL CHECK (quantity >= 1),
     -- 予約状態（pending / confirmed）。
-    status        text        NOT NULL CHECK (status IN ('pending', 'confirmed')),
+    status        text        NOT NULL CHECK (status = 'pending' OR status = 'confirmed'),
     -- 失効時刻。pending のときのみ有効（confirmed では NULL）。
     expires_at    timestamptz,
     PRIMARY KEY (stock_item_id, ref)

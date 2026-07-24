@@ -16,13 +16,16 @@ COPY shared/ ./shared/
 COPY clients/ ./clients/
 COPY contexts/ordering/ ./contexts/ordering/
 
-# 注文サービスのバイナリをビルドする。-trimpath と -ldflags でサイズを削る。
-RUN go build -trimpath -ldflags="-s -w" -o /out/ordering ./contexts/ordering/cmd/ordering
+# 注文サービスのバイナリをビルドする（-trimpath と -ldflags でサイズを削る）。
+# GOWORK=off の単一モジュールモードでは go.mod のあるモジュールルートから実行する
+# （replace の ../../shared・../../clients/inventory はそれぞれ /src/shared・/src/clients/inventory に解決される）。
+WORKDIR /src/contexts/ordering
+RUN go build -trimpath -ldflags="-s -w" -o /out/ordering ./cmd/ordering
 
 # ---- ランタイムステージ ----
 # distroless の static:nonroot は最小構成かつ非 root 実行。シェルもパッケージも持たない。
 FROM gcr.io/distroless/static:nonroot
 COPY --from=build /out/ordering /ordering
 USER nonroot:nonroot
-EXPOSE 8080
+EXPOSE 8082
 ENTRYPOINT ["/ordering"]

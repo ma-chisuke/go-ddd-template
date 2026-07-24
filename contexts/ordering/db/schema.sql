@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS ordering.orders (
     -- 注文者（顧客）の識別子。
     customer_id     text        NOT NULL,
     -- 注文状態（confirmed / cancelled）。
-    status          text        NOT NULL CHECK (status IN ('confirmed', 'cancelled')),
+    status          text        NOT NULL CHECK (status = 'confirmed' OR status = 'cancelled'),
     -- 合計金額（最小通貨単位）。非負であることを CHECK 制約でも二重に守る。
     total_amount    bigint      NOT NULL CHECK (total_amount >= 0),
     -- 合計金額の通貨コード（ISO-4217）。
