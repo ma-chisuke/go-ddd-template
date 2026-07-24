@@ -50,7 +50,11 @@ CREATE INDEX IF NOT EXISTS idx_stock_reservations_pending_expiry
     WHERE status = 'pending';
 
 -- アウトボックステーブル。集約書き込みと同一トランザクションで積まれる送信メッセージ。
--- 送信中継（Runner）が published_at IS NULL の行をポーリングして送出し、published_at を刻む。
+--
+-- これは「一時的な配送キュー」であり、送信履歴ではない。送信中継（Runner）が行を
+-- ポーリングして送出し、成功したものは行ごと削除する（delete-after-publish）。
+-- したがってこの表に存在する行は常に「まだ送っていないもの」だけである。
+-- 何を発行したかの恒久的な記録は下の events テーブルが担う。
 CREATE TABLE IF NOT EXISTS inventory.outbox (
     -- メッセージの一意な識別子。
     id           text        NOT NULL PRIMARY KEY,
@@ -61,12 +65,40 @@ CREATE TABLE IF NOT EXISTS inventory.outbox (
     -- seam を跨ぐ相関 ID。
     trace_id     text        NOT NULL DEFAULT '',
     -- メッセージ発生時刻。
-    occurred_at  timestamptz NOT NULL,
-    -- 送信済み時刻。NULL なら未送信。
-    published_at timestamptz
+    occurred_at  timestamptz NOT NULL
 );
 
--- 未送信メッセージのポーリング用の部分索引。
-CREATE INDEX IF NOT EXISTS idx_outbox_unpublished
-    ON inventory.outbox (occurred_at)
-    WHERE published_at IS NULL;
+-- 未送信メッセージのポーリング用の索引（全行が未送信のため部分索引ではない）。
+CREATE INDEX IF NOT EXISTS idx_outbox_occurred
+    ON inventory.outbox (occurred_at);
+
+-- イベントログテーブル。発行したメッセージの恒久的な記録（追記専用）。
+--
+-- 集約の保存・アウトボックスへの投入と同一トランザクションで書かれるため、
+-- 「outbox に積んだが記録が無い」状態は構造的に起きない。配送は駆動しない
+-- （Runner はこの表を読まない）。更新も削除もしない。
+--
+-- 運用注記: この表は無制限に増え続ける。本番採用時はアーカイブ・パーティション・
+-- 保持ジョブのいずれかを足すこと（このテンプレートは単純さを優先して持たない）。
+CREATE TABLE IF NOT EXISTS inventory.events (
+    -- メッセージの一意な識別子（outbox と同じ ID）。
+    id           text        NOT NULL PRIMARY KEY,
+    -- message_type（発行したメッセージの種別）。
+    message_type text        NOT NULL,
+    -- 翻訳済み契約のシリアライズ（outbox と同じペイロード）。
+    payload      bytea       NOT NULL,
+    -- seam を跨ぐ相関 ID。
+    trace_id     text        NOT NULL DEFAULT '',
+    -- メッセージ発生時刻。
+    occurred_at  timestamptz NOT NULL,
+    -- events へ記録した時刻。
+    recorded_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- 種別での絞り込み用の索引。
+CREATE INDEX IF NOT EXISTS idx_inventory_events_type
+    ON inventory.events (message_type);
+
+-- 発生時刻での絞り込み・並べ替え用の索引。
+CREATE INDEX IF NOT EXISTS idx_inventory_events_occurred
+    ON inventory.events (occurred_at);

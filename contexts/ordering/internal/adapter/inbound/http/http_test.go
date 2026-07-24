@@ -39,7 +39,7 @@ func newServer(t *testing.T, reserver application.StockReserver) *httptest.Serve
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	store := memory.NewStore()
 	obx := memory.NewOutboxStore()
-	work := memory.NewUnitOfWork(store, obx)
+	work := memory.NewUnitOfWork(store, obx, memory.NewEventStore())
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 	dispatcher := application.NewInProcessDispatcher(log)
 

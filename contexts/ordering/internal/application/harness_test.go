@@ -44,20 +44,23 @@ type memFixture struct {
 	cancel   *application.CancelOrder
 	store    *memory.Store
 	obx      *memory.OutboxStore
+	evt      *memory.EventStore
 	reserver *mock.MockStockReserver
 	captured *[]order.DomainEvent
 }
 
 // newMemFixture はインメモリの UoW で束を組み立てる（最も一般的な構成）。
+// 配送キュー（obx）と恒久イベントログ（evt）は別のストアで、同一コミットで確定する。
 func newMemFixture(t *testing.T) memFixture {
 	t.Helper()
 	store := memory.NewStore()
 	obx := memory.NewOutboxStore()
-	return newMemFixtureWith(t, memory.NewUnitOfWork(store, obx), store, obx)
+	evt := memory.NewEventStore()
+	return newMemFixtureWith(t, memory.NewUnitOfWork(store, obx, evt), store, obx, evt)
 }
 
 // newMemFixtureWith は作業単位（UoW）を差し替えて束を組み立てる（衝突再試行の再現用）。
-func newMemFixtureWith(t *testing.T, work application.UnitOfWork, store *memory.Store, obx *memory.OutboxStore) memFixture {
+func newMemFixtureWith(t *testing.T, work application.UnitOfWork, store *memory.Store, obx *memory.OutboxStore, evt *memory.EventStore) memFixture {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	reserver := mock.NewMockStockReserver(ctrl)
@@ -73,6 +76,7 @@ func newMemFixtureWith(t *testing.T, work application.UnitOfWork, store *memory.
 		cancel:   application.NewCancelOrder(exec, work, log),
 		store:    store,
 		obx:      obx,
+		evt:      evt,
 		reserver: reserver,
 		captured: captured,
 	}

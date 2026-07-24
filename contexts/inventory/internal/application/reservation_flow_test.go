@@ -56,7 +56,7 @@ func capturedNames(events []inventory.DomainEvent) map[string]int {
 func TestReserveConfirmRelease_MultiSKU(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewOutboxStore())
+	work := memory.NewUnitOfWork(store, memory.NewOutboxStore(), memory.NewEventStore())
 	f := newReserveFixture(t, work, store)
 
 	// 2 つの SKU を補充する。
@@ -107,7 +107,7 @@ func TestReserveConfirmRelease_MultiSKU(t *testing.T) {
 func TestReserve_InsufficientStockIsAllOrNothing(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewOutboxStore())
+	work := memory.NewUnitOfWork(store, memory.NewOutboxStore(), memory.NewEventStore())
 	f := newReserveFixture(t, work, store)
 
 	_, _ = f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: "SKU-A", Quantity: 10})
@@ -132,7 +132,7 @@ func TestReserve_InsufficientStockIsAllOrNothing(t *testing.T) {
 func TestConfirm_NotFound(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewOutboxStore())
+	work := memory.NewUnitOfWork(store, memory.NewOutboxStore(), memory.NewEventStore())
 	f := newReserveFixture(t, work, store)
 
 	require.ErrorIs(t, f.confirmer.Confirm(ctx, "UNKNOWN"), inventory.ErrReservationNotFound)
@@ -141,7 +141,7 @@ func TestConfirm_NotFound(t *testing.T) {
 func TestRelease_UnknownRefIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewOutboxStore())
+	work := memory.NewUnitOfWork(store, memory.NewOutboxStore(), memory.NewEventStore())
 	f := newReserveFixture(t, work, store)
 
 	// 未知の ref を解放しても成功（冪等 no-op）。
@@ -168,7 +168,7 @@ func (f *flakyUoW) Within(ctx context.Context, fn func(ctx context.Context, r ap
 func TestReserve_RetriesOnConflictThenSucceeds(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore()
-	inner := memory.NewUnitOfWork(store, memory.NewOutboxStore())
+	inner := memory.NewUnitOfWork(store, memory.NewOutboxStore(), memory.NewEventStore())
 	flaky := &flakyUoW{inner: inner, failsLeft: 1}
 	f := newReserveFixture(t, flaky, store)
 
@@ -190,7 +190,7 @@ func TestReserve_RetriesOnConflictThenSucceeds(t *testing.T) {
 func TestReserve_GivesUpAfterMaxAttempts(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore()
-	inner := memory.NewUnitOfWork(store, memory.NewOutboxStore())
+	inner := memory.NewUnitOfWork(store, memory.NewOutboxStore(), memory.NewEventStore())
 	log := testLogger()
 
 	// まず非フレーキーな UoW で在庫を用意する。

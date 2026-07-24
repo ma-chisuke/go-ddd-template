@@ -47,6 +47,15 @@ Go でドメイン駆動設計（DDD）とヘキサゴナルアーキテクチ�
 - **トランザクショナルアウトボックス**（`shared/outbox`）: 集約書き込みと同一トランザクションで
   メッセージを積み（Enqueue）、送信中継（`Runner`）が at-least-once で送出、受信側は
   `Router` が種別ごとに `Consumer` へ振り分ける（未登録種別は `ErrNoRoute`）。
+- **配送キューと恒久イベントログの分離**: `outbox` 表は**一時的な配送キュー**で、送出に
+  成功した行は削除されます（delete-after-publish）。つまり `outbox` に残るのは常に未送信分
+  だけです。「何を発行したか」の**恒久的な記録**は `events` 表（追記専用のイベントログ）が
+  担い、`Enqueue` が outbox 行と events 行を**同一トランザクションで両方**書きます
+  （集約の保存も含めて原子的にコミットされ、片方だけ残ることがありません）。配送は
+  `events` を参照しません。
+  なお `events` は保持ジョブを持たず**無制限に増え続ける**ため、本番採用時はアーカイブ・
+  パーティション・保持ジョブのいずれかを足してください（テンプレートは単純さを優先して
+  意図的に持ちません）。
 - **プロセス内イベント配信**（`shared/event`）と、決定的テスト用の擬似時計（`shared/testutil`）。
 
 これらは「OpenAPI / SQL → 生成コード → アプリケーションのユースケース → 純粋なドメイン →
@@ -207,20 +216,20 @@ Go でドメイン駆動設計（DDD）とヘキサゴナルアーキテクチ�
     │   │                          Reserve/Confirm/Release/Deliver/Sweep のシーム, StartWorkers）
     │   ├── cmd/inventory/       … サービスの合成ルート（main）
     │   ├── port/                … 公開の翻訳済み DTO（SKUQty）
-    │   ├── db/ · sqlc.yaml      … schema.sql / queries.sql（sqlc の入力）/ roles.sql / seed.sql / fixtures.sql / sqldef.yml
+    │   ├── db/ · sqlc.yaml      … schema.sql / queries.sql（stock_items / stock_reservations / outbox / events）/ roles.sql / seed.sql / fixtures.sql / sqldef.yml
     │   └── internal/{domain, application, adapter/{inbound, outbound}}
     └── ordering/               … 「注文」境界づけられたコンテキスト（1 モジュール）
         ├── ordering.go          … 公開ファサード（Module, New, NewInMemory, HTTPHandler, StartWorkers）
         ├── cmd/ordering/        … サービスの合成ルート（main。ACL / イベント送出クライアントを結線）
         ├── port/                … 公開の翻訳済み DTO（ReserveLine）と ACL の番兵（ErrReservationRejected など）
-        ├── db/ · sqlc.yaml      … schema.sql / queries.sql（orders / order_lines / outbox）/ roles.sql / seed.sql / fixtures.sql / sqldef.yml
+        ├── db/ · sqlc.yaml      … schema.sql / queries.sql（orders / order_lines / outbox / events）/ roles.sql / seed.sql / fixtures.sql / sqldef.yml
         └── internal/
             ├── domain/order/    … 純粋なドメイン（Order / OrderLine / VO / イベント）
             ├── application/     … ユースケース（PlaceOrder / GetOrder / CancelOrder）/ ポート / ACL ポート
             └── adapter/
                 ├── inbound/{http, openapi}     … 公開 API の薄いハンドラ + ogen 生成サーバ
                 └── outbound/
-                    ├── memory/    … インメモリ実装（注文 + アウトボックス）
+                    ├── memory/    … インメモリ実装（注文 + アウトボックス + イベントログ）
                     ├── postgres/  … pgx + sqlc 実装（sqlcgen/ を含む）
                     ├── aclhttp/   … 腐敗防止層（生成クライアントで StockReserver を実装 + trace 伝播）
                     ├── eventhttp/ … アウトボックス送信トランスポート（在庫の /events へ HTTP push）

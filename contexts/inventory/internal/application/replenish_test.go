@@ -31,7 +31,7 @@ type fixture struct {
 func newFixture(t *testing.T) fixture {
 	t.Helper()
 	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewOutboxStore())
+	work := memory.NewUnitOfWork(store, memory.NewOutboxStore(), memory.NewEventStore())
 	read := memory.NewReadStockStore(store)
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 	log := testLogger()

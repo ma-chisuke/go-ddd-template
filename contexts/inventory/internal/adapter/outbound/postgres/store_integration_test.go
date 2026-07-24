@@ -11,6 +11,7 @@ package postgres_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -44,9 +45,19 @@ func setupPool(t *testing.T) *pgxpool.Pool {
 	t.Cleanup(pool.Close)
 
 	// stock_reservations は stock_items を参照するため CASCADE で一括初期化する。
-	_, err = pool.Exec(ctx, "TRUNCATE inventory.stock_items, inventory.outbox CASCADE")
+	// events は恒久ログだがテストの再実行で ID が衝突するため、ここでは併せて初期化する。
+	_, err = pool.Exec(ctx, "TRUNCATE inventory.stock_items, inventory.outbox, inventory.events CASCADE")
 	require.NoError(t, err, "テーブル初期化（スキーマ未適用の可能性）")
 	return pool
+}
+
+// countRows は指定テーブルの行数を返す（events 表の検証用）。
+func countRows(t *testing.T, pool *pgxpool.Pool, table string) int {
+	t.Helper()
+	var n int
+	err := pool.QueryRow(context.Background(), "SELECT count(*) FROM "+table).Scan(&n)
+	require.NoError(t, err, "行数の取得")
+	return n
 }
 
 func mustSKU(t *testing.T, s string) inventory.SKU {
@@ -188,7 +199,11 @@ func TestPostgres_OutboxEnqueueAndRelay(t *testing.T) {
 	})
 	require.NoError(t, err, "UoW")
 
-	// 送信中継が未送信を送出して published にする。
+	// Enqueue と同一トランザクションで events 表にも記録されている。
+	assert.Equal(t, 1, countRows(t, pool, "inventory.outbox"), "配送キューの行数")
+	assert.Equal(t, 1, countRows(t, pool, "inventory.events"), "イベントログの行数")
+
+	// 送信中継が未送信を送出し、送信できた行を配送キューから削除する。
 	store := postgres.NewOutboxStore(pool)
 	pub := &countingPublisher{}
 	runner := outbox.NewRunner(store, pub, log, outbox.WithBatch(10))
@@ -196,10 +211,53 @@ func TestPostgres_OutboxEnqueueAndRelay(t *testing.T) {
 	require.NoError(t, err, "RunOnce")
 	assert.Equal(t, 1, sent, "送出件数")
 	assert.Equal(t, 1, pub.count, "publish 件数")
-	// 2 回目は送信済みなので 0 件。
+
+	// 配送後、outbox の行は消え、events の記録は残る。
+	assert.Zero(t, countRows(t, pool, "inventory.outbox"), "配送後の配送キューは空")
+	assert.Equal(t, 1, countRows(t, pool, "inventory.events"), "配送後もイベントログは残る")
+
+	// 2 回目は配送キューが空なので 0 件。
 	sent, err = runner.RunOnce(ctx)
 	require.NoError(t, err, "2 回目 RunOnce")
 	assert.Equal(t, 0, sent, "2 回目の送出件数")
+}
+
+// TestPostgres_EventLogRollsBackWithAggregate は、UoW がロールバックすると
+// 集約・配送キュー・イベントログの 3 者すべてが巻き戻ることを実 DB で確認する
+// （events が同一トランザクションで書かれている証拠）。
+func TestPostgres_EventLogRollsBackWithAggregate(t *testing.T) {
+	ctx := context.Background()
+	pool := setupPool(t)
+	work := postgres.NewUnitOfWork(pool)
+
+	sentinel := errors.New("業務都合で中断")
+	err := work.Within(ctx, func(ctx context.Context, r application.Repos) error {
+		item, err := inventory.NewStockItem("id-rollback", mustSKU(t, "PGX-RB"))
+		if err != nil {
+			return err
+		}
+		q, _ := inventory.NewQuantity(5)
+		if err := item.Replenish(q); err != nil {
+			return err
+		}
+		if err := r.Stock().Save(ctx, item); err != nil {
+			return err
+		}
+		if err := r.Outbox().Enqueue(ctx, outbox.Message{
+			ID:         "rollback-1",
+			Type:       "demo.message",
+			Payload:    []byte(`{}`),
+			OccurredAt: time.Now().UTC(),
+		}); err != nil {
+			return err
+		}
+		return sentinel // ロールバック
+	})
+	require.ErrorIs(t, err, sentinel)
+
+	assert.Zero(t, countRows(t, pool, "inventory.stock_items"), "集約は保存されない")
+	assert.Zero(t, countRows(t, pool, "inventory.outbox"), "配送キューにも残らない")
+	assert.Zero(t, countRows(t, pool, "inventory.events"), "イベントログにも残らない")
 }
 
 func TestPostgres_ConcurrencyConflict(t *testing.T) {

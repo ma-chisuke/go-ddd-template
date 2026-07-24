@@ -122,7 +122,8 @@
 - 注文の公開 HTTP 契約: `contracts/ordering/openapi.yaml`（作成・照会・取消）
 - クロスコンテキストのメッセージ契約: `contracts/events/{confirm_reservation,order_cancelled}.schema.json`
 - DB スキーマ / クエリ: `contexts/<ctx>/db/schema.sql`, `queries.sql`
-  （在庫: stock_items / stock_reservations / outbox、注文: orders / order_lines / outbox）
+  （在庫: stock_items / stock_reservations / outbox / events、
+  注文: orders / order_lines / outbox / events）
 
 ## 予約・アウトボックスを扱うときの要点
 
@@ -135,6 +136,19 @@
 - **アウトボックス**へは `repos.Outbox().Enqueue(...)` で、集約の `Save` と同一の
   `uow.Run` クロージャ内から積む（二重書き込みを避ける）。送出は `outbox.Runner` が
   at-least-once で行い、受信は `outbox.Router` が message_type で `Consumer` へ振り分ける。
+- **`outbox` は一時的な配送キュー、`events` は恒久イベントログ**。`Runner` は
+  `Unpublished` → `Publish` → `MarkPublished` の順で動き、`MarkPublished` は
+  送信済みフラグを立てるのではなく**行を削除**する（delete-after-publish）。
+  「何を発行したか」の記録は `Enqueue` が**同一トランザクションで書く** `events` 表に残るため、
+  outbox から消えても履歴は失われない。`Runner` は `events` を読まない。
+  ユースケースの呼び出し面は変わらない（`repos.Outbox().Enqueue(...)` のまま）。
+  この順序（送出成功後にのみ削除）は at-least-once の要なので**変えないこと**。
+- **`events` は保持ジョブを持たず増え続ける**。採用時はアーカイブ／パーティション／
+  保持ジョブを足す（テンプレートは単純さを優先して意図的に持たない）。
+- インメモリ構成では配送キューと恒久ログが別ストアになる:
+  `memory.NewUnitOfWork(store, outboxStore, eventsStore)` の 3 引数で結線し、
+  コミット時に両方へ確定させる。events を検証したい構成ルート／テストは
+  `EventStore` を直接保持する（`application.Repos` に読み取り面は増やさない）。
 - 時刻に依存する処理（TTL / Reaper）は、実時間を直接呼ばず `application.Clock` を注入して
   テスト可能にする（`shared/testutil` の擬似時計を使う）。
 

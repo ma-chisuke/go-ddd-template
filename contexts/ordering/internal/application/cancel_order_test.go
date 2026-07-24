@@ -43,6 +43,11 @@ func TestCancelOrder_EnqueuesOrderCancelledSameTx(t *testing.T) {
 	cancels := filterByType(f.obx.Messages(), application.MessageTypeOrderCancelled)
 	require.Len(t, cancels, 1)
 	assert.Equal(t, id, decodeReservationRef(t, cancels[0].Payload))
+
+	// 恒久イベントログにも同一 tx で記録されている。
+	logged := filterByType(f.evt.Messages(), application.MessageTypeOrderCancelled)
+	require.Len(t, logged, 1, "イベントログにも記録される")
+	assert.Equal(t, cancels[0].ID, logged[0].ID, "イベントログの ID は outbox と同じ")
 }
 
 func TestCancelOrder_NotConfirmed(t *testing.T) {

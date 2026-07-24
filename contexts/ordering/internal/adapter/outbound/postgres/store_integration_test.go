@@ -11,10 +11,12 @@ package postgres_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
@@ -49,9 +51,19 @@ func setupPool(t *testing.T) *pgxpool.Pool {
 	t.Cleanup(pool.Close)
 
 	// order_lines は orders を参照するため CASCADE で一括初期化する。
-	_, err = pool.Exec(ctx, "TRUNCATE ordering.orders, ordering.outbox CASCADE")
+	// events は恒久ログだがテストの再実行で ID が衝突するため、ここでは併せて初期化する。
+	_, err = pool.Exec(ctx, "TRUNCATE ordering.orders, ordering.outbox, ordering.events CASCADE")
 	require.NoError(t, err, "テーブル初期化に失敗（スキーマ未適用の可能性）")
 	return pool
+}
+
+// countRows は指定テーブルの行数を返す（events 表の検証用）。
+func countRows(t *testing.T, pool *pgxpool.Pool, table string) int {
+	t.Helper()
+	var n int
+	err := pool.QueryRow(context.Background(), "SELECT count(*) FROM "+table).Scan(&n)
+	require.NoError(t, err, "行数の取得に失敗")
+	return n
 }
 
 // pgFixture は postgres アダプタで注文ユースケース一式を組み立てる。
@@ -106,6 +118,9 @@ func TestPostgres_PlaceThenGet(t *testing.T) {
 	require.NoError(t, err, "Unpublished 失敗")
 	require.Len(t, msgs, 1)
 	assert.Equal(t, application.MessageTypeConfirmReservation, msgs[0].Type)
+
+	// 同一トランザクションで events 表にも記録されている。
+	assert.Equal(t, 1, countRows(t, pool, "ordering.events"), "イベントログの行数")
 }
 
 func TestPostgres_CancelEnqueuesOrderCancelled(t *testing.T) {
@@ -147,10 +162,57 @@ func TestPostgres_OutboxRelay(t *testing.T) {
 	require.NoError(t, err, "RunOnce 失敗")
 	assert.Equal(t, 1, sent)
 	assert.Equal(t, 1, pub.count)
-	// 2 回目は送信済みなので 0 件。
+
+	// 配送後、outbox の行は消え、events の記録は残る（配送キューと恒久ログの分離）。
+	assert.Zero(t, countRows(t, pool, "ordering.outbox"), "配送後の配送キューは空")
+	assert.Equal(t, 1, countRows(t, pool, "ordering.events"), "配送後もイベントログは残る")
+
+	// 2 回目は配送キューが空なので 0 件。
 	sent, err = runner.RunOnce(ctx)
 	require.NoError(t, err, "2 回目 RunOnce 失敗")
 	assert.Zero(t, sent, "2 回目の送出件数")
+}
+
+// TestPostgres_EventLogRollsBackWithAggregate は、UoW がロールバックすると
+// 集約・配送キュー・イベントログの 3 者すべてが巻き戻ることを実 DB で確認する
+// （events が同一トランザクションで書かれている証拠）。
+func TestPostgres_EventLogRollsBackWithAggregate(t *testing.T) {
+	ctx := context.Background()
+	pool := setupPool(t)
+	f := newPgFixture(t, pool)
+
+	// まず 1 件作って、確定済みの状態を作る。
+	id, err := f.place.Handle(ctx, sampleInput())
+	require.NoError(t, err, "Place 失敗")
+	before := countRows(t, pool, "ordering.events")
+	require.Equal(t, 1, before, "初期のイベントログ件数")
+
+	// 取消を積んだうえで中断すると、集約の版も outbox も events も変化しない。
+	loaded := loadVia(t, postgres.NewReadOrderStore(pool), id)
+	sentinel := errors.New("業務都合で中断")
+	err = f.work.Within(ctx, func(ctx context.Context, r application.Repos) error {
+		_ = loaded.Cancel()
+		if err := r.Orders().Save(ctx, loaded); err != nil {
+			return err
+		}
+		if err := r.Outbox().Enqueue(ctx, outbox.Message{
+			ID:         "rollback-1",
+			Type:       application.MessageTypeOrderCancelled,
+			Payload:    []byte(`{}`),
+			OccurredAt: time.Now().UTC(),
+		}); err != nil {
+			return err
+		}
+		return sentinel // ロールバック
+	})
+	require.ErrorIs(t, err, sentinel)
+
+	assert.Equal(t, before, countRows(t, pool, "ordering.events"), "ロールバック時はイベントログが増えない")
+	assert.Equal(t, 1, countRows(t, pool, "ordering.outbox"), "ロールバック時は配送キューも増えない")
+	view, err := f.get.Handle(ctx, id.String())
+	require.NoError(t, err, "Get 失敗")
+	assert.Equal(t, "confirmed", view.Status, "集約も巻き戻っている")
+	assert.Equal(t, 1, view.Version, "版も進んでいない")
 }
 
 func TestPostgres_ConcurrencyConflict(t *testing.T) {

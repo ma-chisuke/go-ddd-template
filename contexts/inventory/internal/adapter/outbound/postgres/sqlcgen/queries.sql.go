@@ -77,6 +77,32 @@ func (q *Queries) GetStockItemBySKU(ctx context.Context, sku string) (GetStockIt
 	return i, err
 }
 
+const insertEvent = `-- name: InsertEvent :exec
+INSERT INTO inventory.events (id, message_type, payload, trace_id, occurred_at)
+VALUES ($1, $2, $3, $4, $5)
+`
+
+type InsertEventParams struct {
+	ID          string
+	MessageType string
+	Payload     []byte
+	TraceID     string
+	OccurredAt  pgtype.Timestamptz
+}
+
+// 恒久イベントログへ発行メッセージを 1 件記録する（recorded_at は既定値 now()）。
+// InsertOutboxMessage と同一トランザクションで実行し、原子的に確定させる。
+func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) error {
+	_, err := q.db.Exec(ctx, insertEvent,
+		arg.ID,
+		arg.MessageType,
+		arg.Payload,
+		arg.TraceID,
+		arg.OccurredAt,
+	)
+	return err
+}
+
 const insertOutboxMessage = `-- name: InsertOutboxMessage :exec
 INSERT INTO inventory.outbox (id, message_type, payload, trace_id, occurred_at)
 VALUES ($1, $2, $3, $4, $5)
@@ -90,7 +116,8 @@ type InsertOutboxMessageParams struct {
 	OccurredAt  pgtype.Timestamptz
 }
 
-// アウトボックスへメッセージを積む（集約書き込みと同一トランザクションで実行する）。
+// アウトボックス（一時的な配送キュー）へメッセージを積む。
+// 集約書き込み・InsertEvent と同一トランザクションで実行する。
 func (q *Queries) InsertOutboxMessage(ctx context.Context, arg InsertOutboxMessageParams) error {
 	_, err := q.db.Exec(ctx, insertOutboxMessage,
 		arg.ID,
@@ -246,29 +273,21 @@ func (q *Queries) ListStockItemIDsByReservationRef(ctx context.Context, ref stri
 const listUnpublishedOutbox = `-- name: ListUnpublishedOutbox :many
 SELECT id, message_type, payload, trace_id, occurred_at
 FROM inventory.outbox
-WHERE published_at IS NULL
 ORDER BY occurred_at ASC
 LIMIT $1
 `
 
-type ListUnpublishedOutboxRow struct {
-	ID          string
-	MessageType string
-	Payload     []byte
-	TraceID     string
-	OccurredAt  pgtype.Timestamptz
-}
-
 // 未送信のメッセージを occurred_at 昇順で最大 $1 件取得する。
-func (q *Queries) ListUnpublishedOutbox(ctx context.Context, limit int32) ([]ListUnpublishedOutboxRow, error) {
+// 送信済みの行は削除されるため、この表に残っている行はすべて未送信である。
+func (q *Queries) ListUnpublishedOutbox(ctx context.Context, limit int32) ([]InventoryOutbox, error) {
 	rows, err := q.db.Query(ctx, listUnpublishedOutbox, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListUnpublishedOutboxRow{}
+	items := []InventoryOutbox{}
 	for rows.Next() {
-		var i ListUnpublishedOutboxRow
+		var i InventoryOutbox
 		if err := rows.Scan(
 			&i.ID,
 			&i.MessageType,
@@ -287,12 +306,12 @@ func (q *Queries) ListUnpublishedOutbox(ctx context.Context, limit int32) ([]Lis
 }
 
 const markOutboxPublished = `-- name: MarkOutboxPublished :exec
-UPDATE inventory.outbox
-SET published_at = now()
+DELETE FROM inventory.outbox
 WHERE id = $1
 `
 
-// 指定 ID のメッセージを送信済みとして記録する。
+// 送信に成功した ID の行を配送キューから削除する（delete-after-publish）。
+// 発行履歴は events テーブルに残るため、ここで削除しても記録は失われない。
 func (q *Queries) MarkOutboxPublished(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, markOutboxPublished, id)
 	return err

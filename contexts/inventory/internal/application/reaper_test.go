@@ -18,7 +18,7 @@ import (
 func TestReaper_ReleasesOnlyExpiredPending(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewOutboxStore())
+	work := memory.NewUnitOfWork(store, memory.NewOutboxStore(), memory.NewEventStore())
 	log := testLogger()
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 
@@ -64,7 +64,7 @@ func TestReaper_ReleasesOnlyExpiredPending(t *testing.T) {
 func TestReaper_SweepNoopWhenClockBeforeExpiry(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewOutboxStore())
+	work := memory.NewUnitOfWork(store, memory.NewOutboxStore(), memory.NewEventStore())
 	log := testLogger()
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 	dispatcher := application.NewInProcessDispatcher(log)

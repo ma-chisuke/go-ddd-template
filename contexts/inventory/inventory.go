@@ -120,8 +120,11 @@ func NewInMemory(deps InMemoryDeps) (*Module, error) {
 	log := orLoggerDefault(deps.Logger)
 
 	store := memory.NewStore()
+	// 配送キュー（送信後に削除される一時的なもの）と恒久イベントログ（追記のみ）を
+	// 分けて生成し、同一コミットで両方へ確定させる。
 	outboxStore := memory.NewOutboxStore()
-	work := memory.NewUnitOfWork(store, outboxStore)
+	eventsStore := memory.NewEventStore()
+	work := memory.NewUnitOfWork(store, outboxStore, eventsStore)
 	readStock := memory.NewReadStockStore(store)
 
 	return assembleModule(log, work, readStock, outboxStore, deps.Publisher,

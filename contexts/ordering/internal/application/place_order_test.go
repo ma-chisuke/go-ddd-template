@@ -51,8 +51,46 @@ func TestPlaceOrder_Happy(t *testing.T) {
 	require.Len(t, confirms, 1)
 	assert.Equal(t, id.String(), decodeReservationRef(t, confirms[0].Payload))
 
+	// 同じ tx で恒久イベントログにも記録される（配送キューとイベントログは同一コミット）。
+	logged := filterByType(f.evt.Messages(), application.MessageTypeConfirmReservation)
+	require.Len(t, logged, 1, "イベントログにも 1 件記録される")
+	assert.Equal(t, confirms[0].ID, logged[0].ID, "イベントログの ID は outbox と同じ")
+
 	// OrderPlaced はコミット後にプロセス内配信されている。
 	assert.Equal(t, 1, countEvents(*f.captured, "ordering.order_placed"))
+}
+
+// TestPlaceOrder_EventLogWrittenInSameTx は、注文集約の保存・配送キューへの投入・
+// 恒久イベントログへの記録の 3 者がひとつのトランザクションで確定することを、
+// ロールバック時とコミット時の両方で確認する（FR-4 / R-2 の不変条件）。
+func TestPlaceOrder_EventLogWrittenInSameTx(t *testing.T) {
+	ctx := context.Background()
+
+	// (a) tx の手前で失敗するケース: 集約も配送キューもイベントログも空のまま。
+	rolled := newMemFixture(t)
+	rolled.reserver.EXPECT().
+		Reserve(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(application.ErrReservationRejected)
+
+	_, err := rolled.place.Handle(ctx, sampleInput())
+	require.ErrorIs(t, err, application.ErrReservationRejected)
+	assert.Empty(t, rolled.obx.Messages(), "配送キューは空のまま")
+	assert.Zero(t, rolled.evt.Len(), "イベントログも空のまま（片方だけ残らない）")
+
+	// (b) コミットするケース: 配送キューとイベントログの両方に同じメッセージが入る。
+	ok := newMemFixture(t)
+	ok.reserver.EXPECT().Reserve(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+
+	id, err := ok.place.Handle(ctx, sampleInput())
+	require.NoError(t, err, "注文作成")
+
+	queued := ok.obx.Messages()
+	recorded := ok.evt.Messages()
+	require.Len(t, queued, 1, "配送キューに 1 件")
+	require.Len(t, recorded, 1, "イベントログに 1 件")
+	assert.Equal(t, queued[0].ID, recorded[0].ID, "同じメッセージ ID")
+	assert.Equal(t, queued[0].Type, recorded[0].Type, "同じ種別")
+	assert.Equal(t, id.String(), decodeReservationRef(t, recorded[0].Payload), "同じペイロード")
 }
 
 func TestPlaceOrder_InsufficientStockRejected(t *testing.T) {
@@ -99,9 +137,10 @@ func TestPlaceOrder_RetriesOnConflictReserveOnce(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore()
 	obx := memory.NewOutboxStore()
+	evt := memory.NewEventStore()
 	// 本物のインメモリ UoW を包み、最初の 1 回だけ ErrConcurrencyConflict を注入する。
-	flaky := &flakyUoW{inner: memory.NewUnitOfWork(store, obx), failsLeft: 1}
-	f := newMemFixtureWith(t, flaky, store, obx)
+	flaky := &flakyUoW{inner: memory.NewUnitOfWork(store, obx, evt), failsLeft: 1}
+	f := newMemFixtureWith(t, flaky, store, obx, evt)
 
 	// UoW は再試行されるが、ACL の予約は tx の外なのでちょうど 1 回だけ呼ばれる。
 	f.reserver.EXPECT().
@@ -115,6 +154,8 @@ func TestPlaceOrder_RetriesOnConflictReserveOnce(t *testing.T) {
 
 	// ロールバック分は破棄され、最終的に ConfirmReservation は 1 件だけ・version は 1。
 	require.Len(t, filterByType(obx.Messages(), application.MessageTypeConfirmReservation), 1)
+	// 恒久イベントログも同一コミットで確定するため、同じく 1 件だけ記録される。
+	require.Len(t, filterByType(evt.Messages(), application.MessageTypeConfirmReservation), 1)
 	view, err := f.get.Handle(ctx, id.String())
 	require.NoError(t, err)
 	assert.Equal(t, 1, view.Version)
