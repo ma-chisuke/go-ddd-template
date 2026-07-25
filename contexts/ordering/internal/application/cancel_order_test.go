@@ -27,6 +27,8 @@ func placeOne(t *testing.T, f memFixture) string {
 }
 
 func TestCancelOrder_EnqueuesOrderCancelledSameTx(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	f := newMemFixture(t)
 	id := placeOne(t, f)
@@ -51,6 +53,8 @@ func TestCancelOrder_EnqueuesOrderCancelledSameTx(t *testing.T) {
 }
 
 func TestCancelOrder_NotConfirmed(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	f := newMemFixture(t)
 	id := placeOne(t, f)
@@ -61,6 +65,8 @@ func TestCancelOrder_NotConfirmed(t *testing.T) {
 }
 
 func TestGetOrder_NotFound(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	f := newMemFixture(t)
 

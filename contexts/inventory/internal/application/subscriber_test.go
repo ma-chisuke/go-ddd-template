@@ -30,6 +30,8 @@ func newRouterFixture(t *testing.T) (reserveFixture, *outbox.Router) {
 }
 
 func TestRouter_ConfirmAndCancelFlow(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	f, router := newRouterFixture(t)
 
@@ -66,6 +68,8 @@ func TestRouter_ConfirmAndCancelFlow(t *testing.T) {
 }
 
 func TestRouter_UnknownTypeReturnsErrNoRoute(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	_, router := newRouterFixture(t)
 	err := router.Deliver(ctx, outbox.Message{ID: "x", Type: "unknown.type"})
@@ -73,6 +77,8 @@ func TestRouter_UnknownTypeReturnsErrNoRoute(t *testing.T) {
 }
 
 func TestOnConfirmReservation_BenignNoopWhenNotFound(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	store := memory.NewStore()
 	work := memory.NewUnitOfWork(store, memory.NewStores())

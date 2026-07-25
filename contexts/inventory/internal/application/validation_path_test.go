@@ -37,6 +37,8 @@ func newReserveOnlyFixture(t *testing.T) reserveFixture {
 }
 
 func TestValidationPath_SingleValueUseCases(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 
 	cases := []struct {
@@ -111,6 +113,8 @@ func TestValidationPath_SingleValueUseCases(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			err := tc.call(newReserveOnlyFixture(t))
 			require.ErrorIs(t, err, tc.wantErr, "番兵は維持される（規則 R-15）")
 			v := requireSingle(t, err)
@@ -123,6 +127,8 @@ func TestValidationPath_SingleValueUseCases(t *testing.T) {
 // 明細の添字。値オブジェクトの走査（アプリ層）と集約の走査（Allocate）の 2 経路があり、
 // どちらも同じ表記のパスを出すことを固定する。
 func TestValidationPath_ReserveLineIndex(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 
 	// 3 SKU を補充してから、行を 1 つずつ壊す。
@@ -144,8 +150,12 @@ func TestValidationPath_ReserveLineIndex(t *testing.T) {
 	}
 
 	t.Run("境界: SKU が空の行を指す（アプリ層のループが位置を付ける）", func(t *testing.T) {
+		t.Parallel()
+
 		for _, broken := range []int{0, 1, 2} {
 			t.Run(fmt.Sprintf("境界: %d 行目の SKU が空でも同じ添字を指す", broken), func(t *testing.T) {
+				t.Parallel()
+
 				lines := okLines()
 				lines[broken].SKU = "  "
 
@@ -160,8 +170,12 @@ func TestValidationPath_ReserveLineIndex(t *testing.T) {
 	})
 
 	t.Run("境界: 数量 0 の行を指す（ドメインの Index が位置を運ぶ）", func(t *testing.T) {
+		t.Parallel()
+
 		for _, broken := range []int{0, 1, 2} {
 			t.Run(fmt.Sprintf("境界: %d 行目の数量が 0 でも同じ添字を指す", broken), func(t *testing.T) {
+				t.Parallel()
+
 				lines := okLines()
 				// 0 は値オブジェクトを通過するので、位置は Allocate（集約側）でしか分からない。
 				lines[broken].Quantity = 0
@@ -179,10 +193,14 @@ func TestValidationPath_ReserveLineIndex(t *testing.T) {
 
 // locate の透過。検証以外の失敗が ValidationError に化けないことを固定する。
 func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	var ve *application.ValidationError
 
 	t.Run("異常系: 在庫項目が無いと 404 系になる", func(t *testing.T) {
+		t.Parallel()
+
 		f := newReserveOnlyFixture(t)
 		_, err := f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "SKU-UNKNOWN"})
 		require.ErrorIs(t, err, inventory.ErrStockItemNotFound)
@@ -190,6 +208,8 @@ func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
 	})
 
 	t.Run("異常系: 予約時に在庫項目が無いと 404 系になる", func(t *testing.T) {
+		t.Parallel()
+
 		f := newReserveOnlyFixture(t)
 		err := f.reserver.Reserve(ctx, application.ReserveInput{
 			Ref:   "ORDER-1",
@@ -200,6 +220,8 @@ func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
 	})
 
 	t.Run("異常系: 在庫不足は 409 系になる", func(t *testing.T) {
+		t.Parallel()
+
 		f := newReserveOnlyFixture(t)
 		_, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: "SKU-A", Quantity: 1})
 		require.NoError(t, err)
@@ -213,6 +235,8 @@ func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
 	})
 
 	t.Run("異常系: 予約が無い Confirm は 404 系になる", func(t *testing.T) {
+		t.Parallel()
+
 		f := newReserveOnlyFixture(t)
 		err := f.confirmer.Confirm(ctx, "ORDER-UNKNOWN")
 		require.ErrorIs(t, err, inventory.ErrReservationNotFound)

@@ -44,7 +44,11 @@ func eventNames(events []order.DomainEvent) map[string]int {
 }
 
 func TestNewOrder(t *testing.T) {
+	t.Parallel()
+
 	t.Run("正常系: 明細から Confirmed の注文を作成し合計を計算する", func(t *testing.T) {
+		t.Parallel()
+
 		id := mustOrderID(t, "ORDER-1")
 		lines := []order.OrderLine{
 			mustLine(t, "SKU-A", 3, 1200, "JPY"), // 小計 3600
@@ -62,11 +66,15 @@ func TestNewOrder(t *testing.T) {
 	})
 
 	t.Run("異常系: 明細が空なら ErrEmptyOrder", func(t *testing.T) {
+		t.Parallel()
+
 		_, err := order.NewOrder(mustOrderID(t, "ORDER-1"), mustCustomerID(t, "CUST-1"), nil)
 		require.ErrorIs(t, err, order.ErrEmptyOrder)
 	})
 
 	t.Run("異常系: 行間で通貨が食い違うと ErrInvalidMoney", func(t *testing.T) {
+		t.Parallel()
+
 		lines := []order.OrderLine{
 			mustLine(t, "SKU-A", 1, 1200, "JPY"),
 			mustLine(t, "SKU-B", 1, 5, "USD"),
@@ -77,6 +85,8 @@ func TestNewOrder(t *testing.T) {
 }
 
 func TestOrderCancel(t *testing.T) {
+	t.Parallel()
+
 	newConfirmed := func(t *testing.T) *order.Order {
 		t.Helper()
 		o, err := order.NewOrder(mustOrderID(t, "ORDER-1"), mustCustomerID(t, "CUST-1"),
@@ -87,6 +97,8 @@ func TestOrderCancel(t *testing.T) {
 	}
 
 	t.Run("正常系: Confirmed から取消できて OrderCancelled を記録する", func(t *testing.T) {
+		t.Parallel()
+
 		o := newConfirmed(t)
 		require.NoError(t, o.Cancel())
 		assert.Equal(t, order.StatusCancelled, o.Status())
@@ -101,6 +113,8 @@ func TestOrderCancel(t *testing.T) {
 	})
 
 	t.Run("異常系: Confirmed 以外（取消済み）の取消は ErrOrderNotConfirmed", func(t *testing.T) {
+		t.Parallel()
+
 		o := newConfirmed(t)
 		require.NoError(t, o.Cancel(), "1 回目の取消に失敗しました")
 		require.ErrorIs(t, o.Cancel(), order.ErrOrderNotConfirmed)
@@ -108,6 +122,8 @@ func TestOrderCancel(t *testing.T) {
 }
 
 func TestReconstituteAndGetters(t *testing.T) {
+	t.Parallel()
+
 	id := mustOrderID(t, "ORDER-9")
 	cust := mustCustomerID(t, "CUST-9")
 	lines := []order.OrderLine{mustLine(t, "SKU-A", 2, 100, "JPY")}
@@ -140,6 +156,8 @@ func TestReconstituteAndGetters(t *testing.T) {
 }
 
 func TestStatusString(t *testing.T) {
+	t.Parallel()
+
 	cases := map[order.Status]string{
 		order.StatusConfirmed: "confirmed",
 		order.StatusCancelled: "cancelled",

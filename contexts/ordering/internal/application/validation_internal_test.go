@@ -18,6 +18,8 @@ import (
 // validation_path_test.go（package application_test）が受け持つ。
 
 func TestLocate_PassesThroughNonDomainErrors(t *testing.T) {
+	t.Parallel()
+
 	sentinel := errors.New("リポジトリの失敗")
 
 	got := locate("Lines[0]", sentinel)
@@ -28,6 +30,8 @@ func TestLocate_PassesThroughNonDomainErrors(t *testing.T) {
 }
 
 func TestLocate_DoesNotDoubleWrap(t *testing.T) {
+	t.Parallel()
+
 	_, err := order.NewQuantity(0)
 	first := locate("Lines[0]", err)
 	require.IsType(t, &ValidationError{}, first)
@@ -45,6 +49,8 @@ func TestLocate_DoesNotDoubleWrap(t *testing.T) {
 // 上書き表 dtoPaths に無いフィールドは、機械的な変換（先頭 1 文字を大文字にする）で
 // パス断片にする。**ドメインに Rule を 1 行足すだけでこの層は動く**ことを示す。
 func TestLocate_UnknownFieldUsesMechanicalConversion(t *testing.T) {
+	t.Parallel()
+
 	// ドメインに新しい規則を 1 行足した状況を模す。
 	newRule := order.Rule{Field: "somethingNew", Code: "something_new", Err: order.ErrInvalidSKU}
 
@@ -58,6 +64,8 @@ func TestLocate_UnknownFieldUsesMechanicalConversion(t *testing.T) {
 // 上書き表に載っているフィールド（金額）は入れ子のパスへ写る。
 // 平らな入力 DTO と入れ子の API の差を dtoPaths が吸収していることを固定する。
 func TestLocate_OverriddenFieldUsesTable(t *testing.T) {
+	t.Parallel()
+
 	_, err := order.NewMoney(-1, "JPY")
 
 	var ve *ValidationError
@@ -69,6 +77,8 @@ func TestLocate_OverriddenFieldUsesTable(t *testing.T) {
 // パスが優先される。注文コンテキストには現在その規則が無いが、機構は在庫側と同一なので、
 // 規則を足した瞬間に動くことをここで固定しておく。
 func TestLocate_DomainIndexOverridesPrefix(t *testing.T) {
+	t.Parallel()
+
 	err := order.VQuantity.ViolatedAt(2, "明細の数量が不正です")
 
 	var ve *ValidationError
@@ -77,6 +87,8 @@ func TestLocate_DomainIndexOverridesPrefix(t *testing.T) {
 }
 
 func TestLocate_NilAndEmptyPrefix(t *testing.T) {
+	t.Parallel()
+
 	assert.Nil(t, locate("", nil), "nil は nil のまま")
 
 	_, err := order.NewCustomerID("")
@@ -88,6 +100,8 @@ func TestLocate_NilAndEmptyPrefix(t *testing.T) {
 // ValidationError.Error() が包んだ文言をそのまま返すこと。
 // ログ出力（NewError の WarnContext / ErrorContext）がこの文言に依存している。
 func TestValidationError_ErrorPassesThroughWrappedMessage(t *testing.T) {
+	t.Parallel()
+
 	_, err := order.NewQuantity(0)
 	located := locate("Lines[0]", err)
 

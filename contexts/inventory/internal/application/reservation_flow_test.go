@@ -55,6 +55,8 @@ func capturedNames(events []inventory.DomainEvent) map[string]int {
 }
 
 func TestReserveConfirmRelease_MultiSKU(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	store := memory.NewStore()
 	work := memory.NewUnitOfWork(store, memory.NewStores())
@@ -106,6 +108,8 @@ func TestReserveConfirmRelease_MultiSKU(t *testing.T) {
 }
 
 func TestReserve_InsufficientStockIsAllOrNothing(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	store := memory.NewStore()
 	work := memory.NewUnitOfWork(store, memory.NewStores())
@@ -131,6 +135,8 @@ func TestReserve_InsufficientStockIsAllOrNothing(t *testing.T) {
 }
 
 func TestConfirm_NotFound(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	store := memory.NewStore()
 	work := memory.NewUnitOfWork(store, memory.NewStores())
@@ -140,6 +146,8 @@ func TestConfirm_NotFound(t *testing.T) {
 }
 
 func TestRelease_UnknownRefIsIdempotent(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	store := memory.NewStore()
 	work := memory.NewUnitOfWork(store, memory.NewStores())
@@ -167,6 +175,8 @@ func (f *flakyUoW) Within(ctx context.Context, fn func(ctx context.Context, r ap
 }
 
 func TestReserve_RetriesOnConflictThenSucceeds(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	store := memory.NewStore()
 	inner := memory.NewUnitOfWork(store, memory.NewStores())
@@ -189,6 +199,8 @@ func TestReserve_RetriesOnConflictThenSucceeds(t *testing.T) {
 }
 
 func TestReserve_GivesUpAfterMaxAttempts(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	store := memory.NewStore()
 	inner := memory.NewUnitOfWork(store, memory.NewStores())

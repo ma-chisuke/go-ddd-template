@@ -39,7 +39,11 @@ func hasEvent(events []inventory.DomainEvent, name string) bool {
 }
 
 func TestStockItem_Reserve(t *testing.T) {
+	t.Parallel()
+
 	t.Run("正常系: available を減らし StockReserved を記録する", func(t *testing.T) {
+		t.Parallel()
+
 		item := seededItem(t, "WIDGET-001", 10)
 		require.NoError(t, item.Reserve(mustRef(t, "RES-1"), mustQuantity(t, 4), time.Hour))
 		assert.Equal(t, 6, item.Available().Int(), "Available")
@@ -48,6 +52,8 @@ func TestStockItem_Reserve(t *testing.T) {
 	})
 
 	t.Run("冪等: 同一 ref の再予約は no-op（二重予約しない）", func(t *testing.T) {
+		t.Parallel()
+
 		item := seededItem(t, "WIDGET-001", 10)
 		ref := mustRef(t, "RES-1")
 		require.NoError(t, item.Reserve(ref, mustQuantity(t, 4), time.Hour), "1 回目")
@@ -60,6 +66,8 @@ func TestStockItem_Reserve(t *testing.T) {
 	})
 
 	t.Run("異常系: 在庫不足は ErrInsufficientStock（状態は不変）", func(t *testing.T) {
+		t.Parallel()
+
 		item := seededItem(t, "WIDGET-001", 3)
 		err := item.Reserve(mustRef(t, "RES-1"), mustQuantity(t, 4), time.Hour)
 		require.ErrorIs(t, err, inventory.ErrInsufficientStock)
@@ -68,12 +76,16 @@ func TestStockItem_Reserve(t *testing.T) {
 	})
 
 	t.Run("異常系: 数量 0 と空 ref", func(t *testing.T) {
+		t.Parallel()
+
 		item := seededItem(t, "WIDGET-001", 10)
 		require.ErrorIs(t, item.Reserve(mustRef(t, "RES-1"), mustQuantity(t, 0), time.Hour), inventory.ErrInvalidQuantity)
 		require.ErrorIs(t, item.Reserve(inventory.ReservationRef{}, mustQuantity(t, 1), time.Hour), inventory.ErrInvalidReservationRef)
 	})
 
 	t.Run("境界: available が 0 到達で StockDepleted", func(t *testing.T) {
+		t.Parallel()
+
 		item := seededItem(t, "WIDGET-001", 5)
 		require.NoError(t, item.Reserve(mustRef(t, "RES-1"), mustQuantity(t, 5), time.Hour))
 		assert.Equal(t, 0, item.Available().Int(), "Available")
@@ -82,7 +94,11 @@ func TestStockItem_Reserve(t *testing.T) {
 }
 
 func TestStockItem_Confirm(t *testing.T) {
+	t.Parallel()
+
 	t.Run("正常系: pending → confirmed（available は不変、TTL クリアで Reap されない）", func(t *testing.T) {
+		t.Parallel()
+
 		item := seededItem(t, "WIDGET-001", 10)
 		ref := mustRef(t, "RES-1")
 		_ = item.Reserve(ref, mustQuantity(t, 4), time.Hour)
@@ -100,6 +116,8 @@ func TestStockItem_Confirm(t *testing.T) {
 	})
 
 	t.Run("冪等: 既に confirmed の ref は no-op", func(t *testing.T) {
+		t.Parallel()
+
 		item := seededItem(t, "WIDGET-001", 10)
 		ref := mustRef(t, "RES-1")
 		_ = item.Reserve(ref, mustQuantity(t, 4), time.Hour)
@@ -110,13 +128,19 @@ func TestStockItem_Confirm(t *testing.T) {
 	})
 
 	t.Run("異常系: 有効な予約が無い ref は ErrReservationNotFound", func(t *testing.T) {
+		t.Parallel()
+
 		item := seededItem(t, "WIDGET-001", 10)
 		require.ErrorIs(t, item.Confirm(mustRef(t, "UNKNOWN")), inventory.ErrReservationNotFound)
 	})
 }
 
 func TestStockItem_Release(t *testing.T) {
+	t.Parallel()
+
 	t.Run("正常系: pending を解放して available へ戻す", func(t *testing.T) {
+		t.Parallel()
+
 		item := seededItem(t, "WIDGET-001", 10)
 		ref := mustRef(t, "RES-1")
 		_ = item.Reserve(ref, mustQuantity(t, 4), time.Hour)
@@ -129,6 +153,8 @@ func TestStockItem_Release(t *testing.T) {
 	})
 
 	t.Run("正常系: confirmed も解放できる", func(t *testing.T) {
+		t.Parallel()
+
 		item := seededItem(t, "WIDGET-001", 10)
 		ref := mustRef(t, "RES-1")
 		_ = item.Reserve(ref, mustQuantity(t, 4), time.Hour)
@@ -139,6 +165,8 @@ func TestStockItem_Release(t *testing.T) {
 	})
 
 	t.Run("冪等: 未知・解放済みの ref は no-op", func(t *testing.T) {
+		t.Parallel()
+
 		item := seededItem(t, "WIDGET-001", 10)
 		require.NoError(t, item.Release(mustRef(t, "UNKNOWN")), "未知 ref の Release")
 		assert.Empty(t, item.PullEvents(), "no-op でイベントは出ない")
@@ -146,6 +174,8 @@ func TestStockItem_Release(t *testing.T) {
 }
 
 func TestStockItem_ReapExpired(t *testing.T) {
+	t.Parallel()
+
 	// 期限切れの pending「のみ」を解放し、confirmed と未期限は触らない。
 	item := seededItem(t, "WIDGET-001", 100)
 	expiredPending := mustRef(t, "EXP")
@@ -180,6 +210,8 @@ func TestStockItem_ReapExpired(t *testing.T) {
 }
 
 func TestReconstituteStockItem_WithReservations(t *testing.T) {
+	t.Parallel()
+
 	res := []*inventory.Reservation{
 		inventory.ReconstituteReservation(mustRef(t, "RES-1"), mustQuantity(t, 4), inventory.ReservationPending, time.Now().Add(time.Hour)),
 		inventory.ReconstituteReservation(mustRef(t, "RES-2"), mustQuantity(t, 6), inventory.ReservationConfirmed, time.Time{}),
@@ -191,9 +223,13 @@ func TestReconstituteStockItem_WithReservations(t *testing.T) {
 }
 
 func TestReservationService_Allocate(t *testing.T) {
+	t.Parallel()
+
 	svc := inventory.ReservationService{}
 
 	t.Run("正常系: 複数 SKU を全か無かで予約する", func(t *testing.T) {
+		t.Parallel()
+
 		a := seededItem(t, "SKU-A", 10)
 		b := seededItem(t, "SKU-B", 10)
 		ref := mustRef(t, "ORDER-1")
@@ -207,6 +243,8 @@ func TestReservationService_Allocate(t *testing.T) {
 	})
 
 	t.Run("異常系: 1 SKU でも不足なら全体を失敗させ部分予約を作らない", func(t *testing.T) {
+		t.Parallel()
+
 		a := seededItem(t, "SKU-A", 10)
 		b := seededItem(t, "SKU-B", 2) // 不足させる
 		ref := mustRef(t, "ORDER-1")
@@ -222,6 +260,8 @@ func TestReservationService_Allocate(t *testing.T) {
 	})
 
 	t.Run("異常系: 要求 SKU の在庫項目が無い", func(t *testing.T) {
+		t.Parallel()
+
 		a := seededItem(t, "SKU-A", 10)
 		ref := mustRef(t, "ORDER-1")
 		lines := []inventory.ReservationLine{

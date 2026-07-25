@@ -30,7 +30,11 @@ func mustQuantity(t *testing.T, n int) inventory.Quantity {
 }
 
 func TestNewStockItem(t *testing.T) {
+	t.Parallel()
+
 	t.Run("正常系: 利用可能 0・version 0 で始まる", func(t *testing.T) {
+		t.Parallel()
+
 		item, err := inventory.NewStockItem("id-1", mustSKU(t, "WIDGET-001"))
 		require.NoError(t, err)
 		assert.Equal(t, 0, item.Available().Int(), "Available")
@@ -40,13 +44,19 @@ func TestNewStockItem(t *testing.T) {
 	})
 
 	t.Run("異常系: 空 id は不正", func(t *testing.T) {
+		t.Parallel()
+
 		_, err := inventory.NewStockItem("", mustSKU(t, "WIDGET-001"))
 		require.Error(t, err, "空 id はエラーになるべき")
 	})
 }
 
 func TestStockItem_Replenish(t *testing.T) {
+	t.Parallel()
+
 	t.Run("正常系: 利用可能在庫が増え、イベントが記録される", func(t *testing.T) {
+		t.Parallel()
+
 		item, _ := inventory.NewStockItem("id-1", mustSKU(t, "WIDGET-001"))
 
 		require.NoError(t, item.Replenish(mustQuantity(t, 10)))
@@ -67,6 +77,8 @@ func TestStockItem_Replenish(t *testing.T) {
 	})
 
 	t.Run("異常系: 補充数量 0 は ErrInvalidQuantity", func(t *testing.T) {
+		t.Parallel()
+
 		item, _ := inventory.NewStockItem("id-1", mustSKU(t, "WIDGET-001"))
 		require.ErrorIs(t, item.Replenish(mustQuantity(t, 0)), inventory.ErrInvalidQuantity)
 		// 失敗時はイベントも記録されない。
@@ -75,6 +87,8 @@ func TestStockItem_Replenish(t *testing.T) {
 }
 
 func TestReconstituteAndMarkPersisted(t *testing.T) {
+	t.Parallel()
+
 	item := inventory.ReconstituteStockItem("id-9", mustSKU(t, "GADGET-9"), mustQuantity(t, 42), 3, nil)
 	assert.Equal(t, 3, item.Version(), "復元 version")
 	assert.Equal(t, 42, item.Available().Int(), "復元 available")

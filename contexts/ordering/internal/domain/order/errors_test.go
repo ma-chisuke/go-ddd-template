@@ -29,6 +29,8 @@ func requireViolation(t *testing.T, err error) *order.FieldViolation {
 }
 
 func TestFieldViolation_ValueObjects(t *testing.T) {
+	t.Parallel()
+
 	cases := []struct {
 		name string
 		err  func() error
@@ -75,6 +77,8 @@ func TestFieldViolation_ValueObjects(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			err := tc.err()
 			// 1) 後方互換: errors.Is は従来どおり番兵に一致する（規則 R-15）。
 			require.ErrorIs(t, err, tc.want.Err, "番兵まで Unwrap が繋がること")
@@ -89,6 +93,8 @@ func TestFieldViolation_ValueObjects(t *testing.T) {
 // FR-4.3 の回帰テスト。amount と currency が同じ番兵を共有していても別物として
 // 名乗れることを、両者を同時に比較して固定する。
 func TestFieldViolation_NewMoneyDistinguishesAmountAndCurrency(t *testing.T) {
+	t.Parallel()
+
 	_, amountErr := order.NewMoney(-1, "JPY")
 	_, currencyErr := order.NewMoney(100, "")
 
@@ -106,6 +112,8 @@ func TestFieldViolation_NewMoneyDistinguishesAmountAndCurrency(t *testing.T) {
 }
 
 func TestFieldViolation_AggregateRuleEmptyOrder(t *testing.T) {
+	t.Parallel()
+
 	id, err := order.NewOrderID("ORDER-1")
 	require.NoError(t, err)
 	customer, err := order.NewCustomerID("CUST-1")
@@ -122,7 +130,11 @@ func TestFieldViolation_AggregateRuleEmptyOrder(t *testing.T) {
 // 「違反フィールドが 0 件」と「特定できなかった」を区別するため、ここで
 // FieldViolation を返してしまわないことを固定する。
 func TestFieldViolation_NotAttributableToOneField(t *testing.T) {
+	t.Parallel()
+
 	t.Run("異常系: 通貨をまたぐ加算は FieldViolation にしない", func(t *testing.T) {
+		t.Parallel()
+
 		jpy, err := order.NewMoney(100, "JPY")
 		require.NoError(t, err)
 		usd, err := order.NewMoney(100, "USD")
@@ -136,6 +148,8 @@ func TestFieldViolation_NotAttributableToOneField(t *testing.T) {
 	})
 
 	t.Run("異常系: Confirmed でない注文の取消は FieldViolation にしない", func(t *testing.T) {
+		t.Parallel()
+
 		id, err := order.NewOrderID("ORDER-1")
 		require.NoError(t, err)
 		customer, err := order.NewCustomerID("CUST-1")
@@ -161,6 +175,8 @@ func TestFieldViolation_NotAttributableToOneField(t *testing.T) {
 
 // Error() が番兵の文言をそのまま返すこと（既存のログ出力とエラー文言を変えないための契約）。
 func TestFieldViolation_ErrorPassesThroughWrappedMessage(t *testing.T) {
+	t.Parallel()
+
 	_, err := order.NewQuantity(0)
 	v := requireViolation(t, err)
 

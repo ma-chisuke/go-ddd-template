@@ -15,6 +15,8 @@ import (
 // 種別文字列と一致することを固定する（クロスコンテキストの公開契約）。これらの文字列が
 // ずれると、在庫側の outbox.Router が Consumer を解決できず配送が失敗する。
 func TestMessageTypeContract(t *testing.T) {
+	t.Parallel()
+
 	assert.Equal(t, "ordering.reservation.confirm_requested", application.MessageTypeConfirmReservation,
 		"ConfirmReservation の種別が契約と不一致")
 	assert.Equal(t, "ordering.order.cancelled", application.MessageTypeOrderCancelled,
@@ -26,6 +28,8 @@ func TestMessageTypeContract(t *testing.T) {
 // 検証する。payload には参考情報として order_id を添えるが、在庫側の decode（reservation_ref
 // のみ）は order_id を無視できなければならない。
 func TestOrderCancelledPayloadContract(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	f := newMemFixture(t)
 	id := placeOne(t, f)

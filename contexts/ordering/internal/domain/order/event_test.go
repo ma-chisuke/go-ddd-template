@@ -10,6 +10,8 @@ import (
 )
 
 func TestEventOccurredAt(t *testing.T) {
+	t.Parallel()
+
 	o, err := order.NewOrder(mustOrderID(t, "ORDER-1"), mustCustomerID(t, "CUST-1"),
 		[]order.OrderLine{mustLine(t, "SKU-A", 1, 1000, "JPY")})
 	require.NoError(t, err, "注文作成失敗")

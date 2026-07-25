@@ -51,6 +51,8 @@ func newFixture(t *testing.T) fixture {
 }
 
 func TestReplenishThenQuery(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	f := newFixture(t)
 
@@ -80,6 +82,8 @@ func TestReplenishThenQuery(t *testing.T) {
 }
 
 func TestQueryStock_NotFound(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	f := newFixture(t)
 
@@ -88,8 +92,9 @@ func TestQueryStock_NotFound(t *testing.T) {
 }
 
 func TestReplenish_ValidationErrors(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
-	f := newFixture(t)
 
 	tests := []struct {
 		name  string
@@ -102,11 +107,19 @@ func TestReplenish_ValidationErrors(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// フィクスチャはサブテストの内側で組む（C-5）。ループの外で 1 度だけ組むと
+			// 並列サブテストが captured を共有し、どのケースが配信したのかを分離できない。
+			f := newFixture(t)
+
 			_, err := f.replenisher.Replenish(ctx, tc.input)
 			require.ErrorIs(t, err, tc.want)
+
+			// 入力検証で失敗したときはイベントを配信しない。
+			// この検証をループの外に置くと、並列サブテストが動く前に評価されて空振りする
+			// （t.Parallel() を呼んだサブテストは親関数が返るまで実行されない）。
+			assert.Empty(t, *f.captured, "検証失敗時にイベントは配信されない")
 		})
 	}
-
-	// 入力検証で失敗したときはイベントを配信しない。
-	assert.Empty(t, *f.captured, "検証失敗時にイベントは配信されない")
 }

@@ -14,6 +14,8 @@ import (
 // 分岐を持つ。ここでは非公開関数を直接呼び、その分岐を明示的に固定する。
 
 func TestLocate_PassesThroughNonDomainErrors(t *testing.T) {
+	t.Parallel()
+
 	sentinel := errors.New("リポジトリの失敗")
 
 	got := locate("Lines[0]", sentinel)
@@ -24,6 +26,8 @@ func TestLocate_PassesThroughNonDomainErrors(t *testing.T) {
 }
 
 func TestLocate_DoesNotDoubleWrap(t *testing.T) {
+	t.Parallel()
+
 	_, err := inventory.NewSKU("")
 	first := locate("Lines[0]", err)
 	require.IsType(t, &ValidationError{}, first)
@@ -39,6 +43,8 @@ func TestLocate_DoesNotDoubleWrap(t *testing.T) {
 // 上書き表 dtoPaths に無いフィールドは、機械的な変換（先頭 1 文字を大文字にする）で
 // パス断片にする。**ドメインに Rule を 1 行足すだけでこの層は動く**ことを示す。
 func TestLocate_UnknownFieldUsesMechanicalConversion(t *testing.T) {
+	t.Parallel()
+
 	newRule := inventory.Rule{Field: "somethingNew", Code: "something_new", Err: inventory.ErrInvalidSKU}
 
 	var ve *ValidationError
@@ -49,6 +55,8 @@ func TestLocate_UnknownFieldUsesMechanicalConversion(t *testing.T) {
 
 // 上書き表に載っているフィールド（予約参照）は DTO 上の名前へ写る。
 func TestLocate_OverriddenFieldUsesTable(t *testing.T) {
+	t.Parallel()
+
 	_, err := inventory.NewReservationRef("")
 
 	var ve *ValidationError
@@ -59,6 +67,8 @@ func TestLocate_OverriddenFieldUsesTable(t *testing.T) {
 // ドメインが位置を運んできたら（Rule.ViolatedAt）、呼び出し側が渡した前置より明細の
 // パスが優先される。これが ReservationService.Allocate（走査が集約側にある）の経路である。
 func TestLocate_DomainIndexOverridesPrefix(t *testing.T) {
+	t.Parallel()
+
 	err := inventory.VQuantity.ViolatedAt(2, "予約数量は 1 以上でなければなりません")
 
 	var ve *ValidationError
@@ -68,12 +78,16 @@ func TestLocate_DomainIndexOverridesPrefix(t *testing.T) {
 }
 
 func TestLocate_NilInput(t *testing.T) {
+	t.Parallel()
+
 	assert.Nil(t, locate("", nil), "nil は nil のまま")
 }
 
 // ValidationError.Error() が包んだ文言をそのまま返すこと。
 // ログ出力（NewError の WarnContext / ErrorContext）がこの文言に依存している。
 func TestValidationError_ErrorPassesThroughWrappedMessage(t *testing.T) {
+	t.Parallel()
+
 	_, err := inventory.NewQuantity(-1)
 	located := locate("", err)
 

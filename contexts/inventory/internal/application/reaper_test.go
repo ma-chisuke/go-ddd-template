@@ -17,6 +17,8 @@ import (
 )
 
 func TestReaper_ReleasesOnlyExpiredPending(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	store := memory.NewStore()
 	work := memory.NewUnitOfWork(store, memory.NewStores())
@@ -63,6 +65,8 @@ func TestReaper_ReleasesOnlyExpiredPending(t *testing.T) {
 }
 
 func TestReaper_SweepNoopWhenClockBeforeExpiry(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	store := memory.NewStore()
 	work := memory.NewUnitOfWork(store, memory.NewStores())

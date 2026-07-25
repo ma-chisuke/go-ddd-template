@@ -15,18 +15,24 @@ import (
 // Reserve が呼ばれれば gomock がテストを失敗させる（＝「予約は呼ばれない」を検証している）。
 
 func TestGetOrder_InvalidID(t *testing.T) {
+	t.Parallel()
+
 	f := newMemFixture(t)
 	_, err := f.get.Handle(context.Background(), "   ")
 	require.ErrorIs(t, err, order.ErrInvalidOrderID)
 }
 
 func TestCancelOrder_InvalidID(t *testing.T) {
+	t.Parallel()
+
 	f := newMemFixture(t)
 	err := f.cancel.Handle(context.Background(), "   ")
 	require.ErrorIs(t, err, order.ErrInvalidOrderID)
 }
 
 func TestPlaceOrder_InvalidLineValues(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 
 	newInput := func(l application.PlaceOrderLine, customer string) application.PlaceOrderInput {
@@ -46,6 +52,8 @@ func TestPlaceOrder_InvalidLineValues(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			f := newMemFixture(t)
 			_, err := f.place.Handle(ctx, newInput(tc.line, tc.customer))
 			require.ErrorIs(t, err, tc.want)

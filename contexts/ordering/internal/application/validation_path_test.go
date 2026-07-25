@@ -39,6 +39,8 @@ func requireSingle(t *testing.T, err error) application.FieldViolation {
 }
 
 func TestValidationPath_PlaceOrder(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 
 	cases := []struct {
@@ -94,6 +96,8 @@ func TestValidationPath_PlaceOrder(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			// reserver に EXPECT を置かない = 検証で弾かれるので在庫予約は呼ばれない。
 			f := newMemFixture(t)
 			_, err := f.place.Handle(ctx, tc.in)
@@ -109,6 +113,8 @@ func TestValidationPath_PlaceOrder(t *testing.T) {
 // 添字が「たまたま 0」で通ってしまわないよう、壊す行を動かして検証する。
 // 実装が for _, l := range に戻れば（＝位置を落とせば）このテストが落ちる。
 func TestValidationPath_PlaceOrderReportsTheBrokenLine(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	ok := func(sku string) application.PlaceOrderLine {
 		return application.PlaceOrderLine{SKU: sku, Quantity: 1, UnitPriceAmount: 100, Currency: "JPY"}
@@ -116,6 +122,8 @@ func TestValidationPath_PlaceOrderReportsTheBrokenLine(t *testing.T) {
 
 	for _, broken := range []int{0, 1, 2} {
 		t.Run(fmt.Sprintf("境界: 壊れているのが %d 行目でも同じ添字を指す", broken), func(t *testing.T) {
+			t.Parallel()
+
 			lines := []application.PlaceOrderLine{ok("SKU-A"), ok("SKU-B"), ok("SKU-C")}
 			lines[broken].Quantity = 0
 
@@ -132,9 +140,13 @@ func TestValidationPath_PlaceOrderReportsTheBrokenLine(t *testing.T) {
 }
 
 func TestValidationPath_CancelAndGetOrder(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 
 	t.Run("境界: CancelOrder は空白のみの ID を OrderId として指す", func(t *testing.T) {
+		t.Parallel()
+
 		f := newMemFixture(t)
 		err := f.cancel.Handle(ctx, "   ")
 		require.ErrorIs(t, err, order.ErrInvalidOrderID)
@@ -144,6 +156,8 @@ func TestValidationPath_CancelAndGetOrder(t *testing.T) {
 	})
 
 	t.Run("境界: GetOrder は空白のみの ID を OrderId として指す", func(t *testing.T) {
+		t.Parallel()
+
 		f := newMemFixture(t)
 		_, err := f.get.Handle(ctx, "   ")
 		require.ErrorIs(t, err, order.ErrInvalidOrderID)
@@ -156,10 +170,14 @@ func TestValidationPath_CancelAndGetOrder(t *testing.T) {
 // ここが壊れると、リポジトリ障害や版衝突に対してリクエスターへ「あなたの入力が悪い」と
 // 嘘をつくことになる。
 func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	var ve *application.ValidationError
 
 	t.Run("異常系: 存在しない注文の取消は 404 系になる", func(t *testing.T) {
+		t.Parallel()
+
 		f := newMemFixture(t)
 		err := f.cancel.Handle(ctx, "MISSING")
 		require.ErrorIs(t, err, order.ErrOrderNotFound)
@@ -167,6 +185,8 @@ func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
 	})
 
 	t.Run("異常系: 在庫予約の拒否は 409 系になる", func(t *testing.T) {
+		t.Parallel()
+
 		f := newMemFixture(t)
 		f.reserver.EXPECT().
 			Reserve(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -178,6 +198,8 @@ func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
 	})
 
 	t.Run("並行: 版衝突が再試行上限を超えると 409 系になる", func(t *testing.T) {
+		t.Parallel()
+
 		store := memory.NewStore()
 		stores := memory.NewStores()
 		// 再試行上限（既定 3）を超える回数だけ衝突を注入し、UoW を必ず失敗させる。

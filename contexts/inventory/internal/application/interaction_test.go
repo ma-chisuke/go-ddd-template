@@ -82,6 +82,8 @@ func reservedItem(t *testing.T, sku string, available, qty int, ref string, ttl 
 }
 
 func TestReplenish_NewSKU_LoadsThenSavesAndDispatches(t *testing.T) {
+	t.Parallel()
+
 	ctrl := gomock.NewController(t)
 	ctx := context.Background()
 
@@ -122,6 +124,8 @@ func TestReplenish_NewSKU_LoadsThenSavesAndDispatches(t *testing.T) {
 }
 
 func TestReplenish_DoesNotWriteToOutbox(t *testing.T) {
+	t.Parallel()
+
 	ctrl := gomock.NewController(t)
 	ctx := context.Background()
 
@@ -147,6 +151,8 @@ func TestReplenish_DoesNotWriteToOutbox(t *testing.T) {
 }
 
 func TestReserve_LoadsManyThenSaves(t *testing.T) {
+	t.Parallel()
+
 	ctrl := gomock.NewController(t)
 	ctx := context.Background()
 
@@ -187,6 +193,8 @@ func TestReserve_LoadsManyThenSaves(t *testing.T) {
 }
 
 func TestConfirm_LoadsByReservationThenSaves(t *testing.T) {
+	t.Parallel()
+
 	ctrl := gomock.NewController(t)
 	ctx := context.Background()
 
@@ -216,6 +224,8 @@ func TestConfirm_LoadsByReservationThenSaves(t *testing.T) {
 }
 
 func TestConfirm_NoReservation_ReturnsNotFound(t *testing.T) {
+	t.Parallel()
+
 	ctrl := gomock.NewController(t)
 	ctx := context.Background()
 
@@ -236,6 +246,8 @@ func TestConfirm_NoReservation_ReturnsNotFound(t *testing.T) {
 }
 
 func TestRelease_LoadsByReservationThenSaves(t *testing.T) {
+	t.Parallel()
+
 	ctrl := gomock.NewController(t)
 	ctx := context.Background()
 
@@ -272,6 +284,8 @@ func TestRelease_LoadsByReservationThenSaves(t *testing.T) {
 }
 
 func TestQueryStock_ReadsViaStockStore(t *testing.T) {
+	t.Parallel()
+
 	ctrl := gomock.NewController(t)
 	ctx := context.Background()
 
@@ -290,6 +304,8 @@ func TestQueryStock_ReadsViaStockStore(t *testing.T) {
 }
 
 func TestReaper_UsesClockThenLoadsExpiredAndSaves(t *testing.T) {
+	t.Parallel()
+
 	ctrl := gomock.NewController(t)
 	ctx := context.Background()
 
