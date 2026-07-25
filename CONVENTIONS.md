@@ -63,6 +63,29 @@
 - `shared` モジュールにはドメイン非依存の建材（ID 生成、相関 ID、作業単位など）だけを
   置き、ドメインの値オブジェクトは置きません。
 
+## `shared` モジュール（共有インフラ）の規約
+
+`shared` は**ドメインに依存しない技術的建材**だけを収める共有モジュールです。どのコンテキスト
+からでも安全に共有できる「配管」を集約し、コンテキスト間の純インフラ重複を防ぎます。
+
+- **置いてよいもの / いけないもの**: 置いてよいのは Go 標準ライブラリと `shared/` 内の他パッケージ
+  だけに依存する、ドメイン非依存の建材です（ID 生成 `id`、相関 ID `correlation`、作業単位 `uow`、
+  構造化ログ `logging`、背景ワーカー `worker`、アウトボックス機構 `outbox`）。**置いてはいけない
+  もの**: ドメイン値オブジェクト（`SKU` / `Quantity` / `Money` など。コンテキストごとに独立所有
+  する）、DB ドライバ・HTTP フレームワーク・特定コンテキストの型への依存。判断基準は
+  「**ドメイン非依存かつ外部依存ゼロか**」です。
+- **ポートと実装の分離**: 依存を増やしうる実装は、ポートパッケージ本体ではなく**サブパッケージ**
+  へ隔離します。ポート本体（`shared/outbox`・`shared/correlation`・`shared/uow`）は現在の依存を
+  増やさず純粋に保ち、`net/http` や DB ドライバを持ち込みません。
+    - `shared/uow`（純粋な契約 + 再試行）↔ `shared/uow/pgxuow`（pgx 実装）
+    - `shared/outbox`（ポート + Runner）↔ `shared/outbox/memory`（インメモリ backing store
+      `Stores`）/ `shared/outbox/logpub`（no-op Publisher）
+    - `shared/correlation`（ctx キー + traceparent コーデック。純粋な文字列処理）↔
+      `shared/correlation/corrhttp`（`net/http` ミドルウェア）
+- **コンテキストの単独切り出し**: 各コンテキストモジュールは `shared` に `replace`（相対パス）で
+  依存します。コンテキストをワークスペースから単独モジュールとして切り出すときは、**`shared` も
+  併せて持ち出し**、`replace` 先を維持してください（`shared` を残置するとビルドできません）。
+
 ## モジュール境界
 
 - 各コンテキストは 1 つの Go モジュールとして独立します。

@@ -34,9 +34,8 @@ func (p *recordingPublisher) Publish(_ context.Context, m outbox.Message) error 
 func TestOutbox_EnqueueCommitsWithSave(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore()
-	outboxStore := memory.NewOutboxStore()
-	eventsStore := memory.NewEventStore()
-	work := memory.NewUnitOfWork(store, outboxStore, eventsStore)
+	stores := memory.NewStores()
+	work := memory.NewUnitOfWork(store, stores)
 
 	// UoW 内で在庫を保存しつつ、同一トランザクションでメッセージを Enqueue する。
 	err := work.Within(ctx, func(ctx context.Context, r application.Repos) error {
@@ -60,32 +59,32 @@ func TestOutbox_EnqueueCommitsWithSave(t *testing.T) {
 	require.NoError(t, err, "UoW")
 
 	// コミット後、メッセージが未送信として読める。
-	unpub, err := outboxStore.Unpublished(ctx, 10)
+	unpub, err := stores.Outbox().Unpublished(ctx, 10)
 	require.NoError(t, err, "Unpublished")
 	require.Len(t, unpub, 1, "コミット後の未送信メッセージ数")
 	assert.Equal(t, "msg-1", unpub[0].ID)
 
 	// 同一トランザクションで恒久イベントログにも記録されている。
-	events := eventsStore.Messages()
+	events := stores.Events()
 	require.Len(t, events, 1, "コミット後のイベントログ件数")
 	assert.Equal(t, "msg-1", events[0].ID, "イベントログの ID は outbox と同じ")
 	assert.Equal(t, "demo.message", events[0].Type, "イベントログの種別")
 
 	// 中継（Runner）が送出し、送信できた行を配送キューから削除する。
 	pub := &recordingPublisher{}
-	runner := outbox.NewRunner(outboxStore, pub, outboxTestLogger(), outbox.WithBatch(10))
+	runner := outbox.NewRunner(stores.Outbox(), pub, outboxTestLogger(), outbox.WithBatch(10))
 	sent, err := runner.RunOnce(ctx)
 	require.NoError(t, err, "RunOnce")
 	assert.Equal(t, 1, sent, "送出件数")
 	assert.Len(t, pub.sent, 1, "publish 件数")
 
 	// 送信済みの行は配送キューから消える（delete-after-publish）。
-	again, _ := outboxStore.Unpublished(ctx, 10)
+	again, _ := stores.Outbox().Unpublished(ctx, 10)
 	assert.Empty(t, again, "送信済みの行は配送キューに残らない")
-	assert.Empty(t, outboxStore.Messages(), "配送キューは空になる")
+	assert.Empty(t, stores.Queued(), "配送キューは空になる")
 
 	// 一方、恒久イベントログは配送後も残る（追記専用・削除しない）。
-	assert.Len(t, eventsStore.Messages(), 1, "配送後もイベントログは残る")
+	assert.Len(t, stores.Events(), 1, "配送後もイベントログは残る")
 }
 
 // TestOutbox_RollbackDiscardsEnqueue は、UoW がロールバックすると Enqueue も
@@ -94,9 +93,8 @@ func TestOutbox_EnqueueCommitsWithSave(t *testing.T) {
 func TestOutbox_RollbackDiscardsEnqueue(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore()
-	outboxStore := memory.NewOutboxStore()
-	eventsStore := memory.NewEventStore()
-	work := memory.NewUnitOfWork(store, outboxStore, eventsStore)
+	stores := memory.NewStores()
+	work := memory.NewUnitOfWork(store, stores)
 
 	sentinel := errors.New("業務都合で中断")
 	err := work.Within(ctx, func(ctx context.Context, r application.Repos) error {
@@ -107,10 +105,10 @@ func TestOutbox_RollbackDiscardsEnqueue(t *testing.T) {
 	})
 	require.ErrorIs(t, err, sentinel)
 
-	unpub, err := outboxStore.Unpublished(ctx, 10)
+	unpub, err := stores.Outbox().Unpublished(ctx, 10)
 	require.NoError(t, err, "Unpublished")
 	assert.Empty(t, unpub, "ロールバックされたメッセージは残らない")
-	assert.Zero(t, eventsStore.Len(), "ロールバック時はイベントログにも記録されない")
+	assert.Empty(t, stores.Events(), "ロールバック時はイベントログにも記録されない")
 }
 
 // TestEvents_SameTxAsAggregateAndOutbox は、集約の保存・配送キューへの投入・
@@ -119,9 +117,8 @@ func TestOutbox_RollbackDiscardsEnqueue(t *testing.T) {
 func TestEvents_SameTxAsAggregateAndOutbox(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewStore()
-	outboxStore := memory.NewOutboxStore()
-	eventsStore := memory.NewEventStore()
-	work := memory.NewUnitOfWork(store, outboxStore, eventsStore)
+	stores := memory.NewStores()
+	work := memory.NewUnitOfWork(store, stores)
 	read := memory.NewReadStockStore(store)
 	sku := mustSKU(t, "WIDGET-TX")
 
@@ -149,8 +146,8 @@ func TestEvents_SameTxAsAggregateAndOutbox(t *testing.T) {
 
 	_, err = read.Load(ctx, sku)
 	require.ErrorIs(t, err, inventory.ErrStockItemNotFound, "集約は保存されていない")
-	assert.Empty(t, outboxStore.Messages(), "配送キューにも残らない")
-	assert.Zero(t, eventsStore.Len(), "イベントログにも残らない")
+	assert.Empty(t, stores.Queued(), "配送キューにも残らない")
+	assert.Empty(t, stores.Events(), "イベントログにも残らない")
 
 	// 同じ操作を成功させると、3 者すべてが確定する。
 	err = work.Within(ctx, func(ctx context.Context, r application.Repos) error {
@@ -173,7 +170,7 @@ func TestEvents_SameTxAsAggregateAndOutbox(t *testing.T) {
 	item, err := read.Load(ctx, sku)
 	require.NoError(t, err, "集約が保存されている")
 	assert.Equal(t, 5, item.Available().Int(), "確定 available")
-	require.Len(t, outboxStore.Messages(), 1, "配送キューに 1 件")
-	require.Len(t, eventsStore.Messages(), 1, "イベントログに 1 件")
-	assert.Equal(t, "tx-msg-1", eventsStore.Messages()[0].ID, "同じメッセージ ID が記録される")
+	require.Len(t, stores.Queued(), 1, "配送キューに 1 件")
+	require.Len(t, stores.Events(), 1, "イベントログに 1 件")
+	assert.Equal(t, "tx-msg-1", stores.Events()[0].ID, "同じメッセージ ID が記録される")
 }

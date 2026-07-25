@@ -48,8 +48,8 @@
 | --- | --- |
 | 集約・値オブジェクト・不変条件・ドメインイベント・ドメインサービス | `internal/domain/<ctx>/`（在庫は `inventory`、注文は `order`） |
 | ユースケース、ポート（interface）、サブスクライバ、Reaper | `internal/application/` |
-| ポートの実装（DB・インメモリ・ログ）＝出口アダプタ | `internal/adapter/outbound/`（`memory` / `postgres` / `logging`） |
-| 公開 HTTP ハンドラ・エラー変換・ミドルウェア＝入口アダプタ | `internal/adapter/inbound/http/`（パッケージ `httpapi`） |
+| ポートの実装（DB・インメモリ）＝出口アダプタ | `internal/adapter/outbound/`（`memory` / `postgres`）。構造化ログは `shared/logging`、no-op Publisher は `shared/outbox/logpub` |
+| 公開 HTTP ハンドラ・エラー変換＝入口アダプタ（相関 ID ミドルウェアは共有の `shared/correlation/corrhttp`） | `internal/adapter/inbound/http/`（パッケージ `httpapi`） |
 | ogen 生成の HTTP サーバ | `internal/adapter/inbound/openapi/`（在庫の内部 API は `openapiinternal/`） |
 | 依存の結線（合成ルート） | ファサード（`inventory.go` / `ordering.go`）と `cmd/<ctx>/` |
 | Docker 不要の開発ハーネス（両コンテキストを 1 プロセスで結線） | `cmd/dev/`（公開ファサード + `port` + `shared` + `clients` のみ） |
@@ -64,7 +64,7 @@
 | 公開 HTTP 契約 / 在庫の内部 HTTP 契約（= ACL サーフェス） | `contracts/inventory/{openapi,internal.openapi}.yaml`, `contracts/ordering/openapi.yaml` |
 | **クロスコンテキストのメッセージ契約**（コマンド / イベント） | `contracts/events/*.schema.json` |
 | **共有の生成クライアント**（消費側が import・手編集しない） | `clients/inventory/invclient/` |
-| コンテキスト横断の汎用機構 | `shared/`（`uow` / `event` / `outbox` / `id` / `correlation` / `testutil`） |
+| コンテキスト横断の汎用機構（純インフラ） | `shared/`（`uow`〔+`pgxuow`〕 / `event` / `outbox`〔+`memory`,+`logpub`〕 / `id` / `correlation`〔+`corrhttp`〕 / `logging` / `worker` / `testutil`） |
 
 ## よくある作業のレシピ
 
@@ -145,12 +145,30 @@
   この順序（送出成功後にのみ削除）は at-least-once の要なので**変えないこと**。
 - **`events` は保持ジョブを持たず増え続ける**。採用時はアーカイブ／パーティション／
   保持ジョブを足す（テンプレートは単純さを優先して意図的に持たない）。
-- インメモリ構成では配送キューと恒久ログが別ストアになる:
-  `memory.NewUnitOfWork(store, outboxStore, eventsStore)` の 3 引数で結線し、
-  コミット時に両方へ確定させる。events を検証したい構成ルート／テストは
-  `EventStore` を直接保持する（`application.Repos` に読み取り面は増やさない）。
+- インメモリ構成では配送キューと恒久ログを `shared/outbox/memory.Stores` が 1 つに束ねる:
+  `memory.NewUnitOfWork(store, memory.NewStores())` の 2 引数で結線し、コミット時に
+  `Stores.CommitStaged` が両方へ**同時に**確定させる（片方だけ書く公開 API は無い＝
+  「キューに積んだがログに無い」状態が型として起こり得ない）。events を検証したい構成ルート／
+  テストは `stores.Events()`、配送キューは `stores.Queued()` を読む（`application.Repos` に
+  読み取り面は増やさない）。送信中継へは配送キュービュー `stores.Outbox()` を渡す。
 - 時刻に依存する処理（TTL / Reaper）は、実時間を直接呼ばず `application.Clock` を注入して
   テスト可能にする（`shared/testutil` の擬似時計を使う）。
+
+## `shared/`（共有インフラ）を扱うときの要点
+
+- **置いてよいのはドメイン非依存かつ外部依存ゼロの建材だけ**（`id` / `correlation` / `uow` /
+  `outbox` / `logging` / `worker`）。ドメイン値オブジェクト（`SKU` / `Quantity` / `Money`）や
+  DB ドライバ・HTTP フレームワーク・特定コンテキストの型は `shared/` に置かない。迷ったら
+  「どのコンテキストからでも安全に共有できる純インフラか」で判断する。
+- **ポート本体は純粋に、実装はサブパッケージへ隔離**する。`shared/outbox`・`shared/correlation`・
+  `shared/uow` の本体は依存を増やさず、`net/http` や DB ドライバを持ち込まない。実装は
+  `shared/uow/pgxuow`（pgx）、`shared/outbox/memory`（インメモリ `Stores`）/ `shared/outbox/logpub`
+  （no-op Publisher）、`shared/correlation/corrhttp`（`net/http` ミドルウェア）へ分ける。
+- **コンテキストを単独モジュールとして切り出すときは `shared/` も併せて持ち出す**。各コンテキストは
+  `shared` に `replace`（相対パス）で依存しており、`shared` を残置するとビルドできない。
+- **相関 ID ミドルウェアは現存する 3 つのサーバ（注文の公開・在庫の公開・在庫の内部）が同じ
+  `shared/correlation/corrhttp.Middleware` を使う**。新しい HTTP サーバを足すときもこれを結線し、
+  取り込み優先順位（traceparent → X-Correlation-ID → 新規採番）を一箇所に保つ。
 
 ## コマンド
 

@@ -31,7 +31,7 @@ func TestOrderCancelledPayloadContract(t *testing.T) {
 	id := placeOne(t, f)
 
 	require.NoError(t, f.cancel.Handle(ctx, id))
-	cancels := filterByType(f.obx.Messages(), application.MessageTypeOrderCancelled)
+	cancels := filterByType(f.stores.Queued(), application.MessageTypeOrderCancelled)
 	require.Len(t, cancels, 1)
 
 	// 在庫側と同一の decode 構造体（reservation_ref のみ）で読める。

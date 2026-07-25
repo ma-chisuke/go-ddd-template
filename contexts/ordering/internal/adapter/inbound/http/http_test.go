@@ -19,6 +19,7 @@ import (
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
 	"github.com/example/go-ddd-template/contexts/ordering/port"
+	"github.com/example/go-ddd-template/shared/correlation/corrhttp"
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
@@ -38,8 +39,7 @@ func newServer(t *testing.T, reserver application.StockReserver) *httptest.Serve
 	t.Helper()
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	store := memory.NewStore()
-	obx := memory.NewOutboxStore()
-	work := memory.NewUnitOfWork(store, obx, memory.NewEventStore())
+	work := memory.NewUnitOfWork(store, memory.NewStores())
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 	dispatcher := application.NewInProcessDispatcher(log)
 
@@ -50,7 +50,7 @@ func newServer(t *testing.T, reserver application.StockReserver) *httptest.Serve
 	h := httpapi.NewHandler(place, get, cancel, log)
 	server, err := openapi.NewServer(h)
 	require.NoError(t, err, "サーバ構築に失敗")
-	ts := httptest.NewServer(httpapi.CorrelationMiddleware(server))
+	ts := httptest.NewServer(corrhttp.Middleware(server))
 	t.Cleanup(ts.Close)
 	return ts
 }
