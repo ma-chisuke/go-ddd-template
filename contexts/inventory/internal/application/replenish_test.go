@@ -12,6 +12,7 @@ import (
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/shared/event"
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
@@ -38,7 +39,7 @@ func newFixture(t *testing.T) fixture {
 
 	captured := &[]inventory.DomainEvent{}
 	// 実際の InProcessDispatcher を使い、購読ハンドラで配信イベントを記録する。
-	dispatcher := application.NewInProcessDispatcher(log, func(_ context.Context, e inventory.DomainEvent) {
+	dispatcher := event.NewTyped[inventory.DomainEvent](log, func(_ context.Context, e inventory.DomainEvent) {
 		*captured = append(*captured, e)
 	})
 
