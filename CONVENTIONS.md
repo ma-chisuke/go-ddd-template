@@ -277,7 +277,7 @@ ACL はコード別分岐を必要としないので、明示コードは利益�
 | `service-unavailable` | 503 | 依存サービス不達（注文コンテキストのみ） |
 | `internal-error` | 500 | 予期しないエラー |
 
-台帳の実体は `shared/problem/types.go` です。`title` は種別と **1 対 1** で対応させ、
+台帳の実体は `shared/problem/type_uri.go` です。`title` は種別と **1 対 1** で対応させ、
 `title` から `type` を逆引きできる状態を保ちます（404 が 2 つ、409 が 2 つあるので、
 HTTP の理由句をそのまま使うと逆引きできなくなります）。
 
@@ -288,7 +288,7 @@ HTTP の理由句をそのまま使うと逆引きできなくなります）。
 
 ### `detail` に何を書いてよいか
 
-`detail` は**経路ごとの定型文**です（`shared/problem/types.go` の `Detail*` 定数）。
+`detail` は**経路ごとの定型文**です（`shared/problem/type_uri.go` の `Detail*` 定数）。
 次のものを応答本文に含めてはいけません。
 
 - `err.Error()` の結果をそのまま載せること
@@ -374,7 +374,7 @@ CI が落ちます（規則 R-19）。
 対して `type` は `code` と違い OpenAPI の `enum` にしていません（素の `format: uri` のまま）。
 ogen v1.23.0 は `enum` + `format: uri` の組み合わせで壊れた Go（`url.URL` を基底にした型に
 文字列定数を代入し、JSON 生成も失敗）を出すためです。したがって `type` の機械可読な台帳は
-OpenAPI の `enum` ではなく `shared/problem/types.go`（サフィックス台帳）であり、
+OpenAPI の `enum` ではなく `shared/problem/type_uri.go`（サフィックス台帳）であり、
 `problemTypeBase` を書き換えても契約側の更新は不要です。
 
 ### 検証規則は `Rule` に 1 つだけ書く

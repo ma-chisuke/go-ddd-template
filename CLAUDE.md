@@ -35,7 +35,7 @@
   `contracts/inventory/internal.openapi.yaml` は `default` のみに保つ（生成クライアント経由の
   ACL がステータス区分だけを見る＝規則 R-16。明示コードは union の値を返し ACL 翻訳を壊す）。
   `type` は `code` と違い OpenAPI の `enum` にしない（`format: uri` のまま。台帳は
-  `shared/problem/types.go`）。詳細は
+  `shared/problem/type_uri.go`）。詳細は
   `CONVENTIONS.md` の「HTTP エラー応答（RFC 9457 / Problem Details）」と `AGENTS.md` のレシピ。
 - **秘密情報をハードコードしない**。DB 資格情報・トークンはコード/イメージに焼き込まず、
   実行時に環境変数から注入する（compose の認証情報はデモ専用）。
