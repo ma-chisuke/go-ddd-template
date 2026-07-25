@@ -24,6 +24,7 @@ import (
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/aclhttp"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/eventhttp"
 	sharedlog "github.com/example/go-ddd-template/shared/logging"
+	"github.com/example/go-ddd-template/shared/serve"
 )
 
 // defaultInventoryTimeout は在庫サービスへの ACL / メッセージ送出の全体タイムアウト既定値。
@@ -98,33 +99,8 @@ func run(log *slog.Logger) error {
 		_, _ = w.Write([]byte("ok"))
 	})
 	publicMux.Handle("/", mod.HTTPHandler())
-	publicSrv := &http.Server{Addr: addr, Handler: publicMux, ReadHeaderTimeout: 10 * time.Second}
 
-	// サーバを別 goroutine で起動する。
-	serverErr := make(chan error, 1)
-	go func() {
-		log.Info("公開 HTTP サーバを起動します", "addr", addr)
-		if err := publicSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			serverErr <- err
-			return
-		}
-		serverErr <- nil
-	}()
-
-	// 停止シグナルかサーバエラーのどちらかを待つ。
-	select {
-	case <-ctx.Done():
-		log.Info("停止シグナルを受信しました。グレースフルシャットダウンを開始します")
-	case err := <-serverErr:
-		return err
-	}
-
-	// グレースフルシャットダウン。
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer shutdownCancel()
-	if err := publicSrv.Shutdown(shutdownCtx); err != nil {
-		return err
-	}
-	log.Info("サービスを正常に停止しました")
-	return nil
+	// プロセスのライフサイクル（起動・停止待ち・グレースフルシャットダウン）は共有ランナーに
+	// 委ねる。ここに残っているのは、このサービス固有の配線だけである。
+	return serve.Run(ctx, log, serve.Server{Name: "公開", Addr: addr, Handler: publicMux})
 }
