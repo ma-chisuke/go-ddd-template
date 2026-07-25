@@ -16,11 +16,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	inventory "github.com/example/go-ddd-template/contexts/inventory"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/logging"
+	sharedlog "github.com/example/go-ddd-template/shared/logging"
 )
 
 func main() {
-	log := logging.New(os.Stdout, slog.LevelInfo)
+	log := sharedlog.New(os.Stdout, slog.LevelInfo)
 	if err := run(log); err != nil {
 		log.Error("サービスが異常終了しました", "error", err)
 		os.Exit(1)

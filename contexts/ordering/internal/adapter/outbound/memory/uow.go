@@ -22,17 +22,17 @@ import (
 // 本番の耐障害な配送は outbox.Runner（ポーリング中継）が担う。
 type UnitOfWork struct {
 	store  *Store
-	outbox *OutboxStore
-	events *EventStore
+	stores *Stores
 	sink   outbox.Publisher
 	log    *slog.Logger
 }
 
 // NewUnitOfWork はインメモリの作業単位を生成する。
-// eventsStore は発行メッセージの恒久ログで、outboxStore と同じコミットで追記される
+// stores は配送キュー（送信後に削除される一時的なもの）と恒久イベントログ（追記のみ）を
+// 束ねた backing store で、コミット時に CommitStaged で両方へ同時に確定される
 // （PostgreSQL 構成で outbox と events を同一トランザクションに書くのと同じ意味論）。
-func NewUnitOfWork(store *Store, outboxStore *OutboxStore, eventsStore *EventStore) *UnitOfWork {
-	return &UnitOfWork{store: store, outbox: outboxStore, events: eventsStore}
+func NewUnitOfWork(store *Store, stores *Stores) *UnitOfWork {
+	return &UnitOfWork{store: store, stores: stores}
 }
 
 // WithSyncDelivery は開発用の同期配送シンクを設定する（本番では使わない）。設定すると、
@@ -53,7 +53,7 @@ var _ application.UnitOfWork = (*UnitOfWork)(nil)
 // エラーを返せば staging を破棄（ロールバック）する。コミット成功後、同期配送シンクが
 // 設定されていれば、そのトランザクションで積まれたメッセージをその場で送出する。
 func (u *UnitOfWork) Within(ctx context.Context, fn func(ctx context.Context, r application.Repos) error) error {
-	tx := &txState{store: u.store, outbox: u.outbox, events: u.events}
+	tx := &txState{store: u.store, stores: u.stores}
 	r := repos{
 		orders: &txStore{tx: tx},
 		outbox: &txOutbox{tx: tx},
@@ -86,7 +86,7 @@ func (u *UnitOfWork) deliverSync(ctx context.Context, msgs []outbox.Message) {
 			}
 			continue
 		}
-		_ = u.outbox.MarkPublished(ctx, m.ID)
+		_ = u.stores.Outbox().MarkPublished(ctx, m.ID)
 	}
 }
 
@@ -102,17 +102,16 @@ func (r repos) Outbox() application.MessagePublisher { return r.outbox }
 // txState はトランザクション中の保存要求（staging）を蓄える。
 type txState struct {
 	store      *Store
-	outbox     *OutboxStore
-	events     *EventStore
+	stores     *Stores
 	staged     []record
 	stagedMsgs []outbox.Message
 }
 
 // commit は staging された注文行とメッセージを確定ストアへ適用する。
 //
-// メッセージは配送キュー（outbox）と恒久イベントログ（events）の両方へ同じコミットで
+// メッセージは Stores.CommitStaged 一発で配送キューと恒久イベントログの両方へ同じコミットで
 // 積む。PostgreSQL 構成で Enqueue が同一トランザクションに両表を書くのと同じ意味論で、
-// 片方だけ残ることはない。
+// 片方だけ残る状態は型に存在しない。
 func (tx *txState) commit() error {
 	if len(tx.staged) > 0 {
 		tx.store.mu.Lock()
@@ -121,8 +120,7 @@ func (tx *txState) commit() error {
 		}
 		tx.store.mu.Unlock()
 	}
-	tx.outbox.appendCommitted(tx.stagedMsgs)
-	tx.events.appendCommitted(tx.stagedMsgs)
+	tx.stores.CommitStaged(tx.stagedMsgs)
 	return nil
 }
 

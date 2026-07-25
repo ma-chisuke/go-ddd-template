@@ -17,6 +17,7 @@ import (
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/openapiinternal"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
+	"github.com/example/go-ddd-template/shared/correlation/corrhttp"
 	"github.com/example/go-ddd-template/shared/outbox"
 	"github.com/example/go-ddd-template/shared/uow"
 )
@@ -25,7 +26,7 @@ func newInternalServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewOutboxStore(), memory.NewEventStore())
+	work := memory.NewUnitOfWork(store, memory.NewStores())
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 	dispatcher := application.NewInProcessDispatcher(log)
 
@@ -45,7 +46,9 @@ func newInternalServer(t *testing.T) *httptest.Server {
 	h := internalhttp.NewHandler(reserver, confirmer, releaser, router, log)
 	server, err := openapiinternal.NewServer(h)
 	require.NoError(t, err, "内部サーバの構築")
-	ts := httptest.NewServer(server)
+	// 本番結線（inventory.go）と同じく、内部サーバも共有ミドルウェア corrhttp で相関 ID を
+	// 確立する。これにより注文サービスから伝播した traceparent が最終ホップまで途切れない。
+	ts := httptest.NewServer(corrhttp.Middleware(server))
 	t.Cleanup(ts.Close)
 	return ts
 }
@@ -116,6 +119,53 @@ func TestInternalHTTP_IngestUnknownTypeIsUnprocessable(t *testing.T) {
 	resp := post(t, ts.Client(), ts.URL+"/events", body)
 	require.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
 	assertProblemJSON(t, resp, http.StatusUnprocessableEntity)
+}
+
+// --- 相関 ID の回帰テスト（FR-5 / AC-3。内部 HTTP が共有ミドルウェア corrhttp を使う。
+//     注文 -> 在庫の内部 HTTP という実運用の相関経路はこちらが本命） ---
+
+// TestInternalHTTP_CorrelationInheritsTraceparent は、内部 HTTP が受信 traceparent の
+// trace-id を相関 ID として引き継ぎ、レスポンスヘッダにも反映することを確認する（経路 a/d）。
+// これが FR-5 の是正点（従来は内部サーバが traceparent を読まず相関が切れていた）。
+func TestInternalHTTP_CorrelationInheritsTraceparent(t *testing.T) {
+	const traceID = "0af7651916cd43dd8448eb211c80319c"
+	ts := newInternalServer(t)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, ts.URL+"/reservations/NEVER/confirm", nil)
+	require.NoError(t, err, "リクエスト生成")
+	req.Header.Set("traceparent", "00-"+traceID+"-b7ad6b7169203331-01")
+	resp, err := ts.Client().Do(req)
+	require.NoError(t, err, "送信")
+	resp.Body.Close()
+	assert.Equal(t, traceID, resp.Header.Get("X-Correlation-ID"), "内部 HTTP も traceparent の trace-id を引き継ぐ")
+	assert.Contains(t, resp.Header.Get("traceparent"), traceID, "レスポンスに traceparent が載る")
+}
+
+// TestInternalHTTP_CorrelationFromXCorrelationID は、traceparent が無く X-Correlation-ID
+// のみの場合にそれを引き継ぐことを確認する（経路 b）。
+func TestInternalHTTP_CorrelationFromXCorrelationID(t *testing.T) {
+	ts := newInternalServer(t)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, ts.URL+"/reservations/NEVER/confirm", nil)
+	require.NoError(t, err, "リクエスト生成")
+	req.Header.Set("X-Correlation-ID", "corr-internal")
+	resp, err := ts.Client().Do(req)
+	require.NoError(t, err, "送信")
+	resp.Body.Close()
+	assert.Equal(t, "corr-internal", resp.Header.Get("X-Correlation-ID"), "X-Correlation-ID を引き継ぐ")
+	assert.Empty(t, resp.Header.Get("traceparent"), "32 桁 16 進でなければ traceparent は付かない")
+}
+
+// TestInternalHTTP_CorrelationGeneratedWhenAbsent は、どちらのヘッダも無い場合に新規採番し、
+// レスポンスに X-Correlation-ID と（32 桁 16 進なので）traceparent を載せることを確認する（経路 c/d）。
+func TestInternalHTTP_CorrelationGeneratedWhenAbsent(t *testing.T) {
+	ts := newInternalServer(t)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, ts.URL+"/reservations/NEVER/confirm", nil)
+	require.NoError(t, err, "リクエスト生成")
+	resp, err := ts.Client().Do(req)
+	require.NoError(t, err, "送信")
+	resp.Body.Close()
+	cid := resp.Header.Get("X-Correlation-ID")
+	require.NotEmpty(t, cid, "新規採番された相関 ID がレスポンスに載る")
+	assert.Contains(t, resp.Header.Get("traceparent"), cid, "採番 ID は 32 桁 16 進なので traceparent も載る")
 }
 
 // assertProblemJSON は RFC 9457 の problem+json 応答を検証する。

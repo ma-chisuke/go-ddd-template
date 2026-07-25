@@ -29,11 +29,10 @@ func TestTraceIDFlowsPlaceToReserve(t *testing.T) {
 
 	// 注文作成ユースケースをインメモリで組み立て、ACL だけ実 HTTP アダプタにする。
 	store := memory.NewStore()
-	obx := memory.NewOutboxStore()
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	place := application.NewPlaceOrder(
 		uow.NewExecutor(uow.WithBaseBackoff(0)),
-		memory.NewUnitOfWork(store, obx, memory.NewEventStore()),
+		memory.NewUnitOfWork(store, memory.NewStores()),
 		reserver,
 		application.NewInProcessDispatcher(log),
 		log,

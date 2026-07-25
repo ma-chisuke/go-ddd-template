@@ -29,13 +29,16 @@ import (
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/internalhttp"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/openapi"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/openapiinternal"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/logging"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/postgres"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
 	"github.com/example/go-ddd-template/contexts/inventory/port"
+	"github.com/example/go-ddd-template/shared/correlation/corrhttp"
+	sharedlog "github.com/example/go-ddd-template/shared/logging"
 	"github.com/example/go-ddd-template/shared/outbox"
+	"github.com/example/go-ddd-template/shared/outbox/logpub"
 	"github.com/example/go-ddd-template/shared/uow"
+	"github.com/example/go-ddd-template/shared/worker"
 )
 
 // 既定の設定値（Deps で 0 が指定されたときに使う）。
@@ -121,13 +124,13 @@ func NewInMemory(deps InMemoryDeps) (*Module, error) {
 
 	store := memory.NewStore()
 	// 配送キュー（送信後に削除される一時的なもの）と恒久イベントログ（追記のみ）を
-	// 分けて生成し、同一コミットで両方へ確定させる。
-	outboxStore := memory.NewOutboxStore()
-	eventsStore := memory.NewEventStore()
-	work := memory.NewUnitOfWork(store, outboxStore, eventsStore)
+	// 束ねた Stores を生成し、同一コミットで両方へ確定させる。送信中継へは配送キュー
+	// ビュー（stores.Outbox()）を渡す。
+	stores := memory.NewStores()
+	work := memory.NewUnitOfWork(store, stores)
 	readStock := memory.NewReadStockStore(store)
 
-	return assembleModule(log, work, readStock, outboxStore, deps.Publisher,
+	return assembleModule(log, work, readStock, stores.Outbox(), deps.Publisher,
 		deps.ReservationTTL, deps.ReaperInterval, defaultRelayInterval)
 }
 
@@ -175,7 +178,7 @@ func assembleModule(
 
 	// アウトボックス送信中継。Publisher が未指定なら開発用 no-op を使う。
 	if publisher == nil {
-		publisher = logging.NewPublisher(log)
+		publisher = logpub.New(log)
 	}
 	runner := outbox.NewRunner(
 		msgStore,
@@ -186,8 +189,8 @@ func assembleModule(
 	)
 
 	return &Module{
-		public:         httpapi.CorrelationMiddleware(publicServer),
-		internal:       httpapi.CorrelationMiddleware(internalServer),
+		public:         corrhttp.Middleware(publicServer),
+		internal:       corrhttp.Middleware(internalServer),
 		reaper:         reaper,
 		runner:         runner,
 		reserver:       reserver,
@@ -251,8 +254,8 @@ func (m *Module) Sweep(ctx context.Context) error {
 // 起動する。ctx がキャンセルされると両ワーカーは停止する。各ループは recover-and-log で
 // 隔離し、想定外の panic でサービス全体を巻き込まないようにする。
 func (m *Module) StartWorkers(ctx context.Context) {
-	go m.safely(ctx, "reaper", m.runReaperLoop)
-	go m.safely(ctx, "outbox-relay", func(ctx context.Context) { _ = m.runner.Run(ctx) })
+	go worker.Safely(ctx, m.log, "reaper", m.runReaperLoop)
+	go worker.Safely(ctx, m.log, "outbox-relay", func(ctx context.Context) { _ = m.runner.Run(ctx) })
 }
 
 // runReaperLoop は一定間隔で Sweep を呼ぶ。エラーはログに残して継続する。
@@ -271,16 +274,6 @@ func (m *Module) runReaperLoop(ctx context.Context) {
 	}
 }
 
-// safely は fn を recover-and-log で包んで実行する（panic でサービスを巻き込まない）。
-func (m *Module) safely(ctx context.Context, name string, fn func(context.Context)) {
-	defer func() {
-		if r := recover(); r != nil {
-			m.log.ErrorContext(ctx, "背景ワーカーが panic から回復しました", "worker", name, "panic", r)
-		}
-	}()
-	fn(ctx)
-}
-
 func orDurationDefault(v, def time.Duration) time.Duration {
 	if v <= 0 {
 		return def
@@ -290,7 +283,7 @@ func orDurationDefault(v, def time.Duration) time.Duration {
 
 func orLoggerDefault(log *slog.Logger) *slog.Logger {
 	if log == nil {
-		return logging.New(os.Stdout, slog.LevelInfo)
+		return sharedlog.New(os.Stdout, slog.LevelInfo)
 	}
 	return log
 }
