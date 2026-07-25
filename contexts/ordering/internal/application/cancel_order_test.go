@@ -40,12 +40,12 @@ func TestCancelOrder_EnqueuesOrderCancelledSameTx(t *testing.T) {
 	assert.Equal(t, 2, view.Version)
 
 	// 保存と同一 tx で OrderCancelled が outbox に積まれている（両方存在＝原子的コミット）。
-	cancels := filterByType(f.obx.Messages(), application.MessageTypeOrderCancelled)
+	cancels := filterByType(f.stores.Queued(), application.MessageTypeOrderCancelled)
 	require.Len(t, cancels, 1)
 	assert.Equal(t, id, decodeReservationRef(t, cancels[0].Payload))
 
 	// 恒久イベントログにも同一 tx で記録されている。
-	logged := filterByType(f.evt.Messages(), application.MessageTypeOrderCancelled)
+	logged := filterByType(f.stores.Events(), application.MessageTypeOrderCancelled)
 	require.Len(t, logged, 1, "イベントログにも記録される")
 	assert.Equal(t, cancels[0].ID, logged[0].ID, "イベントログの ID は outbox と同じ")
 }

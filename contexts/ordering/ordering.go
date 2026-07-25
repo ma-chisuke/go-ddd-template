@@ -29,12 +29,15 @@ import (
 
 	httpapi "github.com/example/go-ddd-template/contexts/ordering/internal/adapter/inbound/http"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/inbound/openapi"
-	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/logging"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/postgres"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
+	"github.com/example/go-ddd-template/shared/correlation/corrhttp"
+	sharedlog "github.com/example/go-ddd-template/shared/logging"
 	"github.com/example/go-ddd-template/shared/outbox"
+	"github.com/example/go-ddd-template/shared/outbox/logpub"
 	"github.com/example/go-ddd-template/shared/uow"
+	"github.com/example/go-ddd-template/shared/worker"
 )
 
 // 既定の設定値（Deps で 0 が指定されたときに使う）。
@@ -100,7 +103,7 @@ func New(deps Deps) (*Module, error) {
 	// アウトボックス送信中継。Publisher が未指定なら開発用 no-op を使う。
 	publisher := deps.Publisher
 	if publisher == nil {
-		publisher = logging.NewPublisher(log)
+		publisher = logpub.New(log)
 	}
 	runner := outbox.NewRunner(
 		postgres.NewOutboxStore(deps.Pool),
@@ -125,11 +128,10 @@ func NewInMemory(deps InMemoryDeps) (*Module, error) {
 
 	store := memory.NewStore()
 	// 配送キュー（送信後に削除される一時的なもの）と恒久イベントログ（追記のみ）を
-	// 分けて生成し、同一コミットで両方へ確定させる。
-	outboxStore := memory.NewOutboxStore()
-	eventsStore := memory.NewEventStore()
+	// 束ねた Stores を生成し、同一コミットで両方へ確定させる。
+	stores := memory.NewStores()
 	// コミット時にその場でピアへ配送する同期シンクを結線する（store/poll なし・決定的）。
-	work := memory.NewUnitOfWork(store, outboxStore, eventsStore).WithSyncDelivery(deps.Publisher, log)
+	work := memory.NewUnitOfWork(store, stores).WithSyncDelivery(deps.Publisher, log)
 	readStore := memory.NewReadOrderStore(store)
 
 	// 同期配送が送信を担うため、背景の送信中継（Runner）は起動しない（runner = nil）。
@@ -166,7 +168,7 @@ func build(
 	}
 
 	return &Module{
-		public: httpapi.CorrelationMiddleware(server),
+		public: corrhttp.Middleware(server),
 		runner: runner,
 		log:    log,
 	}, nil
@@ -187,17 +189,7 @@ func (m *Module) StartWorkers(ctx context.Context) {
 	if m.runner == nil {
 		return
 	}
-	go m.safely(ctx, "outbox-relay", func(ctx context.Context) { _ = m.runner.Run(ctx) })
-}
-
-// safely は fn を recover-and-log で包んで実行する（panic でサービスを巻き込まない）。
-func (m *Module) safely(ctx context.Context, name string, fn func(context.Context)) {
-	defer func() {
-		if r := recover(); r != nil {
-			m.log.ErrorContext(ctx, "背景ワーカーが panic から回復しました", "worker", name, "panic", r)
-		}
-	}()
-	fn(ctx)
+	go worker.Safely(ctx, m.log, "outbox-relay", func(ctx context.Context) { _ = m.runner.Run(ctx) })
 }
 
 func orDurationDefault(v, def time.Duration) time.Duration {
@@ -209,7 +201,7 @@ func orDurationDefault(v, def time.Duration) time.Duration {
 
 func orLoggerDefault(log *slog.Logger) *slog.Logger {
 	if log == nil {
-		return logging.New(os.Stdout, slog.LevelInfo)
+		return sharedlog.New(os.Stdout, slog.LevelInfo)
 	}
 	return log
 }

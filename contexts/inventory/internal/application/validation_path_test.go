@@ -32,7 +32,7 @@ func requireSingle(t *testing.T, err error) application.FieldViolation {
 func newReserveOnlyFixture(t *testing.T) reserveFixture {
 	t.Helper()
 	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewOutboxStore(), memory.NewEventStore())
+	work := memory.NewUnitOfWork(store, memory.NewStores())
 	return newReserveFixture(t, work, store)
 }
 
