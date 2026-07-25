@@ -34,7 +34,13 @@
    ドメイン値オブジェクトは渡しません。相手の番兵エラーも自コンテキストの番兵へ翻訳します。
    開発ハーネス `cmd/dev` も同様に、公開ファサード + 公開 `port` + `shared` + `clients` だけを
    使い、各コンテキストの `internal/` には到達しません（Go の `internal/` 規則 + depguard）。
-7. **秘密情報をハードコードしない。** DB 接続文字列・パスワード・トークンをコードや
+7. **エラー応答から内部実装を漏らさない。** 応答本文に `err.Error()` をそのまま載せず、
+   ogen / Go 由来の文言（`operation ...`、`decode request`、`unexpected byte`）・Go の型名・
+   スタック・**問題となった受信値**（SKU・数量・在庫数など）を含めません。`detail` と
+   `invalid-params[].reason` は本プロジェクトが定義した定型文だけを使います。排除した情報は
+   ログに残し、相関 ID で追跡できるようにします。詳細は `CONVENTIONS.md` の
+   「HTTP エラー応答（RFC 9457 / Problem Details）」。
+8. **秘密情報をハードコードしない。** DB 接続文字列・パスワード・トークンをコードや
    イメージに焼き込みません。実行時に環境変数 / シークレットマネージャから注入します
    （`docker-compose.yml` の認証情報はすべて**デモ専用**であることを明記済み）。入力は
    境界（HTTP ハンドラ・契約）で検証します。
@@ -49,7 +55,9 @@
 | 集約・値オブジェクト・不変条件・ドメインイベント・ドメインサービス | `internal/domain/<ctx>/`（在庫は `inventory`、注文は `order`） |
 | ユースケース、ポート（interface）、サブスクライバ、Reaper | `internal/application/` |
 | ポートの実装（DB・インメモリ・ログ）＝出口アダプタ | `internal/adapter/outbound/`（`memory` / `postgres` / `logging`） |
-| 公開 HTTP ハンドラ・エラー変換・ミドルウェア＝入口アダプタ | `internal/adapter/inbound/http/`（パッケージ `httpapi`） |
+| 公開 HTTP ハンドラ・ミドルウェア＝入口アダプタ | `internal/adapter/inbound/http/`（パッケージ `httpapi`） |
+| ハンドラ戻り値のエラー → HTTP（E4） | `internal/adapter/inbound/http/errmap.go`（`NewError` / `classify`） |
+| デコード失敗・未定義パス・メソッド不許可（E1〜E3）と `type` URI・`code` → `reason` 表 | `internal/adapter/inbound/http/problem.go` |
 | ogen 生成の HTTP サーバ | `internal/adapter/inbound/openapi/`（在庫の内部 API は `openapiinternal/`） |
 | 依存の結線（合成ルート） | ファサード（`inventory.go` / `ordering.go`）と `cmd/<ctx>/` |
 | Docker 不要の開発ハーネス（両コンテキストを 1 プロセスで結線） | `cmd/dev/`（公開ファサード + `port` + `shared` + `clients` のみ） |
@@ -64,7 +72,7 @@
 | 公開 HTTP 契約 / 在庫の内部 HTTP 契約（= ACL サーフェス） | `contracts/inventory/{openapi,internal.openapi}.yaml`, `contracts/ordering/openapi.yaml` |
 | **クロスコンテキストのメッセージ契約**（コマンド / イベント） | `contracts/events/*.schema.json` |
 | **共有の生成クライアント**（消費側が import・手編集しない） | `clients/inventory/invclient/` |
-| コンテキスト横断の汎用機構 | `shared/`（`uow` / `event` / `outbox` / `id` / `correlation` / `testutil`） |
+| コンテキスト横断の汎用機構 | `shared/`（`uow` / `event` / `outbox` / `id` / `correlation` / `problem` / `testutil`） |
 
 ## よくある作業のレシピ
 
@@ -88,6 +96,62 @@
 3. `internal/adapter/inbound/http/handler.go` の薄いハンドラを、生成された型に合わせて
    更新する。エラーの HTTP 変換は `internal/adapter/inbound/http/errmap.go` の
    `NewError` を更新する。
+4. **新しいサーバを組み立てるなら `NewServer(h, h.ServerOptions()...)` と書く。**
+   オプションを渡し忘れると ogen の既定エラーハンドラが使われ、内部文字列
+   （`{"error_message": "operation ...: decode request: ..."}`）が外部へ漏れる。
+   本番の合成ルートもテストも同じヘルパー経由で組み立てる。
+
+### 新しい値オブジェクト・検証規則を追加する（エラー応答の規約）
+
+ドメインの検証規則を足すコストは **2 箇所の編集**である。規約の全体像は `CONVENTIONS.md` の
+「HTTP エラー応答（RFC 9457 / Problem Details）」にある。
+
+1. **ドメイン層** `internal/domain/<ctx>/errors.go` の `Rule` 一覧に 1 行足す。
+
+   ```go
+   VQuantity = Rule{Field: "quantity", Code: "invalid_quantity", Err: ErrInvalidQuantity}
+   ```
+
+   `Rule` はフィールド名・`code`・番兵を 1 箇所に束ねた検証規則である。**番兵の定義は
+   変えない**（`errors.Is` の判定単位であり既存の公開 API）。新しい番兵が要るなら、
+   上の `var` ブロックにも 1 行足してから `Rule` から指す。
+
+2. **インターフェース層** `internal/adapter/inbound/http/problem.go` の `domainReasons` に
+   「規則 → 定型文」を 1 行足す。
+
+   ```go
+   order.VQuantity.Code: "1 以上の値を指定してください",
+   ```
+
+   受信値も閾値も書かない（FR-2.3 / FR-2.4）。キーを `Rule` から引いているので、
+   `code` の綴りがドメイン側とずれることは構造的に起こらない。
+
+そして呼び出し側は 1 行で書く。
+
+```go
+if n < 1 {
+    return Quantity{}, VQuantity.Violated("注文行の数量は 1 以上でなければなりません（指定値: %d）", n)
+}
+```
+
+番兵の文言は自動で後ろに連結されるので、`format` には状況の説明だけを書く。集約や
+ドメインサービスが**自分でコレクションを走査していて**、何番目で失敗したかを知っている
+場合は `VQuantity.ViolatedAt(i, ...)` を使う（位置はアプリケーション層が `Lines[i]` という
+パスへ組み立てる）。
+
+アプリケーション層とインターフェース層の残り 2 つの表（`dtoPaths` / `jsonNames`）は
+**上書き表**であり、機械的な変換（大文字化 / 小文字化）で正しくならないときだけ
+1 行足す。通常は触らなくてよい。
+
+呼び出し側では `locate(at, err)` を必ず通す。**検証以外のエラーを検証エラーに化けさせない。**
+`locate` はドメインの違反でなければ透過するので通常は安全だが、リポジトリ失敗や版衝突が
+「入力検証エラー」として返ると利用者に嘘をつくことになる。
+
+**単一の入力フィールドに帰着しない規則は `Rule` にしない。** 通貨不一致（`Money.Add`）や
+状態の矛盾（409）は素の番兵のまま返し、`invalid-params` を省略する。
+
+テストは 3 層それぞれに足す。`field_violation_test.go`（違反が名乗る `Rule` と `errors.Is`）、
+`validation_path_test.go`（`Path`）、`problem_test.go`（JSON パスと `code` / `reason`）。
 
 ### 永続化のクエリ／スキーマを変更する
 
@@ -121,6 +185,11 @@
 - 在庫の内部 HTTP 契約（= ACL サーフェス）: `contracts/inventory/internal.openapi.yaml`
 - 注文の公開 HTTP 契約: `contracts/ordering/openapi.yaml`（作成・照会・取消）
 - クロスコンテキストのメッセージ契約: `contracts/events/{confirm_reservation,order_cancelled}.schema.json`
+- エラー応答の共通部品: `shared/problem/`（`type` URI 台帳・契約検証の `code` 語彙・
+  パス表記）と `shared/problem/ogenproblem/`（ogen のエラーからフィールドを抽出する）。
+  後者はテスト専用のフィクスチャ契約
+  `shared/problem/ogenproblem/internal/fixture/openapi.yaml` を持ち、ogen の実挙動に対して
+  抽出をテストする（版上げでエラー形式が変われば CI が落ちる）
 - DB スキーマ / クエリ: `contexts/<ctx>/db/schema.sql`, `queries.sql`
   （在庫: stock_items / stock_reservations / outbox / events、
   注文: orders / order_lines / outbox / events）
@@ -155,10 +224,12 @@
 ## コマンド
 
 ```sh
-# 生成（ogen + sqlc）。クライアント → 各コンテキストの順に。
+# 生成（ogen + sqlc）。クライアント → 各コンテキスト → shared の順に。
+# shared はエラー抽出テスト用のフィクスチャ契約を生成する。
 cd clients/inventory && go generate ./...
 cd ../../contexts/inventory && go generate ./...
 cd ../ordering && go generate ./...
+cd ../../shared && go generate ./...
 
 # ビルド・静的解析・テスト（各モジュールで）
 go build ./...

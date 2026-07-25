@@ -1,0 +1,135 @@
+openapi: 3.0.3
+# テスト専用のフィクスチャ契約。製品の API ではない。
+#
+# なぜ本物の契約（contracts/ordering など）を借りずに専用契約を持つのか:
+#
+#  1. 依存方向を壊さないため。shared モジュールがコンテキストの生成型に依存すると、
+#     「shared はドメイン非依存の建材だけ」という規約（制約 C-6）が崩れる。
+#
+#  2. 手書きの偽エラーでは ogen の版上げを検知できないため。抽出アルゴリズムは ogen の
+#     内部エラー構造（*validate.Error の入れ子、ラップ列の文言）に依存している。手で
+#     組み立てた偽の error に対してテストすると、ogen が形式を変えてもテストは緑のまま
+#     通り、本番だけが静かに劣化する。実際に ogen が生成したサーバへ HTTP を投げて
+#     「本物のエラー」を捕まえる必要がある。
+#
+#  3. 本物の契約が持たない制約を書けるため（ここが決定的）。本テンプレートは値域の検証を
+#     意図的にドメインへ委譲しており（OOS-4）、本物の 3 契約には minLength / minItems /
+#     pattern / enum が（パスパラメータを除いて）無い。つまり ogen の Validate() 経路は
+#     本物の契約では永続的に発火しない。フィクスチャが無ければ、入れ子 *validate.Error を
+#     再帰的に降りる walk は丸ごと未テストのまま出荷される。利用者が自分の契約に制約を
+#     足した瞬間に壊れていることが分かる、では遅い。
+#
+# 生成物（oas/ 配下）はコミットする。手で編集しない（制約 C-3）。
+info:
+  title: Extraction Fixture API
+  version: 0.0.0
+  description: |
+    抽出アルゴリズム（ExtractParams）のテスト専用契約。ogen のエラー生成経路
+    （Decode() と Validate()）を能動的に踏むためだけに存在する。
+
+servers:
+  - url: /
+
+paths:
+  /probe:
+    post:
+      operationId: probe
+      summary: 抽出テスト用のエンドポイント
+      parameters:
+        # 型不一致を起こせるクエリパラメータ（*ogenerrors.DecodeParamError の経路）。
+        - name: attempt
+          in: query
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Probe'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ack'
+
+components:
+  schemas:
+    Probe:
+      type: object
+      required:
+        - name
+        - lines
+        - nested
+      properties:
+        name:
+          # 文字列の 3 制約をまとめて踏める（min_length / max_length / pattern）。
+          type: string
+          minLength: 3
+          maxLength: 10
+          pattern: '^[A-Z]'
+        kind:
+          # enum 違反がどの経路（Decode / Validate）で出るかを特性テストで固定する。
+          type: string
+          enum: [alpha, beta]
+        tags:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+        lines:
+          # オブジェクトの配列。Validate() 経路で "[i]" という名前の断片が出る。
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Line'
+        nested:
+          $ref: '#/components/schemas/Nested'
+
+    Line:
+      type: object
+      required:
+        - sku
+        - quantity
+      properties:
+        sku:
+          type: string
+          minLength: 2
+        quantity:
+          type: integer
+        price:
+          $ref: '#/components/schemas/Price'
+
+    Price:
+      type: object
+      required:
+        - amount
+        - currency
+      properties:
+        amount:
+          type: integer
+        currency:
+          type: string
+          minLength: 3
+
+    Nested:
+      # 入れ子オブジェクトの必須欠落。Decode() のラップ列（prefix）と *validate.Error
+      # （walk）が同時に値を返す唯一の形であり、両系統の合成を検証するために要る。
+      type: object
+      required:
+        - inner
+      properties:
+        inner:
+          type: string
+          minLength: 2
+
+    Ack:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean

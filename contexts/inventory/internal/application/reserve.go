@@ -49,11 +49,11 @@ func NewReserver(exec uow.Executor, work UnitOfWork, dispatch EventDispatcher, l
 func (r *Reserver) Reserve(ctx context.Context, in ReserveInput) error {
 	ref, err := inventory.NewReservationRef(in.Ref)
 	if err != nil {
-		return err
+		return locate("", err)
 	}
 	lines, skus, err := toReservationLines(in.Lines)
 	if err != nil {
-		return err
+		return err // toReservationLines が既に位置を解決している
 	}
 
 	var events []inventory.DomainEvent
@@ -62,8 +62,11 @@ func (r *Reserver) Reserve(ctx context.Context, in ReserveInput) error {
 		if err != nil {
 			return err
 		}
+		// Allocate は明細の走査を集約側で行うため、違反は自分で Index を運んでくる。
+		// locate はそれを Lines[i].Quantity へ組み立てる。位置を持たない違反
+		// （参照が空）や検証以外のエラー（在庫不足・在庫項目なし）は素通しになる。
 		if err := r.service.Allocate(stocks, ref, lines, r.ttl); err != nil {
-			return err
+			return locate("", err)
 		}
 		if err := repos.Stock().Save(ctx, stocks...); err != nil {
 			return err
@@ -81,17 +84,22 @@ func (r *Reserver) Reserve(ctx context.Context, in ReserveInput) error {
 }
 
 // toReservationLines は入力行をドメインの ReservationLine と SKU 一覧へ変換・検証する。
+//
+// この走査は値オブジェクトの検証（SKU 非空・数量非負）だけを行う。数量が 0 かどうかは
+// ここでは弾けない（在庫の Quantity は 0 を許容する）ため、ReservationService.Allocate が
+// 集約側で弾く。したがって「Lines[i] の位置」はこの走査と Allocate の 2 経路から来る。
 func toReservationLines(in []ReserveLine) ([]inventory.ReservationLine, []inventory.SKU, error) {
 	lines := make([]inventory.ReservationLine, 0, len(in))
 	skus := make([]inventory.SKU, 0, len(in))
-	for _, l := range in {
+	for i, l := range in {
+		at := linePath(i)
 		sku, err := inventory.NewSKU(l.SKU)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, locate(at, err)
 		}
 		qty, err := inventory.NewQuantity(l.Quantity)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, locate(at, err)
 		}
 		lines = append(lines, inventory.ReservationLine{SKU: sku, Quantity: qty})
 		skus = append(skus, sku)

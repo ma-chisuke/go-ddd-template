@@ -32,7 +32,7 @@ func NewCancelOrder(exec uow.Executor, work UnitOfWork, log *slog.Logger) *Cance
 func (uc *CancelOrder) Handle(ctx context.Context, idStr string) error {
 	orderID, err := order.NewOrderID(idStr)
 	if err != nil {
-		return err
+		return locate("", err)
 	}
 	traceID := correlation.FromContextOrEmpty(ctx)
 

@@ -1,0 +1,221 @@
+package application_test
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+)
+
+// このファイルは「アプリケーション層が入力 DTO 上の位置を付与する」ことを固定する
+// （FR-4.5）。在庫側で難しいのは、数量 0 の判定が集約側（ReservationService.Allocate）で
+// 起きるため、位置がドメインの違反（Index）から来る経路が別に存在することである。
+
+// requireSingle は err からアプリケーション層の ValidationError を取り出し、
+// 違反がちょうど 1 件であることを確認して返す。
+func requireSingle(t *testing.T, err error) application.FieldViolation {
+	t.Helper()
+	var ve *application.ValidationError
+	require.ErrorAs(t, err, &ve, "ValidationError として取り出せること")
+	require.Len(t, ve.Violations, 1)
+	return ve.Violations[0]
+}
+
+// newReserveOnlyFixture は予約系ユースケース一式をインメモリで組み立てる（在庫は空）。
+func newReserveOnlyFixture(t *testing.T) reserveFixture {
+	t.Helper()
+	store := memory.NewStore()
+	work := memory.NewUnitOfWork(store, memory.NewOutboxStore(), memory.NewEventStore())
+	return newReserveFixture(t, work, store)
+}
+
+func TestValidationPath_SingleValueUseCases(t *testing.T) {
+	ctx := context.Background()
+
+	cases := []struct {
+		name     string
+		call     func(f reserveFixture) error
+		wantPath string
+		wantCode string
+		wantErr  error
+	}{
+		{
+			name: "Replenish: SKU が空",
+			call: func(f reserveFixture) error {
+				_, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: " ", Quantity: 1})
+				return err
+			},
+			wantPath: "Sku",
+			wantCode: inventory.VSKU.Code,
+			wantErr:  inventory.ErrInvalidSKU,
+		},
+		{
+			name: "Replenish: 数量が負（値オブジェクトで弾かれる）",
+			call: func(f reserveFixture) error {
+				_, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: "SKU-A", Quantity: -1})
+				return err
+			},
+			wantPath: "Quantity",
+			wantCode: inventory.VQuantity.Code,
+			wantErr:  inventory.ErrInvalidQuantity,
+		},
+		{
+			name: "Replenish: 数量が 0（値オブジェクトを通過し集約で弾かれる）",
+			call: func(f reserveFixture) error {
+				_, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: "SKU-A", Quantity: 0})
+				return err
+			},
+			wantPath: "Quantity",
+			wantCode: inventory.VQuantity.Code,
+			wantErr:  inventory.ErrInvalidQuantity,
+		},
+		{
+			name: "QueryStock: SKU が空",
+			call: func(f reserveFixture) error {
+				_, err := f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "\t"})
+				return err
+			},
+			wantPath: "Sku",
+			wantCode: inventory.VSKU.Code,
+			wantErr:  inventory.ErrInvalidSKU,
+		},
+		{
+			name:     "Reserve: 参照が空",
+			call:     func(f reserveFixture) error { return f.reserver.Reserve(ctx, application.ReserveInput{Ref: "  "}) },
+			wantPath: "Ref",
+			wantCode: inventory.VReservationRef.Code,
+			wantErr:  inventory.ErrInvalidReservationRef,
+		},
+		{
+			name:     "Confirm: 参照が空",
+			call:     func(f reserveFixture) error { return f.confirmer.Confirm(ctx, "") },
+			wantPath: "Ref",
+			wantCode: inventory.VReservationRef.Code,
+			wantErr:  inventory.ErrInvalidReservationRef,
+		},
+		{
+			name:     "Release: 参照が空",
+			call:     func(f reserveFixture) error { return f.releaser.Release(ctx, "") },
+			wantPath: "Ref",
+			wantCode: inventory.VReservationRef.Code,
+			wantErr:  inventory.ErrInvalidReservationRef,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.call(newReserveOnlyFixture(t))
+			require.ErrorIs(t, err, tc.wantErr, "番兵は維持される（規則 R-15）")
+			v := requireSingle(t, err)
+			assert.Equal(t, tc.wantPath, v.Path)
+			assert.Equal(t, tc.wantCode, v.Code)
+		})
+	}
+}
+
+// 明細の添字。値オブジェクトの走査（アプリ層）と集約の走査（Allocate）の 2 経路があり、
+// どちらも同じ表記のパスを出すことを固定する。
+func TestValidationPath_ReserveLineIndex(t *testing.T) {
+	ctx := context.Background()
+
+	// 3 SKU を補充してから、行を 1 つずつ壊す。
+	newStocked := func(t *testing.T) reserveFixture {
+		t.Helper()
+		f := newReserveOnlyFixture(t)
+		for _, sku := range []string{"SKU-A", "SKU-B", "SKU-C"} {
+			_, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: sku, Quantity: 10})
+			require.NoError(t, err)
+		}
+		return f
+	}
+	okLines := func() []application.ReserveLine {
+		return []application.ReserveLine{
+			{SKU: "SKU-A", Quantity: 1},
+			{SKU: "SKU-B", Quantity: 1},
+			{SKU: "SKU-C", Quantity: 1},
+		}
+	}
+
+	t.Run("値オブジェクト経路: SKU が空の行を指す（アプリ層のループが位置を付ける）", func(t *testing.T) {
+		for _, broken := range []int{0, 1, 2} {
+			t.Run(fmt.Sprintf("%d 行目", broken), func(t *testing.T) {
+				lines := okLines()
+				lines[broken].SKU = "  "
+
+				err := newStocked(t).reserver.Reserve(ctx, application.ReserveInput{Ref: "ORDER-1", Lines: lines})
+				require.ErrorIs(t, err, inventory.ErrInvalidSKU)
+				assert.Equal(t, application.FieldViolation{
+					Path: fmt.Sprintf("Lines[%d].Sku", broken),
+					Code: inventory.VSKU.Code,
+				}, requireSingle(t, err))
+			})
+		}
+	})
+
+	t.Run("集約経路: 数量 0 の行を指す（ドメインの Index が位置を運ぶ）", func(t *testing.T) {
+		for _, broken := range []int{0, 1, 2} {
+			t.Run(fmt.Sprintf("%d 行目", broken), func(t *testing.T) {
+				lines := okLines()
+				// 0 は値オブジェクトを通過するので、位置は Allocate（集約側）でしか分からない。
+				lines[broken].Quantity = 0
+
+				err := newStocked(t).reserver.Reserve(ctx, application.ReserveInput{Ref: "ORDER-1", Lines: lines})
+				require.ErrorIs(t, err, inventory.ErrInvalidQuantity)
+				assert.Equal(t, application.FieldViolation{
+					Path: fmt.Sprintf("Lines[%d].Quantity", broken),
+					Code: inventory.VQuantity.Code,
+				}, requireSingle(t, err))
+			})
+		}
+	})
+}
+
+// locate の透過。検証以外の失敗が ValidationError に化けないことを固定する。
+func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
+	ctx := context.Background()
+	var ve *application.ValidationError
+
+	t.Run("在庫項目が無い（404 系）", func(t *testing.T) {
+		f := newReserveOnlyFixture(t)
+		_, err := f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "SKU-UNKNOWN"})
+		require.ErrorIs(t, err, inventory.ErrStockItemNotFound)
+		assert.False(t, errors.As(err, &ve), "リポジトリ由来のエラーは検証エラーに化けない")
+	})
+
+	t.Run("予約時に在庫項目が無い（404 系）", func(t *testing.T) {
+		f := newReserveOnlyFixture(t)
+		err := f.reserver.Reserve(ctx, application.ReserveInput{
+			Ref:   "ORDER-1",
+			Lines: []application.ReserveLine{{SKU: "SKU-UNKNOWN", Quantity: 1}},
+		})
+		require.ErrorIs(t, err, inventory.ErrStockItemNotFound)
+		assert.False(t, errors.As(err, &ve), "在庫項目なしは検証エラーに化けない")
+	})
+
+	t.Run("在庫不足（409 系）", func(t *testing.T) {
+		f := newReserveOnlyFixture(t)
+		_, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: "SKU-A", Quantity: 1})
+		require.NoError(t, err)
+
+		err = f.reserver.Reserve(ctx, application.ReserveInput{
+			Ref:   "ORDER-1",
+			Lines: []application.ReserveLine{{SKU: "SKU-A", Quantity: 99}},
+		})
+		require.ErrorIs(t, err, inventory.ErrInsufficientStock)
+		assert.False(t, errors.As(err, &ve), "在庫不足は状態の矛盾であり検証エラーではない")
+	})
+
+	t.Run("予約が無い（Confirm の 404 系）", func(t *testing.T) {
+		f := newReserveOnlyFixture(t)
+		err := f.confirmer.Confirm(ctx, "ORDER-UNKNOWN")
+		require.ErrorIs(t, err, inventory.ErrReservationNotFound)
+		assert.False(t, errors.As(err, &ve), "予約なしは検証エラーに化けない")
+	})
+}

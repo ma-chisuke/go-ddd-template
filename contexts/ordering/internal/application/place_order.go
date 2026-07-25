@@ -53,20 +53,23 @@ func NewPlaceOrder(exec uow.Executor, work UnitOfWork, reserver StockReserver, d
 func (uc *PlaceOrder) Handle(ctx context.Context, in PlaceOrderInput) (order.OrderID, error) {
 	customer, err := order.NewCustomerID(in.CustomerID)
 	if err != nil {
-		return order.OrderID{}, err
+		return order.OrderID{}, locate("", err)
 	}
 	lines, reserveLines, err := toOrderLines(in.Lines)
 	if err != nil {
 		return order.OrderID{}, err
 	}
 
+	// 採番はアプリケーション層が行う。ここで失敗したらリクエスターの入力ではなく
+	// サーバ側の問題なので、locate で「入力検証エラー」に見せかけてはならない。
 	orderID, err := order.NewOrderID(id.New())
 	if err != nil {
 		return order.OrderID{}, err
 	}
+	// 集約の不変条件（明細は 1 行以上）。lines に帰着するので入力のトップ階層に位置づける。
 	o, err := order.NewOrder(orderID, customer, lines)
 	if err != nil {
-		return order.OrderID{}, err
+		return order.OrderID{}, locate("", err)
 	}
 	ref := o.ReservationRef()
 
@@ -119,21 +122,27 @@ func (uc *PlaceOrder) releaseCompensating(ctx context.Context, ref order.Reserva
 
 // toOrderLines は入力行を、ドメインの注文明細と ACL 用の予約行の双方へ変換・検証する。
 // 予約行（port.ReserveLine）は翻訳済み DTO であり、在庫側へはこの形で渡す。
+//
+// 明細を走査しているのはここ（アプリケーション層）なので、何行目の違反かを知っているのも
+// ここだけである。ドメインは「quantity が不正」までしか言えないので、この走査が
+// 「Lines[2] の quantity」まで解決する（FR-4.5）。添字を落とすと、5 行の注文で
+// どの行を直せばよいかリクエスターに伝わらない。
 func toOrderLines(in []PlaceOrderLine) ([]order.OrderLine, []port.ReserveLine, error) {
 	lines := make([]order.OrderLine, 0, len(in))
 	reserveLines := make([]port.ReserveLine, 0, len(in))
-	for _, l := range in {
+	for i, l := range in {
+		at := linePath(i)
 		sku, err := order.NewSKU(l.SKU)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, locate(at, err)
 		}
 		qty, err := order.NewQuantity(l.Quantity)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, locate(at, err)
 		}
 		price, err := order.NewMoney(l.UnitPriceAmount, l.Currency)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, locate(at, err)
 		}
 		lines = append(lines, order.NewOrderLine(sku, qty, price))
 		reserveLines = append(reserveLines, port.ReserveLine{SKU: sku.String(), Qty: qty.Int()})

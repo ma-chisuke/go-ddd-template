@@ -32,7 +32,7 @@ func NewStockViewer(read StockStore, log *slog.Logger) *StockViewer {
 func (v *StockViewer) QueryStock(ctx context.Context, in QueryStockInput) (StockResult, error) {
 	sku, err := inventory.NewSKU(in.SKU)
 	if err != nil {
-		return StockResult{}, err
+		return StockResult{}, locate("", err)
 	}
 
 	item, err := v.read.Load(ctx, sku)

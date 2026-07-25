@@ -1,7 +1,6 @@
 package order
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -12,11 +11,11 @@ type CustomerID struct {
 }
 
 // NewCustomerID は顧客 ID を検証して生成する。前後の空白を取り除いた結果が空なら
-// ErrInvalidCustomerID を返す。
+// ErrInvalidCustomerID を包んだ FieldViolation を返す。
 func NewCustomerID(s string) (CustomerID, error) {
 	trimmed := strings.TrimSpace(s)
 	if trimmed == "" {
-		return CustomerID{}, fmt.Errorf("顧客 ID は空にできません: %w", ErrInvalidCustomerID)
+		return CustomerID{}, VCustomerID.Violated("顧客 ID は空にできません")
 	}
 	return CustomerID{value: trimmed}, nil
 }

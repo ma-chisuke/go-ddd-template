@@ -67,7 +67,8 @@ func ReconstituteStockItem(id string, sku SKU, available Quantity, version int, 
 // 成功した場合は利用可能在庫を増やし、StockReplenished イベントを記録する。
 func (s *StockItem) Replenish(qty Quantity) error {
 	if qty.IsZero() {
-		return fmt.Errorf("補充数量は 1 以上でなければなりません: %w", ErrInvalidQuantity)
+		// NewQuantity は 0 を通すため、「1 以上」の判定は集約が担う（FR-4.7）。
+		return VQuantity.Violated("補充数量は 1 以上でなければなりません")
 	}
 	s.available = s.available.Add(qty)
 	s.recordEvent(StockReplenished{
@@ -92,10 +93,11 @@ func (s *StockItem) Replenish(qty Quantity) error {
 // available が 0 に到達したら StockDepleted も記録する（発行＋ログのみで購読者はいない）。
 func (s *StockItem) Reserve(ref ReservationRef, qty Quantity, ttl time.Duration) error {
 	if ref.IsZero() {
-		return fmt.Errorf("予約参照は空にできません: %w", ErrInvalidReservationRef)
+		return VReservationRef.Violated("予約参照は空にできません")
 	}
 	if qty.IsZero() {
-		return fmt.Errorf("予約数量は 1 以上でなければなりません: %w", ErrInvalidQuantity)
+		// NewQuantity は 0 を通すため、「1 以上」の判定は集約が担う（FR-4.7）。
+		return VQuantity.Violated("予約数量は 1 以上でなければなりません")
 	}
 	// 冪等性: 既に有効な予約があれば no-op。
 	if _, ok := s.reservations[ref.String()]; ok {

@@ -31,7 +31,7 @@ func NewConfirmer(exec uow.Executor, work UnitOfWork, dispatch EventDispatcher, 
 func (c *Confirmer) Confirm(ctx context.Context, ref string) error {
 	reservationRef, err := inventory.NewReservationRef(ref)
 	if err != nil {
-		return err
+		return locate("", err)
 	}
 
 	var events []inventory.DomainEvent

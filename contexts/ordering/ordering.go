@@ -154,8 +154,13 @@ func build(
 	get := application.NewGetOrder(readStore, log)
 
 	// 公開サーバ（作成・照会・取消）。
+	//
+	// ServerOptions() を必ず渡す。渡さないと ogen の既定エラーハンドラが使われ、
+	// デコード失敗・未定義パス・メソッド不許可が problem+json ではなく
+	// {"error_message": "operation placeOrder: decode request: ..."} で返る（FR-1）。
+	// テストも同じヘルパー経由で組み立て、本番とエラー経路を一致させる（NFR-6）。
 	handler := httpapi.NewHandler(place, get, cancel, log)
-	server, err := openapi.NewServer(handler)
+	server, err := openapi.NewServer(handler, handler.ServerOptions()...)
 	if err != nil {
 		return nil, fmt.Errorf("ordering: 公開 HTTP サーバの構築に失敗しました: %w", err)
 	}

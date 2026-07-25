@@ -36,7 +36,9 @@ func newServer(t *testing.T) *httptest.Server {
 	viewer := application.NewStockViewer(read, log)
 
 	h := httpapi.NewHandler(replenisher, viewer, log)
-	server, err := openapi.NewServer(h)
+	// 本番の合成ルート（inventory.go）と同じヘルパーでオプションを渡す。ここを省くと
+	// テストだけ ogen の既定エラーハンドラで動き、本番の振る舞いを検証できなくなる。
+	server, err := openapi.NewServer(h, h.ServerOptions()...)
 	require.NoError(t, err, "ogen サーバの構築")
 	ts := httptest.NewServer(httpapi.CorrelationMiddleware(server))
 	t.Cleanup(ts.Close)

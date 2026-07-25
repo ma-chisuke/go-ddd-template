@@ -27,7 +27,7 @@ func NewGetOrder(read OrderStore, log *slog.Logger) *GetOrder {
 func (uc *GetOrder) Handle(ctx context.Context, idStr string) (OrderView, error) {
 	orderID, err := order.NewOrderID(idStr)
 	if err != nil {
-		return OrderView{}, err
+		return OrderView{}, locate("", err)
 	}
 
 	o, err := uc.read.Load(ctx, orderID)

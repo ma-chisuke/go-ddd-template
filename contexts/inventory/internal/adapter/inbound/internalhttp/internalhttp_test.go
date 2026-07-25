@@ -43,7 +43,9 @@ func newInternalServer(t *testing.T) *httptest.Server {
 	router.Register(application.MessageTypeOrderCancelled, application.OnOrderCancelled(releaser))
 
 	h := internalhttp.NewHandler(reserver, confirmer, releaser, router, log)
-	server, err := openapiinternal.NewServer(h)
+	// 本番の合成ルート（inventory.go）と同じヘルパーでオプションを渡す。ここを省くと
+	// テストだけ ogen の既定エラーハンドラで動き、本番の振る舞いを検証できなくなる。
+	server, err := openapiinternal.NewServer(h, h.ServerOptions()...)
 	require.NoError(t, err, "内部サーバの構築")
 	ts := httptest.NewServer(server)
 	t.Cleanup(ts.Close)

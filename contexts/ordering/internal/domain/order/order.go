@@ -36,9 +36,13 @@ type Order struct {
 //
 // 成功すると Confirmed 状態で始まり、注文 ID から予約参照を決定的に導出して捕捉し、
 // OrderPlaced イベントを記録する。version は 0（未永続化）。
+//
+// 「明細が 1 行以上」は値オブジェクトではなく集約の不変条件だが、単一のフィールド
+// （lines）に帰着するため FieldViolation で名乗る（FD-Q4=A / FR-4.7）。一方、通貨不一致
+// （Money.Add）は帰着しないので素の番兵のまま伝播させる。
 func NewOrder(id OrderID, customer CustomerID, lines []OrderLine) (*Order, error) {
 	if len(lines) == 0 {
-		return nil, ErrEmptyOrder
+		return nil, VEmptyOrder.Violated("明細が 1 行もありません")
 	}
 
 	total := Money{}

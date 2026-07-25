@@ -65,6 +65,8 @@ jobs:
           (cd clients/inventory && go generate ./...)
           (cd contexts/inventory && go generate ./...)
           (cd contexts/ordering && go generate ./...)
+          # shared はエラー抽出テスト用のフィクスチャ契約（ogen）を生成する。
+          (cd shared && go generate ./...)
           if ! git diff --exit-code; then
             echo "::error::生成物が最新ではありません。各モジュールで 'go generate ./...' を実行してコミットしてください。"
             exit 1

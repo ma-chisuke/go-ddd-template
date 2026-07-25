@@ -29,6 +29,240 @@
   壊さないようにします。
 - 回復不能・想定外の異常（暗号乱数源の故障など）に限り `panic` を許容します。
 
+## HTTP エラー応答（RFC 9457 / Problem Details）
+
+エラー応答は **`application/problem+json`** で返し、本文は契約の `ProblemDetails`
+（ogen 生成型）で組み立てます。手書き JSON は書きません。
+
+### エラーが生まれる 4 つの経路
+
+| # | 経路 | 発火点 | 実装 |
+| --- | --- | --- | --- |
+| E1 | リクエストのデコード／契約検証 | ogen `ErrorHandler` | `internal/adapter/inbound/http/problem.go` |
+| E2 | ルーティング不一致（未定義パス） | ogen `NotFound` | 同上 |
+| E3 | メソッド不許可 | ogen `MethodNotAllowed` | 同上 |
+| E4 | ハンドラ戻り値のエラー | 生成された `NewError` | `internal/adapter/inbound/http/errmap.go` |
+
+E1〜E3 は **`Handler.ServerOptions()` を `NewServer` に渡すことで注入**します。渡し忘れると
+ogen の既定ハンドラが `{"error_message": "operation placeOrder: decode request: ..."}` を返し、
+内部実装の詳細が外部の観測面に漏れます。本番の合成ルート（`ordering.go` / `inventory.go`）も
+テストも、必ず同じ `ServerOptions()` 経由で組み立てます。
+
+### `type` URI（問題種別）
+
+`type` は `about:blank` ではなく **種別ごとの安定した URI** です。クライアントは `status` では
+なく `type` で分岐します。同じ `status` でも原因が異なれば別の URI を与えます。
+
+| type サフィックス | status | 意味 |
+| --- | --- | --- |
+| `validation-error` | 400 | リクエストが API 契約に適合しない |
+| `unsupported-media-type` | 415 | `Content-Type` がサポート外 |
+| `not-found` | 404 | **そのようなエンドポイントが無い**（URL の誤り） |
+| `method-not-allowed` | 405 | メソッド不許可 |
+| `invalid-input` | 422 | ドメインの検証規則違反 |
+| `resource-not-found` | 404 | **エンドポイントはあるが対象が無い**（ID の誤り） |
+| `conflict` | 409 | 現在の状態と矛盾する操作 |
+| `reservation-rejected` | 409 | 在庫予約の拒否（注文コンテキストのみ） |
+| `service-unavailable` | 503 | 依存サービス不達（注文コンテキストのみ） |
+| `internal-error` | 500 | 予期しないエラー |
+
+台帳の実体は `shared/problem/types.go` です。`title` は種別と **1 対 1** で対応させ、
+`title` から `type` を逆引きできる状態を保ちます（404 が 2 つ、409 が 2 つあるので、
+HTTP の理由句をそのまま使うと逆引きできなくなります）。
+
+**利用者による差し替え手順**: URI の名前空間は各コンテキストの
+`internal/adapter/inbound/http/problem.go`（内部 API は `internalhttp/problem.go`）にある
+**`problemTypeBase` 定数 1 箇所**です。自分の名前空間へ書き換えてください。URI は識別子
+であり、解決可能な文書ページを公開する必要はありません。
+
+### `detail` に何を書いてよいか
+
+`detail` は**経路ごとの定型文**です（`shared/problem/types.go` の `Detail*` 定数）。
+次のものを応答本文に含めてはいけません。
+
+- `err.Error()` の結果をそのまま載せること
+- ogen / Go 由来の文言（`operation ...`、`decode request`、`unexpected byte`、`callback:`）
+- Go の型名・パッケージパス・スタックトレース
+- **問題となった受信値のエコーバック**（SKU・数量・利用可能在庫・予約参照など）
+
+排除した情報は失わせません。4xx は `WarnContext`、5xx は `ErrorContext` で元のエラーを
+サーバ側ログに残し、相関 ID（`CorrelationMiddleware`）で運用者が追跡できるようにします。
+
+### `invalid-params`（違反フィールドの一覧）
+
+RFC 9457 の拡張メンバーとして、違反したフィールドを機械可読に伝えます。
+
+```json
+{
+  "type": "https://github.com/example/go-ddd-template/problems/invalid-input",
+  "title": "Unprocessable Entity",
+  "status": 422,
+  "detail": "入力値がドメインの規則を満たしていません",
+  "invalid-params": [
+    { "name": "lines[0].unitPrice.amount", "code": "invalid_money_amount", "reason": "0 以上の値を指定してください" }
+  ]
+}
+```
+
+- `name` は**ドット + 角括弧記法**のフィールドパス（`lines[0].unitPrice.amount`）。
+- `code` は機械可読な安定識別子。クライアントはこれで分岐します。
+- `reason` は `code` から引く定型文（人間向けの補助）。**受信値も閾値も含みません**。
+
+クライアントが依存すべき 2 つの限界を明示します。
+
+1. **400（契約検証）では配列の添字が付きません。** ogen が `Decode()` 経路のエラーに位置を
+   残さないためで、実装の手抜きではありません。422（ドメイン検証）では添字が付きます。
+   **クライアントは添字の有無に依存した解析をしてはいけません。**
+2. **`invalid-params` は網羅を保証しません。** 判明した違反のみを含みます。`jx` の
+   ストリーミングデコーダはコールバックが最初にエラーを返した時点で走査を打ち切るため、
+   配列の別要素や別の枝にまたがる `Decode()` 失敗は列挙できません。列挙できるのは
+   「同一オブジェクト内の兄弟の必須欠落」と「`Validate()` 経路の複数制約違反」です。
+
+フィールドを特定できない場合（不正 JSON、サポート外 Content-Type など）は、
+**`invalid-params` をキーごと省略**します。空配列は返しません（「違反フィールドが 0 件」と
+「特定できなかった」を区別するため）。
+
+例外が 1 つあります。**リクエストボディそのものが空**のときは、個々のフィールドではなく
+ボディ全体が問題なので `name` に擬似パス **`body`**（`ogenproblem.BodyParamName`）を使い、
+`code` は `body_required` になります。
+
+`code` の実際の粒度は ogen が提供する型情報に制約されます（`shared/problem/ogenproblem` の
+特性テストが実測値を固定しています）。ogen v1.23.0 では次の通りです。
+
+- `minItems`（配列長）と `minLength`（文字列長）は同じ `*validate.MinLengthError` になるため、
+  どちらも `min_length` です。
+- `enum` 違反と `uniqueItems` 違反は専用のエラー型にならず、**受信値を文言に含む**素の
+  エラーになります。文言ごと捨てて汎用の `invalid` へ落とします（受信値を漏らさないため）。
+  ogen が専用型を導入したら特性テストが落ち、語彙を細かくできると分かります。
+
+### `code` は 2 系統の語彙
+
+| 語彙 | いつ | 置き場所 |
+| --- | --- | --- |
+| 契約検証（`type: validation-error`） | ogen が契約違反を検出した（400） | `shared/problem/vocab.go` |
+| ドメイン検証（`type: invalid-input`） | ドメインの規則に反した（422） | 各コンテキストの `internal/domain/<ctx>/errors.go` |
+
+契約検証語彙（`required` / `type` / `min_length` / `max_length` / `pattern` /
+`unique_items` / `invalid_param` / `body_required` / `invalid`）はどのコンテキストでも
+意味が同じなので共有します。**ドメイン検証語彙は共有しません。** 同名の `invalid_quantity`
+でも、注文コンテキストは「1 以上」、在庫コンテキストは「0 以上」を意味します。値域の違いは
+`reason` の文言差として現れます。クライアントは `type` を見ればどちらの語彙かを判別できます。
+
+### 検証規則は `Rule` に 1 つだけ書く
+
+ドメインの検証規則は **`Rule` 型 1 つ**にまとめます。フィールド名・`code`・番兵が
+バラバラの定数リストに分かれていると、ほぼ 1 対 1 の語彙を 3 つ並行して保守することになり、
+規則を 1 つ足すだけで 4 箇所を編集する羽目になります。
+
+```go
+// internal/domain/order/errors.go
+var (
+    VQuantity      = Rule{Field: "quantity", Code: "invalid_quantity",       Err: ErrInvalidQuantity}
+    VMoneyAmount   = Rule{Field: "amount",   Code: "invalid_money_amount",   Err: ErrInvalidMoney}
+    VMoneyCurrency = Rule{Field: "currency", Code: "invalid_money_currency", Err: ErrInvalidMoney}
+)
+```
+
+呼び出し側は 1 行です。番兵の文言は自動で後ろに連結されるので繰り返しません。
+
+```go
+func NewQuantity(n int) (Quantity, error) {
+    if n < 1 {
+        return Quantity{}, VQuantity.Violated("注文行の数量は 1 以上でなければなりません（指定値: %d）", n)
+    }
+    return Quantity{value: n}, nil
+}
+```
+
+**番兵は残します。** `errors.Is` の判定単位であり、既存の公開 API だからです。`Rule` は
+それを指すだけで置き換えません。`Rule` は番兵より細かくてよく、`ErrInvalidMoney` が
+`VMoneyAmount` と `VMoneyCurrency` の 2 つに分かれるのがその実例です（規則 R-6）。
+
+**新しい規則を足すコストは 2 箇所の編集です。** `Rule` を 1 行、インターフェース層の
+`domainReasons` を 1 行。それ以上は要りません（規則 R-19）。
+
+### フィールド識別情報は 3 層で組み立てる
+
+```
+[domain]                    [application]                [interfaces]
+「数量は 1 以上」            「入力 DTO のどの位置か」      「JSON のどの名前か」
+
+FieldViolation{             ValidationError{             InvalidParam{
+  Rule:  VQuantity     →      Path: "Lines[0].Quantity"    Name: "lines[0].quantity"
+  Index: nil }                Code: "invalid_quantity" }   Code: "invalid_quantity"
+                                                           Reason: "1 以上の値を..." }
+```
+
+各層は**自分が知っていることだけ**を足します。
+
+- **ドメイン**（`Rule` / `FieldViolation`）— 自分の語彙でフィールドを名乗るだけ。HTTP の
+  フィールドパスは知りません。番兵エラーを包み `Unwrap` するので、`errors.Is` は従来どおり
+  機能します。
+- **アプリケーション**（`ValidationError` / `locate`）— 入力 DTO 上の位置（添字を含む）を前置します。
+  ドメインの違反でなければ**元のエラーをそのまま透過**させます（リポジトリの失敗や版衝突が
+  「入力検証エラー」に化けてはいけません）。
+- **インターフェース**（`toJSONPath` / `domainParams`）— DTO の識別子を JSON 名へ翻訳します。
+  Go の識別子を応答へ露出させてはいけません。
+
+層をまたぐ 2 つの表（アプリ層の `dtoPaths`、インターフェース層の `jsonNames`）は
+**上書き表**です。既定は機械的な変換（大文字化 / 小文字化）で足り、そこに書くのは
+それでは正しくならないものだけです（例: 入力 DTO は `UnitPriceAmount` と平らなのに
+API は `unitPrice.amount` と入れ子、注文 ID のパスパラメータ名は `id`）。したがって
+**規則を 1 つ足しても通常この 2 つの表は触りません**。
+
+### コレクションの位置は `ViolatedAt` が運ぶ
+
+集約やドメインサービスが**自分でコレクションを走査している**場合、何番目で失敗したかを
+知っているのはそのループだけです（アプリケーション層の走査は別物で、そこには位置が
+残りません）。在庫の `ReservationService.Allocate` がその実例です。
+
+```go
+for i, l := range lines {
+    if l.Quantity.IsZero() {
+        return VQuantity.ViolatedAt(i, "SKU %q の予約数量は 1 以上でなければなりません", l.SKU.String())
+    }
+}
+```
+
+「渡された何番目か」はドメイン自身の知識であり、HTTP のパス（`lines[1].quantity`）では
+ないので純粋ドメインの原則に抵触しません。位置を `Lines[i]` というパスへ組み立てるのは
+アプリケーション層です。この機構は**両コンテキストで同一**であり、片方だけが余分な
+フィールドを持つといった非対称はありません。
+
+### 単一フィールドに帰着しない違反
+
+集約レベルの規則でも、単一の入力フィールドに帰着しないものは `FieldViolation` にしません。
+素の番兵のまま返し、`invalid-params` を省略します。
+
+- 通貨をまたぐ加算（`Money.Add`）— 2 つの明細行の矛盾であり、どちらが「悪い」とは言えない
+- 状態の矛盾（`ErrOrderNotConfirmed`）や在庫不足（`ErrInsufficientStock`）— 409 であり、
+  「入力が悪い」のではなく「今その操作ができない」。直すべきフィールドが存在しない
+
+### 3 サーバの一貫性
+
+`ProblemDetails` スキーマは 3 契約に重複定義されたままです（各コンテキストを単体で切り出せる
+独立性を優先）。ドリフトは `cmd/dev/problem_parity_test.go` が検出します。同じ種類の契約違反を
+3 サーバへ送り、応答の形（`Content-Type` / `type` / `title` / `detail` / キー集合）が一致する
+ことをテーブル駆動で確認します。契約 YAML の同値比較ではなく**振る舞いの一致**を見るのは、
+契約が同一でも実装がずれれば意味が無いからです。
+
+### 将来の拡張点（現在はスコープ外）
+
+- **401 / 403**（`ogenerrors.SecurityError`）— 契約にセキュリティスキームが無いため未対応。
+  追加するときは `errorHandler` の `switch` に `http.StatusUnauthorized` /
+  `http.StatusForbidden` の分岐と、対応する `type` サフィックスを足します。
+- **429 / `Retry-After`** — レート制限を導入するときに `type` を足します。
+- **多言語化** — `title` / `reason` / `detail` は現在すべて日本語固定です。`Accept-Language` に
+  応じて切り替えるなら、`shared/problem` の表と各コンテキストの `domainReasons` を
+  言語別に引けるようにします（`code` と `type` は言語に依存しないので変えません）。
+- **契約への値域制約の追加** — 現在は検証をドメインに一元化しているため、契約側には
+  `minimum` / `minItems` などを書いていません。書けば ogen の `Validate()` 経路が発火し、
+  `invalid-params` に**添字付きの**パスが出るようになります（この経路は
+  `shared/problem/ogenproblem` のフィクスチャ契約で既にテスト済みです）。
+- **依存の自動更新（dependabot 等）** — 未導入。ogen の版を人手で上げても
+  `shared/problem/ogenproblem/extract_test.go` の特性テストが CI で落ちるため、
+  安全網としては機能します。
+
 ## context.Context
 
 - IO を伴うメソッドは **`ctx context.Context` を第 1 引数**に取ります。

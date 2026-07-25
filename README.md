@@ -150,9 +150,14 @@ Go でドメイン駆動設計（DDD）とヘキサゴナルアーキテクチ�
 - **コントラクトファースト + コード生成** — OpenAPI から ogen がサーバを、SQL から
   sqlc が型安全なアクセサを生成します。**生成物はコミットし、手で編集しません**。
   契約を変えたいときは元の YAML / SQL を編集して再生成します。
-- **RFC 9457（Problem Details）** — エラーは `application/problem+json` として返します。
-  ドメインのセンチネルエラーを HTTP ステータスへ翻訳します（見つからない → 404、
-  入力検証 → 422、排他衝突 → 409）。
+- **RFC 9457（Problem Details）** — エラーは**すべての経路**で
+  `application/problem+json` として返します。デコード失敗（400）・未定義パス（404）・
+  メソッド不許可（405）・サポート外 Content-Type（415）も、ドメインのセンチネルエラーの
+  翻訳（404 / 409 / 422 / 503）も同じ形式です。`type` は種別ごとの安定した URI で、
+  同じ status でも原因が違えば別の URI を与えます（経路が無い `not-found` と、対象が無い
+  `resource-not-found`）。違反したフィールドは拡張メンバー `invalid-params` で
+  機械可読に伝えます（`lines[0].unitPrice.amount` のようなパスと固定語彙の `code`）。
+  応答本文に ogen / Go 由来の文言や受信値は決して載せません。詳細は `CONVENTIONS.md`。
 
 ## 読み進め方（段階的読解パス）
 
@@ -307,8 +312,19 @@ curl -X POST localhost:8080/stock/WIDGET-001/replenish \
 # 在庫を照会する
 curl localhost:8080/stock/WIDGET-001
 
-# 存在しない SKU（RFC 9457 の problem+json が 404 で返る）
+# 存在しない SKU（RFC 9457 の problem+json が 404 で返る。type は resource-not-found）
 curl -i localhost:8080/stock/UNKNOWN
+
+# 未定義のパス（同じ 404 でも type は not-found。クライアントは type で区別できる）
+curl -i localhost:8080/no-such-endpoint
+
+# 契約違反（必須プロパティの欠落）。400 + invalid-params に違反フィールドが並ぶ
+curl -i -X POST localhost:8080/stock/WIDGET-001/replenish \
+  -H 'Content-Type: application/json' -d '{}'
+
+# ドメインの検証違反（補充数量 0）。422 + invalid-params
+curl -i -X POST localhost:8080/stock/WIDGET-001/replenish \
+  -H 'Content-Type: application/json' -d '{"quantity":0}'
 ```
 
 在庫の**内部 API**（予約・確定・解放）は既定ではホストに publish しません（compose ネットワーク
