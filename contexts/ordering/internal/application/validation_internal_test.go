@@ -89,7 +89,7 @@ func TestLocate_DomainIndexOverridesPrefix(t *testing.T) {
 func TestLocate_NilAndEmptyPrefix(t *testing.T) {
 	t.Parallel()
 
-	assert.Nil(t, locate("", nil), "nil は nil のまま")
+	require.NoError(t, locate("", nil), "nil は nil のまま")
 
 	_, err := order.NewCustomerID("")
 	var ve *ValidationError

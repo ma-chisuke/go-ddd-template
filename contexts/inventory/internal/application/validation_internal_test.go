@@ -80,7 +80,7 @@ func TestLocate_DomainIndexOverridesPrefix(t *testing.T) {
 func TestLocate_NilInput(t *testing.T) {
 	t.Parallel()
 
-	assert.Nil(t, locate("", nil), "nil は nil のまま")
+	assert.NoError(t, locate("", nil), "nil は nil のまま")
 }
 
 // ValidationError.Error() が包んだ文言をそのまま返すこと。

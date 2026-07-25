@@ -48,7 +48,7 @@ func TestOgenCharacteristics_RequiredMissingBecomesValidateError(t *testing.T) {
 		names := make([]string, 0, len(ve.Fields))
 		for _, f := range ve.Fields {
 			names = append(names, f.Name)
-			assert.ErrorIs(t, f.Error, validate.ErrFieldRequired, "葉は ErrFieldRequired")
+			require.ErrorIs(t, f.Error, validate.ErrFieldRequired, "葉は ErrFieldRequired")
 		}
 		assert.ElementsMatch(t, []string{"name", "lines", "nested"}, names)
 	})
@@ -153,7 +153,7 @@ func TestOgenCharacteristics_LeafErrorTypes(t *testing.T) {
 		var minLen *validate.MinLengthError
 
 		strErr := leafOf(t, p.send(t, `{"name":"Ab","lines":[{"sku":"AB","quantity":1}],"nested":{"inner":"ok"}}`), 0)
-		assert.ErrorAs(t, strErr, &minLen, "文字列の minLength")
+		require.ErrorAs(t, strErr, &minLen, "文字列の minLength")
 
 		arrErr := leafOf(t, p.send(t, `{"name":"Alpha","lines":[],"nested":{"inner":"ok"}}`), 0)
 		assert.ErrorAs(t, arrErr, &minLen, "配列の minItems も同じ型（ゆえに code も同じ）")

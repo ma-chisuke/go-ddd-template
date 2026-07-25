@@ -183,6 +183,16 @@ issues:
   # stylecheck の checks で有効化した ST1000 の範囲に閉じる。
   include:
     - EXC0011
+  # 報告の打ち切りを外す。
+  #
+  # golangci-lint の既定は max-same-issues: 3 / max-issues-per-linter: 50 で、
+  # **同じ文言の指摘は 4 件目から黙って捨てられる**。実測: thelper の同一指摘が 5 件あるのに
+  # 3 件しか出ず、その 3 件を直したあとに残り 2 件が現れた。green / red の判定自体は変わらない
+  # （1 件でも残れば非 0 終了）が、「あと何件あるのか」を数えて是正の計画を立てる用途では
+  # 嘘の数を返す。カナリア検証（注入した違反が当該 linter に到達したかを確かめる手順）でも
+  # 打ち切りは害になる。教材としても「出ている件数がすべて」である方が正しい。
+  max-same-issues: 0
+  max-issues-per-linter: 0
   # 生成ファイルは検査しない（明示的な保険）。
   exclude-rules:
     - path: (oas_.*_gen\.go|sqlcgen/.*\.go)

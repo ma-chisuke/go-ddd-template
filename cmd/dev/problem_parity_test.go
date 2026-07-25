@@ -145,6 +145,7 @@ func TestProblemParity_AcrossThreeServers(t *testing.T) {
 		{
 			name: "契約: 未定義パス（E2・404）は 3 サーバで同じ形になる",
 			send: func(t *testing.T, s server) *http.Response {
+				t.Helper()
 				return request(t, s, http.MethodGet, "/definitely-not-a-route", "", "")
 			},
 			wantTypeSuffix: problem.TypeNotFound,
@@ -153,6 +154,7 @@ func TestProblemParity_AcrossThreeServers(t *testing.T) {
 		{
 			name: "契約: 許可外メソッド（E3・405）は 3 サーバで同じ形になる",
 			send: func(t *testing.T, s server) *http.Response {
+				t.Helper()
 				return request(t, s, http.MethodDelete, s.postPath, "", "")
 			},
 			wantTypeSuffix: problem.TypeMethodNotAllowed,
@@ -161,6 +163,7 @@ func TestProblemParity_AcrossThreeServers(t *testing.T) {
 		{
 			name: "契約: サポート外 Content-Type（E1・415）は 3 サーバで同じ形になる",
 			send: func(t *testing.T, s server) *http.Response {
+				t.Helper()
 				return request(t, s, http.MethodPost, s.postPath, "text/plain", `{}`)
 			},
 			wantTypeSuffix: problem.TypeUnsupportedMediaType,
@@ -169,6 +172,7 @@ func TestProblemParity_AcrossThreeServers(t *testing.T) {
 		{
 			name: "契約: 不正 JSON（E1・400・フィールド特定不能）は 3 サーバで同じ形になる",
 			send: func(t *testing.T, s server) *http.Response {
+				t.Helper()
 				return request(t, s, http.MethodPost, s.postPath, "application/json", `{"x":`)
 			},
 			wantTypeSuffix: problem.TypeValidationError,
@@ -177,6 +181,7 @@ func TestProblemParity_AcrossThreeServers(t *testing.T) {
 		{
 			name: "契約: 必須欠落（E1・400・フィールド特定可能）は 3 サーバで同じ形になる",
 			send: func(t *testing.T, s server) *http.Response {
+				t.Helper()
 				return request(t, s, http.MethodPost, s.postPath, "application/json", `{}`)
 			},
 			wantTypeSuffix: problem.TypeValidationError,

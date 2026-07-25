@@ -59,7 +59,7 @@ const linesField = "Lines"
 // UnitPriceAmount / Currency として平らに持つのに対し、API 上は unitPrice の入れ子だから、
 // その差をここで吸収する。
 //
-// **したがって、ドメインに検証規則を 1 つ足しても通常はこの表を触らなくてよい。**
+// **したがって、ドメインに検証規則を 1 つ足しても通常はこの表を触らなくてよい**。
 var dtoPaths = map[string]string{
 	order.VMoneyAmount.Field:   "UnitPrice.Amount",
 	order.VMoneyCurrency.Field: "UnitPrice.Currency",

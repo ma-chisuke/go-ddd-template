@@ -111,6 +111,20 @@ diff の `-want +got` が反転して診断が嘘になります。→ `testifyl
 
 【Go: Go Code Review Comments "Useful Test Failures"、Go Wiki TestComments】
 
+### C-4d エラーの検証は `require`、エラー以外の独立した検証は `assert`
+
+道具立ての規約（[../CONVENTIONS.md](../CONVENTIONS.md)）は「`require` は前提が崩れたら即中断する
+致命的検証、`assert` は独立した検証を続行」と定めています。その線引きを**エラーについてだけ**具体化します。
+
+**後ろに別のアサーションが続くなら、エラーを検証するアサーション（`Error` / `NoError` / `ErrorIs` /
+`ErrorAs`）は `require` を使います。** エラーの取り違えは後続の診断をすべて無意味にする
+（`ErrorAs` なら取り出し先が nil のまま次の行へ進む）ため、**常に前提**として扱います。
+ブロックの最後の 1 行なら続くものが無いので `assert` のままでかまいません。
+→ `testifylint` の `require-error`
+
+`assert.Nil(t, err)` ではなく **`assert.NoError(t, err)`** を使います（診断が
+「nil ではない」ではなく実際のエラー文言になります）。→ `testifylint` の `error-nil`
+
 ### C-5 `t.Parallel()` は純粋テストで必須
 
 `internal/domain/**` と `internal/application/**` の**外部依存を持たない純粋テスト**では、
