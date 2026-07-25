@@ -106,3 +106,46 @@ func TestOrderCancel(t *testing.T) {
 		require.ErrorIs(t, o.Cancel(), order.ErrOrderNotConfirmed)
 	})
 }
+
+func TestReconstituteAndGetters(t *testing.T) {
+	id := mustOrderID(t, "ORDER-9")
+	cust := mustCustomerID(t, "CUST-9")
+	lines := []order.OrderLine{mustLine(t, "SKU-A", 2, 100, "JPY")}
+	total, err := order.NewMoney(200, "JPY")
+	require.NoError(t, err, "Money 生成失敗")
+	ref, err := order.NewReservationRef("REF-9")
+	require.NoError(t, err, "ReservationRef 生成失敗")
+
+	o := order.ReconstituteOrder(id, cust, lines, order.StatusCancelled, total, ref, 3)
+
+	assert.Equal(t, "ORDER-9", o.ID().String())
+	assert.Equal(t, "CUST-9", o.CustomerID().String())
+	assert.Equal(t, order.StatusCancelled, o.Status())
+	assert.Equal(t, 3, o.Version())
+	assert.Equal(t, "REF-9", o.ReservationRef().String())
+	got := o.Lines()
+	require.Len(t, got, 1)
+	l := got[0]
+	assert.Equal(t, "SKU-A", l.SKU().String())
+	assert.Equal(t, 2, l.Quantity().Int())
+	assert.Equal(t, int64(100), l.UnitPrice().Amount())
+	assert.Equal(t, int64(200), l.Subtotal().Amount())
+
+	// 復元ではドメインイベントを発生させない。
+	assert.Empty(t, o.PullEvents(), "復元でイベントが発生した")
+
+	// MarkPersisted はバージョンを同期する。
+	o.MarkPersisted(4)
+	assert.Equal(t, 4, o.Version(), "MarkPersisted 後の Version")
+}
+
+func TestStatusString(t *testing.T) {
+	cases := map[order.Status]string{
+		order.StatusConfirmed: "confirmed",
+		order.StatusCancelled: "cancelled",
+		order.Status(99):      "unknown",
+	}
+	for s, want := range cases {
+		assert.Equal(t, want, s.String(), "Status(%d).String()", int(s))
+	}
+}
