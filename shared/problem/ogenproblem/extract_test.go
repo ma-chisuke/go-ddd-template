@@ -220,7 +220,9 @@ func TestOgenCharacteristics_ParamAndBodyErrors(t *testing.T) {
 // (B) 振る舞いテスト: 抽出結果そのもの
 // ---------------------------------------------------------------------------
 
-func TestExtractParams(t *testing.T) {
+// TestExtractParams_BuildsParamPaths は Validate() 経路と Decode() 経路の両方について
+// invalid-params の name（フィールドパス）と code の組み立てを網羅する。
+func TestExtractParams_BuildsParamPaths(t *testing.T) {
 	p := newProber(t)
 
 	cases := []struct {
