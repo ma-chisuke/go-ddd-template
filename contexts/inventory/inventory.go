@@ -25,7 +25,7 @@ import (
 	// ディレクトリ名 http とパッケージ名 httpapi が異なるため、明示的に別名を付ける
 	// （パッケージ名を httpapi にしているのは、取り込み側で標準ライブラリ net/http と
 	// 識別子が衝突しないようにするため）。
-	httpapi "github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/http"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/httpapi"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/internalhttp"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/openapi"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/openapiinternal"

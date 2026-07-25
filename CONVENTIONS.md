@@ -207,10 +207,10 @@ package doc → import → 定数 → 型 → コンストラクタ → 公開�
 
 | # | 経路 | 発火点 | 実装 |
 | --- | --- | --- | --- |
-| E1 | リクエストのデコード／契約検証 | ogen `ErrorHandler` | `internal/adapter/inbound/http/problem.go` |
+| E1 | リクエストのデコード／契約検証 | ogen `ErrorHandler` | `internal/adapter/inbound/httpapi/problem.go` |
 | E2 | ルーティング不一致（未定義パス） | ogen `NotFound` | 同上 |
 | E3 | メソッド不許可 | ogen `MethodNotAllowed` | 同上 |
-| E4 | ハンドラ戻り値のエラー | 生成された `NewError` | `internal/adapter/inbound/http/errmap.go` |
+| E4 | ハンドラ戻り値のエラー | 生成された `NewError` | `internal/adapter/inbound/httpapi/errmap.go` |
 
 E1〜E3 は **`Handler.ServerOptions()` を `NewServer` に渡すことで注入**します。渡し忘れると
 ogen の既定ハンドラが `{"error_message": "operation placeOrder: decode request: ..."}` を返し、
@@ -282,7 +282,7 @@ ACL はコード別分岐を必要としないので、明示コードは利益�
 HTTP の理由句をそのまま使うと逆引きできなくなります）。
 
 **利用者による差し替え手順**: URI の名前空間は各コンテキストの
-`internal/adapter/inbound/http/problem.go`（内部 API は `internalhttp/problem.go`）にある
+`internal/adapter/inbound/httpapi/problem.go`（内部 API は `internalhttp/problem.go`）にある
 **`problemTypeBase` 定数 1 箇所**です。自分の名前空間へ書き換えてください。URI は識別子
 であり、解決可能な文書ページを公開する必要はありません。
 

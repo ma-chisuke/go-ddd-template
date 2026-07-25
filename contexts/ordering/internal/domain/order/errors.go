@@ -47,7 +47,7 @@ var (
 //
 // 新しい検証規則を足す手順は 2 箇所の編集で済む。
 //  1. 下の var ブロックに Rule を 1 行足す。
-//  2. インターフェース層の reason 表（internal/adapter/inbound/http/problem.go）に
+//  2. インターフェース層の reason 表（internal/adapter/inbound/httpapi/problem.go）に
 //     1 行足す（規則 R-19）。
 //
 // 番兵の定義（上の var ブロック）は変えない。番兵は errors.Is の判定単位であり、

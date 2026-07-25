@@ -47,7 +47,7 @@
 
 - 公開 API に出すなら、**契約を先に**変更します（`contracts/<ctx>/openapi.yaml`）。契約は真実の
   源で、ここから ogen がサーバを生成します。
-- `go generate ./...` で ogen を再生成し、**入口アダプタ**（`internal/adapter/inbound/http/`、
+- `go generate ./...` で ogen を再生成し、**入口アダプタ**（`internal/adapter/inbound/httpapi/`、
   パッケージ `httpapi`）の薄いハンドラを生成型に合わせて更新します。ハンドラは HTTP と
   ユースケースの相互変換だけを行い、業務ロジックは持ちません。
 - エラーの HTTP 変換は `errmap.go` の `NewError` を更新します（センチネル → 404 / 422 / 409 など、

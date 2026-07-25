@@ -60,9 +60,9 @@
 | **DDD パターン → 実装位置の索引**（「集約はどこ？ ACL は？」に答える表） | `docs/ddd-patterns.md`（「新しいものをどう足すか」は `docs/add-a-use-case.md`、境界を割った理由は `docs/why-these-boundaries.md`） |
 | ユースケース、ポート（interface）、サブスクライバ、Reaper | `internal/application/` |
 | ポートの実装（DB・インメモリ）＝出口アダプタ | `internal/adapter/outbound/`（`memory` / `postgres`）。構造化ログは `shared/logging`、no-op Publisher は `shared/outbox/logpub` |
-| 公開 HTTP ハンドラ・エラー変換＝入口アダプタ（相関 ID ミドルウェアは共有の `shared/correlation/corrhttp`） | `internal/adapter/inbound/http/`（パッケージ `httpapi`） |
-| ハンドラ戻り値のエラー → HTTP（E4） | `internal/adapter/inbound/http/errmap.go`（`NewError` / `classify`） |
-| デコード失敗・未定義パス・メソッド不許可（E1〜E3）と `type` URI・`code` → `reason` 表 | `internal/adapter/inbound/http/problem.go` |
+| 公開 HTTP ハンドラ・エラー変換＝入口アダプタ（相関 ID ミドルウェアは共有の `shared/correlation/corrhttp`） | `internal/adapter/inbound/httpapi/` |
+| ハンドラ戻り値のエラー → HTTP（E4） | `internal/adapter/inbound/httpapi/errmap.go`（`NewError` / `classify`） |
+| デコード失敗・未定義パス・メソッド不許可（E1〜E3）と `type` URI・`code` → `reason` 表 | `internal/adapter/inbound/httpapi/problem.go` |
 | ogen 生成の HTTP サーバ | `internal/adapter/inbound/openapi/`（在庫の内部 API は `openapiinternal/`） |
 | 依存の結線（合成ルート） | ファサード（`inventory.go` / `ordering.go`）と `cmd/<ctx>/` |
 | HTTP サーバの起動・停止（ライフサイクル機構） | `shared/serve`。`cmd/<ctx>/main.go` には配線（env 読取・`signal.NotifyContext`・`defer pool.Close()`・`Deps` 組立・mux + healthz）だけを残す |
@@ -99,8 +99,8 @@
 
 1. `contracts/inventory/openapi.yaml` を編集する。
 2. `cd contexts/inventory && go generate ./...` で ogen を再生成する。
-3. `internal/adapter/inbound/http/handler.go` の薄いハンドラを、生成された型に合わせて
-   更新する。エラーの HTTP 変換は `internal/adapter/inbound/http/errmap.go` の
+3. `internal/adapter/inbound/httpapi/handler.go` の薄いハンドラを、生成された型に合わせて
+   更新する。エラーの HTTP 変換は `internal/adapter/inbound/httpapi/errmap.go` の
    `NewError` を更新する。
 4. **新しいサーバを組み立てるなら `NewServer(h, h.ServerOptions()...)` と書く。**
    オプションを渡し忘れると ogen の既定エラーハンドラが使われ、内部文字列
@@ -132,7 +132,7 @@
    変えない**（`errors.Is` の判定単位であり既存の公開 API）。新しい番兵が要るなら、
    上の `var` ブロックにも 1 行足してから `Rule` から指す。
 
-2. **インターフェース層** `internal/adapter/inbound/http/problem.go` の `domainReasons` に
+2. **インターフェース層** `internal/adapter/inbound/httpapi/problem.go` の `domainReasons` に
    「規則 → 定型文」を 1 行足す。
 
    ```go

@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	httpapi "github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/http"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/httpapi"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/openapi"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
