@@ -9,6 +9,30 @@ import (
 	"github.com/ogen-go/ogen/validate"
 )
 
+func (s *GetStockBadRequest) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *GetStockNotFound) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *GetStockUnprocessableEntity) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *InvalidParam) Validate() error {
 	if s == nil {
 		return validate.ErrNilPointer
@@ -119,6 +143,30 @@ func (s *ProblemResponseStatusCode) Validate() error {
 	}
 	if len(failures) > 0 {
 		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s *ReplenishStockBadRequest) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *ReplenishStockConflict) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *ReplenishStockUnprocessableEntity) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
 	}
 	return nil
 }

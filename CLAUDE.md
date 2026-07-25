@@ -29,7 +29,13 @@
   の 1 行で返す。規則を足すコストは **3 箇所**（domain の `Rule` 1 行 + interfaces の
   `domainReasons` 1 行 + 契約 OpenAPI の `InvalidParam.code` `enum` 1 行、在庫は公開・内部の
   両契約）。`code` は契約で `enum` 化されており、足し忘れると生成型の `Validate()` が弾いて
-  CI が落ちる。番兵は消さない（`errors.Is` の判定単位）。詳細は
+  CI が落ちる。番兵は消さない（`errors.Is` の判定単位）。公開契約のオペレーションは返しうる
+  4xx/5xx を明示ステータス + `default`（未処理 → 500）で宣言し、`handler.go` の戻り型は生成
+  される `<Op>Res` union になる（本体は変えない）。内部契約
+  `contracts/inventory/internal.openapi.yaml` は `default` のみに保つ（生成クライアント経由の
+  ACL がステータス区分だけを見る＝規則 R-16。明示コードは union の値を返し ACL 翻訳を壊す）。
+  `type` は `code` と違い OpenAPI の `enum` にしない（`format: uri` のまま。台帳は
+  `shared/problem/types.go`）。詳細は
   `CONVENTIONS.md` の「HTTP エラー応答（RFC 9457 / Problem Details）」と `AGENTS.md` のレシピ。
 - **秘密情報をハードコードしない**。DB 資格情報・トークンはコード/イメージに焼き込まず、
   実行時に環境変数から注入する（compose の認証情報はデモ専用）。

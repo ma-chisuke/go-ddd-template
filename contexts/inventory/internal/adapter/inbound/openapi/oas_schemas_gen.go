@@ -13,6 +13,18 @@ func (s *ProblemResponseStatusCode) Error() string {
 	return fmt.Sprintf("code %d: %+v", s.StatusCode, s.Response)
 }
 
+type GetStockBadRequest ProblemResponseStatusCode
+
+func (*GetStockBadRequest) getStockRes() {}
+
+type GetStockNotFound ProblemResponseStatusCode
+
+func (*GetStockNotFound) getStockRes() {}
+
+type GetStockUnprocessableEntity ProblemResponseStatusCode
+
+func (*GetStockUnprocessableEntity) getStockRes() {}
+
 // 1 件のフィールド違反。RFC 9457 の拡張メンバー invalid-params の要素。.
 // Ref: #/components/schemas/InvalidParam
 type InvalidParam struct {
@@ -394,6 +406,18 @@ func (s *ReplenishRequest) SetQuantity(val int) {
 	s.Quantity = val
 }
 
+type ReplenishStockBadRequest ProblemResponseStatusCode
+
+func (*ReplenishStockBadRequest) replenishStockRes() {}
+
+type ReplenishStockConflict ProblemResponseStatusCode
+
+func (*ReplenishStockConflict) replenishStockRes() {}
+
+type ReplenishStockUnprocessableEntity ProblemResponseStatusCode
+
+func (*ReplenishStockUnprocessableEntity) replenishStockRes() {}
+
 // Ref: #/components/schemas/StockView
 type StockView struct {
 	// 在庫識別子.
@@ -446,3 +470,6 @@ func (s *StockView) SetReserved(val int) {
 func (s *StockView) SetVersion(val int) {
 	s.Version = val
 }
+
+func (*StockView) getStockRes()       {}
+func (*StockView) replenishStockRes() {}

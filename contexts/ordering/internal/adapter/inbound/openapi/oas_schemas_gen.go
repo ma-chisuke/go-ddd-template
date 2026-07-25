@@ -13,6 +13,34 @@ func (s *ProblemResponseStatusCode) Error() string {
 	return fmt.Sprintf("code %d: %+v", s.StatusCode, s.Response)
 }
 
+type CancelOrderBadRequest ProblemResponseStatusCode
+
+func (*CancelOrderBadRequest) cancelOrderRes() {}
+
+type CancelOrderConflict ProblemResponseStatusCode
+
+func (*CancelOrderConflict) cancelOrderRes() {}
+
+type CancelOrderNotFound ProblemResponseStatusCode
+
+func (*CancelOrderNotFound) cancelOrderRes() {}
+
+type CancelOrderUnprocessableEntity ProblemResponseStatusCode
+
+func (*CancelOrderUnprocessableEntity) cancelOrderRes() {}
+
+type GetOrderBadRequest ProblemResponseStatusCode
+
+func (*GetOrderBadRequest) getOrderRes() {}
+
+type GetOrderNotFound ProblemResponseStatusCode
+
+func (*GetOrderNotFound) getOrderRes() {}
+
+type GetOrderUnprocessableEntity ProblemResponseStatusCode
+
+func (*GetOrderUnprocessableEntity) getOrderRes() {}
+
 // 1 件のフィールド違反。RFC 9457 の拡張メンバー invalid-params の要素。.
 // Ref: #/components/schemas/InvalidParam
 type InvalidParam struct {
@@ -471,6 +499,18 @@ func (s *OrderView) SetVersion(val int) {
 	s.Version = val
 }
 
+func (*OrderView) cancelOrderRes() {}
+func (*OrderView) getOrderRes()    {}
+func (*OrderView) placeOrderRes()  {}
+
+type PlaceOrderBadRequest ProblemResponseStatusCode
+
+func (*PlaceOrderBadRequest) placeOrderRes() {}
+
+type PlaceOrderConflict ProblemResponseStatusCode
+
+func (*PlaceOrderConflict) placeOrderRes() {}
+
 // Ref: #/components/schemas/PlaceOrderLine
 type PlaceOrderLine struct {
 	// 在庫識別子.
@@ -537,6 +577,14 @@ func (s *PlaceOrderRequest) SetCustomerId(val string) {
 func (s *PlaceOrderRequest) SetLines(val []PlaceOrderLine) {
 	s.Lines = val
 }
+
+type PlaceOrderServiceUnavailable ProblemResponseStatusCode
+
+func (*PlaceOrderServiceUnavailable) placeOrderRes() {}
+
+type PlaceOrderUnprocessableEntity ProblemResponseStatusCode
+
+func (*PlaceOrderUnprocessableEntity) placeOrderRes() {}
 
 // RFC 9457 (Problem Details for HTTP APIs) に準拠したエラー表現.
 // Ref: #/components/schemas/ProblemDetails

@@ -9,6 +9,62 @@ import (
 	"github.com/ogen-go/ogen/validate"
 )
 
+func (s *CancelOrderBadRequest) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *CancelOrderConflict) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *CancelOrderNotFound) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *CancelOrderUnprocessableEntity) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *GetOrderBadRequest) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *GetOrderNotFound) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *GetOrderUnprocessableEntity) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *InvalidParam) Validate() error {
 	if s == nil {
 		return validate.ErrNilPointer
@@ -96,6 +152,22 @@ func (s *OrderView) Validate() error {
 	return nil
 }
 
+func (s *PlaceOrderBadRequest) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *PlaceOrderConflict) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *PlaceOrderRequest) Validate() error {
 	if s == nil {
 		return validate.ErrNilPointer
@@ -115,6 +187,22 @@ func (s *PlaceOrderRequest) Validate() error {
 	}
 	if len(failures) > 0 {
 		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s *PlaceOrderServiceUnavailable) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *PlaceOrderUnprocessableEntity) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
 	}
 	return nil
 }

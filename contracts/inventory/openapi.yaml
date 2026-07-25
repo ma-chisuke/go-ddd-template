@@ -40,6 +40,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StockView'
+        # このオペレーションが実際に返しうる 4xx/5xx（errmap.go の classify に対応）。
+        #   400 契約／本文・パスパラメータの検証失敗
+        #   409 楽観的排他の衝突（conflict）
+        #   422 SKU・数量のドメイン検証（補充数量は 1 以上）
+        # 未登録 SKU は新規作成して補充するため 404 は返さない。上記以外は default（= 500）。
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '422':
+          $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
 
@@ -57,6 +68,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StockView'
+        # このオペレーションが実際に返しうる 4xx/5xx（errmap.go の classify に対応）。
+        #   400 パスパラメータの契約検証失敗
+        #   404 SKU が存在しない（resource-not-found）
+        #   422 SKU のドメイン検証失敗（例 空白のみ）
+        # 上記以外の未処理エラーは default（= 500）へ落ちる。
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '422':
+          $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
 
@@ -77,7 +99,14 @@ components:
     # 生成する。ドメインのセンチネルエラーはこの NewError で HTTP ステータスと
     # problem+json 本文へ翻訳する。
     ProblemResponse:
-      description: RFC 9457 形式のエラー詳細
+      description: |
+        RFC 9457 形式のエラー詳細。各オペレーションは自分が実際に返しうる 4xx/5xx を
+        明示的に宣言し、既知のドメイン／検証エラーはそれらの宣言済みステータスへ写す。
+        宣言のどれにも当てはまらない未処理のエラーは default（= 500 Internal Server Error）
+        へ落ちる（classify の default 分岐 = 500）。
+        なお 415（メディアタイプ非対応）と、経路レベルの 404（未定義パス）/ 405（メソッド
+        不許可）はサーバ全体のトランスポート層（ServerOption ハンドラ）で生成されるため
+        オペレーション単位では宣言できないが、同じ ProblemDetails 形状を共有する。
       content:
         application/problem+json:
           schema:

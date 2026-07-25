@@ -108,7 +108,23 @@ components:
 
   responses:
     ProblemResponse:
-      description: RFC 9457 形式のエラー詳細
+      description: |
+        RFC 9457 形式のエラー詳細。エラー応答はすべて default（= このコンテキストが返しうる
+        4xx/5xx すべて。classify を参照）として 1 つにまとめて宣言する。
+
+        公開契約（openapi.yaml）と違い、この内部契約はオペレーション単位の明示ステータス
+        （'400' / '409' など）を **あえて宣言しない**。理由は消費のされ方にある: この契約から
+        生成されるのはサーバではなく **クライアント**（clients/inventory）であり、その唯一の
+        利用者は注文コンテキストの腐敗防止層（ACL）である。ACL はステータスコードのみを見て
+        自分の番兵へ翻訳する（規則 R-16）。ogen は default だけのとき、非 2xx をすべて 1 つの
+        型付きエラー（ProblemResponseStatusCode）としてクライアントに返す（convenient errors）。
+        ここに明示ステータスを足すと、宣言済みコードがエラーではなく union の値としてクライアントに
+        返るようになり、ACL の「非 2xx = エラー」翻訳が壊れる（かつ ACL はコード別分岐を必要と
+        しない）。よってこの契約は default 集約のままにする。
+
+        なお 415（メディアタイプ非対応）と、経路レベルの 404（未定義パス）/ 405（メソッド
+        不許可）はサーバ全体のトランスポート層（ServerOption ハンドラ）で生成され、同じ
+        ProblemDetails 形状を共有する。
       content:
         application/problem+json:
           schema:

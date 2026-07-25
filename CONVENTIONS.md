@@ -48,6 +48,48 @@ ogen の既定ハンドラが `{"error_message": "operation placeOrder: decode r
 内部実装の詳細が外部の観測面に漏れます。本番の合成ルート（`ordering.go` / `inventory.go`）も
 テストも、必ず同じ `ServerOptions()` 経由で組み立てます。
 
+### 契約に宣言するステータスコード（明示コード + `default`）
+
+**公開契約**（`ordering/openapi.yaml` / `inventory/openapi.yaml`）では、各オペレーションが
+**自分が実際に返しうる 4xx/5xx を明示的に宣言**し、加えて `default` を宣言します。宣言済みの
+どのコードにも当てはまらない未処理のエラーは `default`（= 500 Internal Server Error。
+`errmap.go` の `classify` の `default` 分岐）へ落ちます。契約が「このオペレーションはどの
+ステータスを返すか」を正直に語るのが目的で、各オペレーションのコードはそのコンテキストの
+`classify` から導きます（`grep` の羅列ではなく、実際に到達するものだけ）。
+
+| コンテキスト | オペレーション | 宣言するコード（+ `default`=未処理→500） |
+| --- | --- | --- |
+| ordering | `placeOrder` | 400, 409, 422, 503 |
+| ordering | `getOrder` | 400, 404, 422 |
+| ordering | `cancelOrder` | 400, 404, 409, 422 |
+| inventory（公開） | `replenishStock` | 400, 409, 422 |
+| inventory（公開） | `getStock` | 400, 404, 422 |
+
+`getOrder` / `cancelOrder` の 422 は、パスパラメータ `id` がドメイン検証
+（`order.NewOrderID` → `ErrInvalidOrderID`）を通るため実際に返りうります。415（メディアタイプ
+非対応）と、経路レベルの 404（未定義パス）/ 405（メソッド不許可）は E1〜E3 のトランスポート層
+（`ServerOption` ハンドラ）が生成するもので、オペレーション単位では宣言できません（同じ
+`ProblemDetails` 形状は共有します）。
+
+明示コードを宣言すると、ogen はハンドラの戻り型を成功応答とエラー応答をまとめた `<Op>Res`
+**union**（`PlaceOrderRes` など）にします。`default` が残るので `NewError` も生成され、経路は
+変わりません。手書きハンドラは戻り型を union に変えるだけ（成功応答型は ogen のマーカーで
+union を満たすので `return toOrderView(view), nil` はそのまま、エラーは `return nil, err` で
+`NewError` へ委譲）で、本体ロジックは変えません。宣言した各コードごとに ogen が生成する変種型
+（`PlaceOrderBadRequest` など）はハンドラからは使いません（実行時のステータスは `classify` →
+`ProblemResponseStatusCode` が動的に決めます。明示コードは契約の正直さのための宣言）。
+
+**内部契約**（`inventory/internal.openapi.yaml`）は例外で、エラーは `default` だけにまとめ、
+オペレーション単位の明示コードは**あえて宣言しません**。この契約から生成されるのはサーバでは
+なく**クライアント**（`clients/inventory`）で、その唯一の利用者は注文コンテキストの腐敗防止層
+（ACL / `aclhttp`・`eventhttp`）だからです。ACL はステータスコードの区分（4xx か 5xx か）
+だけを見て自分の番兵へ翻訳します（規則 R-16）。ogen は `default` だけのとき、非 2xx をすべて
+1 つの型付きエラー（`ProblemResponseStatusCode`）としてクライアントへ返します。ここに明示
+コードを足すと、宣言済みコードがエラーではなく union の**値**（`ReserveStockConflict` など、
+`err == nil`）としてクライアントに返るようになり、ACL の「非 2xx = エラー」翻訳が壊れます。
+ACL はコード別分岐を必要としないので、明示コードは利益ゼロで結合だけを増やします。よって
+内部契約は `default` 集約のままにします。
+
 ### `type` URI（問題種別）
 
 `type` は `about:blank` ではなく **種別ごとの安定した URI** です。クライアントは `status` では

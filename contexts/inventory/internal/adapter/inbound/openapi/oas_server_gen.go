@@ -13,14 +13,14 @@ type Handler interface {
 	// 指定した SKU の現在の在庫状態を返す。.
 	//
 	// GET /stock/{sku}
-	GetStock(ctx context.Context, params GetStockParams) (*StockView, error)
+	GetStock(ctx context.Context, params GetStockParams) (GetStockRes, error)
 	// ReplenishStock implements replenishStock operation.
 	//
 	// 指定した SKU の在庫を補充する。SKU
 	// が未登録の場合は新規に作成してから補充する。.
 	//
 	// POST /stock/{sku}/replenish
-	ReplenishStock(ctx context.Context, req *ReplenishRequest, params ReplenishStockParams) (*StockView, error)
+	ReplenishStock(ctx context.Context, req *ReplenishRequest, params ReplenishStockParams) (ReplenishStockRes, error)
 	// NewError creates *ProblemResponseStatusCode from error returned by handler.
 	//
 	// Used for common default response.
