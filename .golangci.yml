@@ -104,6 +104,22 @@ linters-settings:
             desc: "開発ハーネスは在庫コンテキストの internal/ に依存してはならない（公開ファサード inventory.Module と port だけを使う）"
           - pkg: "github.com/example/go-ddd-template/contexts/ordering/internal"
             desc: "開発ハーネスは注文コンテキストの internal/ に依存してはならない（公開ファサード ordering.Module と port だけを使う）"
+      # 7) 共有モジュールは依存グラフの最下層。どのコンテキストにも、生成クライアントにも
+      #    依存しない。依存は常に「コンテキスト → shared」の一方向である。
+      #    これはドメイン値オブジェクト（SKU / Quantity / Money 等）を shared/ へ
+      #    置かせないための機械的な歯止めでもある（従来は shared/go.mod のコメントによる
+      #    規約だけで、強制は無かった）。型付きディスパッチャ event.Typed[E] のように
+      #    ドメイン型を型パラメータで受ける設計が、import を増やしていないことも
+      #    この rule が検証する。
+      #    テストも対象に含める（除外しない方が強く、現状も違反は無い）。
+      shared-purity:
+        files:
+          - "**/shared/**"
+        deny:
+          - pkg: "github.com/example/go-ddd-template/contexts"
+            desc: "共有モジュールは境界づけられたコンテキストに依存してはならない（公開ファサードと port も含む。依存は常にコンテキスト → shared の一方向）"
+          - pkg: "github.com/example/go-ddd-template/clients"
+            desc: "共有モジュールは特定コンテキストの生成クライアントに依存してはならない"
 
 issues:
   # 生成ファイルは検査しない（明示的な保険）。
