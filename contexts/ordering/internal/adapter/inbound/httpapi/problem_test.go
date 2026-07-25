@@ -286,24 +286,24 @@ func TestProblem_E4_TypeMigration(t *testing.T) {
 		wantSuffix string
 	}{
 		{
-			name:     "404 は resource-not-found（E2 の not-found とは別種別）",
+			name:     "契約: 404 は resource-not-found で E2 の not-found とは別種別",
 			reserver: stubReserver{}, method: http.MethodGet, path: "/orders/NOPE",
 			wantStatus: http.StatusNotFound, wantSuffix: problem.TypeResourceNotFound,
 		},
 		{
-			name:     "409（在庫予約の拒否）は reservation-rejected",
+			name:     "契約: 在庫予約の拒否の 409 は reservation-rejected",
 			reserver: stubReserver{err: application.ErrReservationRejected},
 			method:   http.MethodPost, path: "/orders", body: placeBody,
 			wantStatus: http.StatusConflict, wantSuffix: problem.TypeReservationRejected,
 		},
 		{
-			name:     "422 は invalid-input",
+			name:     "契約: 422 は invalid-input",
 			reserver: stubReserver{}, method: http.MethodPost, path: "/orders",
 			body:       `{"customerId":"CUST-1","lines":[]}`,
 			wantStatus: http.StatusUnprocessableEntity, wantSuffix: problem.TypeInvalidInput,
 		},
 		{
-			name: "503 は service-unavailable",
+			name: "契約: 503 は service-unavailable",
 			reserver: stubReserver{
 				err: errors.Join(application.ErrReservationRejected, application.ErrReservationUnavailable),
 			},
@@ -311,7 +311,7 @@ func TestProblem_E4_TypeMigration(t *testing.T) {
 			wantStatus: http.StatusServiceUnavailable, wantSuffix: problem.TypeServiceUnavailable,
 		},
 		{
-			name:     "500 は internal-error",
+			name:     "契約: 500 は internal-error",
 			reserver: stubReserver{err: errOpaque},
 			method:   http.MethodPost, path: "/orders", body: placeBody,
 			wantStatus: http.StatusInternalServerError, wantSuffix: problem.TypeInternalError,

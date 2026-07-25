@@ -49,42 +49,42 @@ func TestValidationPath_PlaceOrder(t *testing.T) {
 		wantErr  error
 	}{
 		{
-			name:     "顧客 ID が空",
+			name:     "境界: 顧客 ID が空なら CustomerId を指す",
 			in:       application.PlaceOrderInput{CustomerID: "  ", Lines: []application.PlaceOrderLine{{SKU: "SKU-A", Quantity: 1, UnitPriceAmount: 100, Currency: "JPY"}}},
 			wantPath: "CustomerId",
 			wantCode: order.VCustomerID.Code,
 			wantErr:  order.ErrInvalidCustomerID,
 		},
 		{
-			name:     "明細が空（集約規則）",
+			name:     "境界: 明細が空なら Lines を指す（集約規則）",
 			in:       application.PlaceOrderInput{CustomerID: "CUST-1"},
 			wantPath: "Lines",
 			wantCode: order.VEmptyOrder.Code,
 			wantErr:  order.ErrEmptyOrder,
 		},
 		{
-			name:     "1 行目の SKU が空",
+			name:     "境界: 1 行目の SKU が空なら Lines[0].Sku を指す",
 			in:       application.PlaceOrderInput{CustomerID: "CUST-1", Lines: []application.PlaceOrderLine{{SKU: " ", Quantity: 1, UnitPriceAmount: 100, Currency: "JPY"}}},
 			wantPath: "Lines[0].Sku",
 			wantCode: order.VSKU.Code,
 			wantErr:  order.ErrInvalidSKU,
 		},
 		{
-			name:     "1 行目の数量が 0",
+			name:     "境界: 1 行目の数量が 0 なら Lines[0].Quantity を指す",
 			in:       application.PlaceOrderInput{CustomerID: "CUST-1", Lines: []application.PlaceOrderLine{{SKU: "SKU-A", Quantity: 0, UnitPriceAmount: 100, Currency: "JPY"}}},
 			wantPath: "Lines[0].Quantity",
 			wantCode: order.VQuantity.Code,
 			wantErr:  order.ErrInvalidQuantity,
 		},
 		{
-			name:     "1 行目の金額が負（amount）",
+			name:     "境界: 1 行目の金額が負なら Lines[0].UnitPrice.Amount を指す",
 			in:       application.PlaceOrderInput{CustomerID: "CUST-1", Lines: []application.PlaceOrderLine{{SKU: "SKU-A", Quantity: 1, UnitPriceAmount: -1, Currency: "JPY"}}},
 			wantPath: "Lines[0].UnitPrice.Amount",
 			wantCode: order.VMoneyAmount.Code,
 			wantErr:  order.ErrInvalidMoney,
 		},
 		{
-			name:     "1 行目の通貨が空（currency）",
+			name:     "境界: 1 行目の通貨が空なら Lines[0].UnitPrice.Currency を指す",
 			in:       application.PlaceOrderInput{CustomerID: "CUST-1", Lines: []application.PlaceOrderLine{{SKU: "SKU-A", Quantity: 1, UnitPriceAmount: 100, Currency: ""}}},
 			wantPath: "Lines[0].UnitPrice.Currency",
 			wantCode: order.VMoneyCurrency.Code,
@@ -115,7 +115,7 @@ func TestValidationPath_PlaceOrderReportsTheBrokenLine(t *testing.T) {
 	}
 
 	for _, broken := range []int{0, 1, 2} {
-		t.Run(fmt.Sprintf("壊れているのは %d 行目", broken), func(t *testing.T) {
+		t.Run(fmt.Sprintf("境界: 壊れているのが %d 行目でも同じ添字を指す", broken), func(t *testing.T) {
 			lines := []application.PlaceOrderLine{ok("SKU-A"), ok("SKU-B"), ok("SKU-C")}
 			lines[broken].Quantity = 0
 

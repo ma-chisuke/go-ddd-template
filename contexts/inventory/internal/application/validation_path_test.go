@@ -47,7 +47,7 @@ func TestValidationPath_SingleValueUseCases(t *testing.T) {
 		wantErr  error
 	}{
 		{
-			name: "Replenish: SKU が空",
+			name: "境界: Replenish は空の SKU を Sku として指す",
 			call: func(f reserveFixture) error {
 				_, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: " ", Quantity: 1})
 				return err
@@ -57,7 +57,7 @@ func TestValidationPath_SingleValueUseCases(t *testing.T) {
 			wantErr:  inventory.ErrInvalidSKU,
 		},
 		{
-			name: "Replenish: 数量が負（値オブジェクトで弾かれる）",
+			name: "境界: Replenish は負の数量を Quantity として指す（値オブジェクトで弾かれる）",
 			call: func(f reserveFixture) error {
 				_, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: "SKU-A", Quantity: -1})
 				return err
@@ -67,7 +67,7 @@ func TestValidationPath_SingleValueUseCases(t *testing.T) {
 			wantErr:  inventory.ErrInvalidQuantity,
 		},
 		{
-			name: "Replenish: 数量が 0（値オブジェクトを通過し集約で弾かれる）",
+			name: "境界: Replenish は 0 の数量を Quantity として指す（値オブジェクトを通過し集約で弾かれる）",
 			call: func(f reserveFixture) error {
 				_, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: "SKU-A", Quantity: 0})
 				return err
@@ -77,7 +77,7 @@ func TestValidationPath_SingleValueUseCases(t *testing.T) {
 			wantErr:  inventory.ErrInvalidQuantity,
 		},
 		{
-			name: "QueryStock: SKU が空",
+			name: "境界: QueryStock は空の SKU を Sku として指す",
 			call: func(f reserveFixture) error {
 				_, err := f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "\t"})
 				return err
@@ -87,21 +87,21 @@ func TestValidationPath_SingleValueUseCases(t *testing.T) {
 			wantErr:  inventory.ErrInvalidSKU,
 		},
 		{
-			name:     "Reserve: 参照が空",
+			name:     "境界: Reserve は空の参照を Ref として指す",
 			call:     func(f reserveFixture) error { return f.reserver.Reserve(ctx, application.ReserveInput{Ref: "  "}) },
 			wantPath: "Ref",
 			wantCode: inventory.VReservationRef.Code,
 			wantErr:  inventory.ErrInvalidReservationRef,
 		},
 		{
-			name:     "Confirm: 参照が空",
+			name:     "境界: Confirm は空の参照を Ref として指す",
 			call:     func(f reserveFixture) error { return f.confirmer.Confirm(ctx, "") },
 			wantPath: "Ref",
 			wantCode: inventory.VReservationRef.Code,
 			wantErr:  inventory.ErrInvalidReservationRef,
 		},
 		{
-			name:     "Release: 参照が空",
+			name:     "境界: Release は空の参照を Ref として指す",
 			call:     func(f reserveFixture) error { return f.releaser.Release(ctx, "") },
 			wantPath: "Ref",
 			wantCode: inventory.VReservationRef.Code,
@@ -145,7 +145,7 @@ func TestValidationPath_ReserveLineIndex(t *testing.T) {
 
 	t.Run("境界: SKU が空の行を指す（アプリ層のループが位置を付ける）", func(t *testing.T) {
 		for _, broken := range []int{0, 1, 2} {
-			t.Run(fmt.Sprintf("%d 行目", broken), func(t *testing.T) {
+			t.Run(fmt.Sprintf("境界: %d 行目の SKU が空でも同じ添字を指す", broken), func(t *testing.T) {
 				lines := okLines()
 				lines[broken].SKU = "  "
 
@@ -161,7 +161,7 @@ func TestValidationPath_ReserveLineIndex(t *testing.T) {
 
 	t.Run("境界: 数量 0 の行を指す（ドメインの Index が位置を運ぶ）", func(t *testing.T) {
 		for _, broken := range []int{0, 1, 2} {
-			t.Run(fmt.Sprintf("%d 行目", broken), func(t *testing.T) {
+			t.Run(fmt.Sprintf("境界: %d 行目の数量が 0 でも同じ添字を指す", broken), func(t *testing.T) {
 				lines := okLines()
 				// 0 は値オブジェクトを通過するので、位置は Allocate（集約側）でしか分からない。
 				lines[broken].Quantity = 0

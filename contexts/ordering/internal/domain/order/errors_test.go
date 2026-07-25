@@ -37,37 +37,37 @@ func TestFieldViolation_ValueObjects(t *testing.T) {
 		want order.Rule
 	}{
 		{
-			name: "NewQuantity(0) は quantity を名乗る",
+			name: "境界: NewQuantity(0) は quantity を名乗る",
 			err:  func() error { _, err := order.NewQuantity(0); return err },
 			want: order.VQuantity,
 		},
 		{
-			name: "NewMoney(-1, JPY) は amount を名乗る",
+			name: "境界: NewMoney(-1, JPY) は amount を名乗る",
 			err:  func() error { _, err := order.NewMoney(-1, "JPY"); return err },
 			want: order.VMoneyAmount,
 		},
 		{
-			name: "NewMoney(100, 空) は currency を名乗る",
+			name: "境界: NewMoney(100, 空) は currency を名乗る",
 			err:  func() error { _, err := order.NewMoney(100, "  "); return err },
 			want: order.VMoneyCurrency,
 		},
 		{
-			name: "NewSKU(空) は sku を名乗る",
+			name: "境界: NewSKU(空) は sku を名乗る",
 			err:  func() error { _, err := order.NewSKU("   "); return err },
 			want: order.VSKU,
 		},
 		{
-			name: "NewCustomerID(空) は customerId を名乗る",
+			name: "境界: NewCustomerID(空) は customerId を名乗る",
 			err:  func() error { _, err := order.NewCustomerID(" "); return err },
 			want: order.VCustomerID,
 		},
 		{
-			name: "NewOrderID(空) は orderId を名乗る",
+			name: "境界: NewOrderID(空) は orderId を名乗る",
 			err:  func() error { _, err := order.NewOrderID(""); return err },
 			want: order.VOrderID,
 		},
 		{
-			name: "NewReservationRef(空) は reservationRef を名乗る",
+			name: "境界: NewReservationRef(空) は reservationRef を名乗る",
 			err:  func() error { _, err := order.NewReservationRef(""); return err },
 			want: order.VReservationRef,
 		},

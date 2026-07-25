@@ -192,26 +192,26 @@ func TestProblem_E4_DomainValidation(t *testing.T) {
 		wantCode string
 	}{
 		{
-			name: "予約参照が空", path: "/reservations",
+			name: "境界: 予約参照が空なら ref を指す", path: "/reservations",
 			body:     reserveBody("  ", reserveLine("WIDGET-001", 1)),
 			wantName: "ref", wantCode: inventory.VReservationRef.Code,
 		},
 		{
-			name: "明細の SKU が空（アプリ層のループが位置を付ける）", path: "/reservations",
+			name: "境界: 明細の SKU が空なら lines[0].sku を指す（アプリ層のループが位置を付ける）", path: "/reservations",
 			body:     reserveBody("ORDER-1", reserveLine("  ", 1)),
 			wantName: "lines[0].sku", wantCode: inventory.VSKU.Code,
 		},
 		{
-			name: "明細の数量が負（値オブジェクトで弾かれる）", path: "/reservations",
+			name: "境界: 明細の数量が負なら lines[0].quantity を指す（値オブジェクトで弾かれる）", path: "/reservations",
 			body:     reserveBody("ORDER-1", reserveLine("WIDGET-001", -1)),
 			wantName: "lines[0].quantity", wantCode: inventory.VQuantity.Code,
 		},
 		{
-			name: "確定の参照が空（パスパラメータ）", path: "/reservations/%20/confirm",
+			name: "境界: 確定のパスパラメータが空なら ref を指す", path: "/reservations/%20/confirm",
 			wantName: "ref", wantCode: inventory.VReservationRef.Code,
 		},
 		{
-			name: "解放の参照が空（パスパラメータ）", path: "/reservations/%20/release",
+			name: "境界: 解放のパスパラメータが空なら ref を指す", path: "/reservations/%20/release",
 			wantName: "ref", wantCode: inventory.VReservationRef.Code,
 		},
 	}
@@ -236,7 +236,7 @@ func TestProblem_E4_ZeroQuantityCarriesLineIndexFromDomain(t *testing.T) {
 	ts := newInternalServer(t)
 
 	for _, broken := range []int{0, 1, 2} {
-		t.Run(fmt.Sprintf("%d 行目が 0", broken), func(t *testing.T) {
+		t.Run(fmt.Sprintf("境界: %d 行目が 0 なら同じ添字の quantity を指す", broken), func(t *testing.T) {
 			lines := []string{
 				reserveLine("WIDGET-001", 1),
 				reserveLine("WIDGET-001", 1),

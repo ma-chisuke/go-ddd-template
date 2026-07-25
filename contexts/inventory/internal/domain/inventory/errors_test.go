@@ -38,17 +38,17 @@ func TestFieldViolation_ValueObjects(t *testing.T) {
 		want inventory.Rule
 	}{
 		{
-			name: "NewQuantity(-1) は quantity を名乗る",
+			name: "境界: NewQuantity(-1) は quantity を名乗る",
 			err:  func() error { _, err := inventory.NewQuantity(-1); return err },
 			want: inventory.VQuantity,
 		},
 		{
-			name: "NewSKU(空) は sku を名乗る",
+			name: "境界: NewSKU(空) は sku を名乗る",
 			err:  func() error { _, err := inventory.NewSKU("  "); return err },
 			want: inventory.VSKU,
 		},
 		{
-			name: "NewReservationRef(空) は reservationRef を名乗る",
+			name: "境界: NewReservationRef(空) は reservationRef を名乗る",
 			err:  func() error { _, err := inventory.NewReservationRef(""); return err },
 			want: inventory.VReservationRef,
 		},

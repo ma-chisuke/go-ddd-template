@@ -229,7 +229,7 @@ func TestExtractParams(t *testing.T) {
 		want []problem.Param
 	}{
 		{
-			name: "必須欠落（トップ階層。兄弟を全件列挙する）",
+			name: "境界: トップ階層の必須欠落は兄弟を全件列挙する",
 			body: `{}`,
 			want: []problem.Param{
 				{Name: "name", Code: problem.CodeRequired},
@@ -238,62 +238,62 @@ func TestExtractParams(t *testing.T) {
 			},
 		},
 		{
-			name: "必須欠落（入れ子）: ラップ列 + 構造化の合成",
+			name: "境界: 入れ子の必須欠落はラップ列と構造化を合成する",
 			body: `{"name":"Alpha","lines":[{"sku":"AB","quantity":1}],"nested":{}}`,
 			want: []problem.Param{{Name: "nested.inner", Code: problem.CodeRequired}},
 		},
 		{
-			name: "必須欠落（配列要素）: Decode() 経路なので添字は付かない（規則 R-9）",
+			name: "境界: 配列要素の必須欠落は Decode() 経路なので添字が付かない（規則 R-9）",
 			body: `{"name":"Alpha","lines":[{"sku":"AB"}],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{{Name: "lines.quantity", Code: problem.CodeRequired}},
 		},
 		{
-			name: "型不一致: ラップ列だけからパスを組む",
+			name: "異常系: 型不一致はラップ列だけからパスを組む",
 			body: `{"name":"Alpha","lines":[{"sku":"AB","quantity":"x"}],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{{Name: "lines.quantity", Code: problem.CodeType}},
 		},
 		{
-			name: "不正 JSON: 特定できないので nil（invalid-params ごと省略）",
+			name: "異常系: 不正 JSON は特定できないので nil を返す（invalid-params ごと省略）",
 			body: `{`,
 			want: nil,
 		},
 		{
-			name: "Validate() 経路: minLength",
+			name: "境界: Validate() 経路の minLength は name を min_length で返す",
 			body: `{"name":"Ab","lines":[{"sku":"AB","quantity":1}],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{{Name: "name", Code: problem.CodeMinLength}},
 		},
 		{
-			name: "Validate() 経路: maxLength",
+			name: "境界: Validate() 経路の maxLength は name を max_length で返す",
 			body: `{"name":"ABCDEFGHIJK","lines":[{"sku":"AB","quantity":1}],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{{Name: "name", Code: problem.CodeMaxLength}},
 		},
 		{
-			name: "Validate() 経路: pattern",
+			name: "異常系: Validate() 経路の pattern は name を pattern で返す",
 			body: `{"name":"abcd","lines":[{"sku":"AB","quantity":1}],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{{Name: "name", Code: problem.CodePattern}},
 		},
 		{
-			name: "Validate() 経路: minItems（配列長も MinLengthError なので code は min_length）",
+			name: "境界: Validate() 経路の minItems は lines を min_length で返す（配列長も MinLengthError）",
 			body: `{"name":"Alpha","lines":[],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{{Name: "lines", Code: problem.CodeMinLength}},
 		},
 		{
-			name: "Validate() 経路: 配列要素に添字が付く（再帰降下の中核）",
+			name: "境界: Validate() 経路は配列要素に添字を付ける（再帰降下の中核）",
 			body: `{"name":"Alpha","lines":[{"sku":"A","quantity":1}],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{{Name: "lines[0].sku", Code: problem.CodeMinLength}},
 		},
 		{
-			name: "Validate() 経路: 添字は要素の位置を正しく指す（常に [0] ではない）",
+			name: "境界: Validate() 経路の添字は要素の位置を指し常に [0] ではない",
 			body: `{"name":"Alpha","lines":[{"sku":"AB","quantity":1},{"sku":"A","quantity":1}],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{{Name: "lines[1].sku", Code: problem.CodeMinLength}},
 		},
 		{
-			name: "Validate() 経路: 3 段の入れ子（配列 → オブジェクト → 葉）",
+			name: "境界: Validate() 経路は 3 段の入れ子（配列 → オブジェクト → 葉）までパスを組む",
 			body: `{"name":"Alpha","lines":[{"sku":"AB","quantity":1,"price":{"amount":1,"currency":"JP"}}],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{{Name: "lines[0].price.currency", Code: problem.CodeMinLength}},
 		},
 		{
-			name: "Validate() 経路: 複数要素の同時違反を全件列挙する",
+			name: "境界: Validate() 経路は複数要素の同時違反を全件列挙する",
 			body: `{"name":"Alpha","lines":[{"sku":"A","quantity":1},{"sku":"B","quantity":1}],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{
 				{Name: "lines[0].sku", Code: problem.CodeMinLength},
@@ -301,12 +301,12 @@ func TestExtractParams(t *testing.T) {
 			},
 		},
 		{
-			name: "Validate() 経路: 入れ子オブジェクト",
+			name: "境界: Validate() 経路は入れ子オブジェクトのパスを組む",
 			body: `{"name":"Alpha","lines":[{"sku":"AB","quantity":1}],"nested":{"inner":"x"}}`,
 			want: []problem.Param{{Name: "nested.inner", Code: problem.CodeMinLength}},
 		},
 		{
-			name: "語彙に無い制約（enum / uniqueItems）は汎用 code へ落とす",
+			name: "異常系: 語彙に無い制約（enum・uniqueItems）は汎用 code へ落とす",
 			body: `{"name":"Alpha","kind":"gamma","lines":[{"sku":"AB","quantity":1}],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{{Name: "kind", Code: problem.CodeInvalid}},
 		},

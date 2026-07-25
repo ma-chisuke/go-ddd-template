@@ -202,7 +202,7 @@ func TestRun_NoServersIsWiringError(t *testing.T) {
 func TestRun_IsServerCountAgnostic(t *testing.T) {
 	// ordering は 1 本（公開）、inventory は 2 本（公開 + 内部）。同じ経路を通ることを確認する。
 	for _, count := range []int{1, 2} {
-		t.Run(fmt.Sprintf("%d本", count), func(t *testing.T) {
+		t.Run(fmt.Sprintf("正常系: サーバ %d 本でもグレースフルに停止する", count), func(t *testing.T) {
 			specs := make([]serve.Server, 0, count)
 			addrs := make([]string, 0, count)
 			for i := range count {

@@ -50,15 +50,18 @@ func TestTraceparentRoundTrip(t *testing.T) {
 // TestTraceparent_RejectsNonConforming は、Traceparent が 32 桁 16 進でない入力を
 // 拒否することを確認する（不成立時は ok=false）。
 func TestTraceparent_RejectsNonConforming(t *testing.T) {
-	cases := map[string]string{
-		"短すぎる":   "abc123",
-		"非 16 進": "zzf7651916cd43dd8448eb211c80319c",
-		"33 桁":   "0af7651916cd43dd8448eb211c80319cd",
-		"空":      "",
+	cases := []struct {
+		name string
+		in   string
+	}{
+		{name: "境界: 短すぎる入力は traceparent を組み立てない", in: "abc123"},
+		{name: "異常系: 非 16 進の入力は traceparent を組み立てない", in: "zzf7651916cd43dd8448eb211c80319c"},
+		{name: "境界: 33 桁の入力は traceparent を組み立てない", in: "0af7651916cd43dd8448eb211c80319cd"},
+		{name: "境界: 空文字列は traceparent を組み立てない", in: ""},
 	}
-	for name, in := range cases {
-		t.Run(name, func(t *testing.T) {
-			_, ok := correlation.Traceparent(in)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, ok := correlation.Traceparent(tc.in)
 			assert.False(t, ok, "32 桁 16 進でない入力は traceparent を組み立てない")
 		})
 	}
@@ -67,16 +70,19 @@ func TestTraceparent_RejectsNonConforming(t *testing.T) {
 // TestTraceIDFromTraceparent_RejectsMalformed は、TraceIDFromTraceparent が
 // 全ゼロ trace-id・区切り数違い・非 16 進を拒否することを確認する。
 func TestTraceIDFromTraceparent_RejectsMalformed(t *testing.T) {
-	cases := map[string]string{
-		"全ゼロ trace-id":    "00-00000000000000000000000000000000-b7ad6b7169203331-01",
-		"区切りが 3 分割":       "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331",
-		"区切りが 5 分割":       "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01-extra",
-		"非 16 進 trace-id": "00-zzf7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
-		"trace-id 桁不足":    "00-0af765-b7ad6b7169203331-01",
+	cases := []struct {
+		name string
+		in   string
+	}{
+		{name: "境界: 全ゼロの trace-id からは取り出さない", in: "00-00000000000000000000000000000000-b7ad6b7169203331-01"},
+		{name: "異常系: 区切りが 3 分割の traceparent からは取り出さない", in: "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331"},
+		{name: "異常系: 区切りが 5 分割の traceparent からは取り出さない", in: "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01-extra"},
+		{name: "異常系: 非 16 進の trace-id からは取り出さない", in: "00-zzf7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},
+		{name: "境界: 桁不足の trace-id からは取り出さない", in: "00-0af765-b7ad6b7169203331-01"},
 	}
-	for name, in := range cases {
-		t.Run(name, func(t *testing.T) {
-			_, ok := correlation.TraceIDFromTraceparent(in)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, ok := correlation.TraceIDFromTraceparent(tc.in)
 			assert.False(t, ok, "不正な traceparent からは trace-id を取り出さない")
 		})
 	}
