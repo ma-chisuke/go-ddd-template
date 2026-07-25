@@ -1,7 +1,5 @@
 package order
 
-import "fmt"
-
 // Quantity は注文行の数量を表す値オブジェクト。不変であり、生成後は値を変更できない。
 //
 // 重要（コンテキストごと VO の教材ポイント）: 注文コンテキストの Quantity は
@@ -15,10 +13,11 @@ type Quantity struct {
 }
 
 // NewQuantity は 1 以上であることを検証して Quantity を生成する。
-// 0 以下の場合は ErrInvalidQuantity を返す。
+// 0 以下の場合は ErrInvalidQuantity を包んだ FieldViolation を返す
+// （errors.Is(err, ErrInvalidQuantity) は従来どおり真になる — 規則 R-15）。
 func NewQuantity(n int) (Quantity, error) {
 	if n < 1 {
-		return Quantity{}, fmt.Errorf("注文行の数量は 1 以上でなければなりません（指定値: %d）: %w", n, ErrInvalidQuantity)
+		return Quantity{}, VQuantity.Violated("注文行の数量は 1 以上でなければなりません（指定値: %d）", n)
 	}
 	return Quantity{value: n}, nil
 }

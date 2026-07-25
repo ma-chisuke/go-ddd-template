@@ -58,7 +58,7 @@ func (s *Server) handleGetStockRequest(args [1]string, argsEscaped bool, w http.
 
 	var rawBody []byte
 
-	var response *StockView
+	var response GetStockRes
 	if m := s.cfg.Middleware; m != nil {
 		mreq := middleware.Request{
 			Context:          ctx,
@@ -79,7 +79,7 @@ func (s *Server) handleGetStockRequest(args [1]string, argsEscaped bool, w http.
 		type (
 			Request  = struct{}
 			Params   = GetStockParams
-			Response = *StockView
+			Response = GetStockRes
 		)
 		response, err = middleware.HookMiddleware[
 			Request,
@@ -169,7 +169,7 @@ func (s *Server) handleReplenishStockRequest(args [1]string, argsEscaped bool, w
 		}
 	}()
 
-	var response *StockView
+	var response ReplenishStockRes
 	if m := s.cfg.Middleware; m != nil {
 		mreq := middleware.Request{
 			Context:          ctx,
@@ -190,7 +190,7 @@ func (s *Server) handleReplenishStockRequest(args [1]string, argsEscaped bool, w
 		type (
 			Request  = *ReplenishRequest
 			Params   = ReplenishStockParams
-			Response = *StockView
+			Response = ReplenishStockRes
 		)
 		response, err = middleware.HookMiddleware[
 			Request,

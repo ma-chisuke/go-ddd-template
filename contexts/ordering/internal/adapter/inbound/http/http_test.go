@@ -48,7 +48,9 @@ func newServer(t *testing.T, reserver application.StockReserver) *httptest.Serve
 	cancel := application.NewCancelOrder(exec, work, log)
 
 	h := httpapi.NewHandler(place, get, cancel, log)
-	server, err := openapi.NewServer(h)
+	// 本番の合成ルート（ordering.go）と同じヘルパーでオプションを渡す。ここを省くと
+	// テストだけ ogen の既定エラーハンドラで動き、本番の振る舞いを検証できなくなる。
+	server, err := openapi.NewServer(h, h.ServerOptions()...)
 	require.NoError(t, err, "サーバ構築に失敗")
 	ts := httptest.NewServer(corrhttp.Middleware(server))
 	t.Cleanup(ts.Close)

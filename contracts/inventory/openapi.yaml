@@ -40,6 +40,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StockView'
+        # このオペレーションが実際に返しうる 4xx/5xx（errmap.go の classify に対応）。
+        #   400 契約／本文・パスパラメータの検証失敗
+        #   409 楽観的排他の衝突（conflict）
+        #   422 SKU・数量のドメイン検証（補充数量は 1 以上）
+        # 未登録 SKU は新規作成して補充するため 404 は返さない。上記以外は default（= 500）。
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '422':
+          $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
 
@@ -57,6 +68,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StockView'
+        # このオペレーションが実際に返しうる 4xx/5xx（errmap.go の classify に対応）。
+        #   400 パスパラメータの契約検証失敗
+        #   404 SKU が存在しない（resource-not-found）
+        #   422 SKU のドメイン検証失敗（例 空白のみ）
+        # 上記以外の未処理エラーは default（= 500）へ落ちる。
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '422':
+          $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
 
@@ -77,7 +99,14 @@ components:
     # 生成する。ドメインのセンチネルエラーはこの NewError で HTTP ステータスと
     # problem+json 本文へ翻訳する。
     ProblemResponse:
-      description: RFC 9457 形式のエラー詳細
+      description: |
+        RFC 9457 形式のエラー詳細。各オペレーションは自分が実際に返しうる 4xx/5xx を
+        明示的に宣言し、既知のドメイン／検証エラーはそれらの宣言済みステータスへ写す。
+        宣言のどれにも当てはまらない未処理のエラーは default（= 500 Internal Server Error）
+        へ落ちる（classify の default 分岐 = 500）。
+        なお 415（メディアタイプ非対応）と、経路レベルの 404（未定義パス）/ 405（メソッド
+        不許可）はサーバ全体のトランスポート層（ServerOption ハンドラ）で生成されるため
+        オペレーション単位では宣言できないが、同じ ProblemDetails 形状を共有する。
       content:
         application/problem+json:
           schema:
@@ -124,6 +153,12 @@ components:
     ProblemDetails:
       type: object
       description: RFC 9457 (Problem Details for HTTP APIs) に準拠したエラー表現
+      # 生成される Go のフィールド名を明示する。JSON 名 invalid-params はハイフンを
+      # 含むため、ogen の既定では InvalidMinusParams という不自然な識別子になる。
+      # x-ogen-properties は Go 側の名前だけを是正し、ワイヤ形式（JSON 名）は変えない。
+      x-ogen-properties:
+        invalid-params:
+          name: InvalidParams
       required:
         - type
         - title
@@ -132,7 +167,11 @@ components:
         type:
           type: string
           format: uri
-          description: 問題の種別を示す URI。既定は "about:blank"。
+          description: |
+            問題の種別を示す安定した URI。クライアントは status ではなくこの値で分岐する。
+            同じ status でも原因が異なれば別の URI を与える（例 404 は経路が無い
+            not-found と、対象が無い resource-not-found に分かれる）。
+            URI は識別子であり、解決可能である必要はない。
         title:
           type: string
           description: 問題種別の短い人間可読な要約
@@ -146,8 +185,62 @@ components:
           type: string
           format: uri
           description: 問題が発生した具体的なリソースを示す URI
+        invalid-params:
+          type: array
+          description: |
+            違反したフィールドの一覧（RFC 9457 の拡張メンバー）。
+            フィールドを特定できない場合はこのメンバー自体を省略する（空配列は返さない）。
+            判明した違反のみを含み、網羅は保証しない。
+          items:
+            $ref: '#/components/schemas/InvalidParam'
       example:
-        type: about:blank
+        type: https://github.com/example/go-ddd-template/problems/resource-not-found
         title: Not Found
         status: 404
-        detail: 在庫項目が見つかりません
+        detail: 要求されたリソースは存在しません
+
+    InvalidParam:
+      type: object
+      description: |
+        1 件のフィールド違反。RFC 9457 の拡張メンバー invalid-params の要素。
+      required:
+        - name
+        - code
+      properties:
+        name:
+          type: string
+          description: |
+            違反したフィールドのパス（ドット + 角括弧記法）。
+            契約検証（400）では配列添字は付かない。ドメイン検証（422）では付く。
+            クライアントは添字の有無に依存した解析をしてはならない。
+        code:
+          type: string
+          description: |
+            機械可読な違反理由。語彙は type によって決まる
+            （validation-error なら契約検証語彙、invalid-input ならドメイン検証語彙）。
+            enum はこの契約のサーバが実際に載せうる値の全体（契約検証語彙 ∪ 在庫コンテキストの
+            ドメイン検証語彙）。新しいドメイン検証規則（inventory.Rule）を足したら、その code を
+            ここへも足す（規則 R-19。手順は CONVENTIONS.md）。
+          enum:
+            # 契約検証語彙（400 / validation-error）。shared/problem/vocab.go が唯一の情報源。
+            - required
+            - type
+            - min_length
+            - max_length
+            - pattern
+            - unique_items
+            - invalid_param
+            - body_required
+            - invalid
+            # ドメイン検証語彙（422 / invalid-input）。在庫コンテキストが所有する
+            # （contexts/inventory/internal/domain/inventory/errors.go の inventory.Rule）。
+            - invalid_sku
+            - invalid_quantity
+            - invalid_reservation_ref
+        reason:
+          type: string
+          description: 人間可読な説明。code から導出される定型文であり、受信値を含まない。
+      example:
+        name: quantity
+        code: invalid_quantity
+        reason: 0 以上の値を指定してください

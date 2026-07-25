@@ -18,7 +18,7 @@ var _ Handler = UnimplementedHandler{}
 // 指定した SKU の現在の在庫状態を返す。.
 //
 // GET /stock/{sku}
-func (UnimplementedHandler) GetStock(ctx context.Context, params GetStockParams) (r *StockView, _ error) {
+func (UnimplementedHandler) GetStock(ctx context.Context, params GetStockParams) (r GetStockRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -28,7 +28,7 @@ func (UnimplementedHandler) GetStock(ctx context.Context, params GetStockParams)
 // が未登録の場合は新規に作成してから補充する。.
 //
 // POST /stock/{sku}/replenish
-func (UnimplementedHandler) ReplenishStock(ctx context.Context, req *ReplenishRequest, params ReplenishStockParams) (r *StockView, _ error) {
+func (UnimplementedHandler) ReplenishStock(ctx context.Context, req *ReplenishRequest, params ReplenishStockParams) (r ReplenishStockRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

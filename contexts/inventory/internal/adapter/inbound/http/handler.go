@@ -32,7 +32,12 @@ func NewHandler(replenisher *application.Replenisher, viewer *application.StockV
 var _ openapi.Handler = (*Handler)(nil)
 
 // ReplenishStock は POST /stock/{sku}/replenish を処理する。
-func (h *Handler) ReplenishStock(ctx context.Context, req *openapi.ReplenishRequest, params openapi.ReplenishStockParams) (*openapi.StockView, error) {
+//
+// 戻り値は生成された union（openapi.ReplenishStockRes）。契約が明示ステータス（400/409/422）と
+// default を宣言するため、ogen は成功応答（*StockView）とエラー応答をまとめた union をハンドラの
+// 戻り型にする。*StockView は union を満たすので成功は toStockView をそのまま返し、エラーは
+// nil を返して NewError（動的ステータスの ProblemResponseStatusCode）へ委譲する。
+func (h *Handler) ReplenishStock(ctx context.Context, req *openapi.ReplenishRequest, params openapi.ReplenishStockParams) (openapi.ReplenishStockRes, error) {
 	res, err := h.replenisher.Replenish(ctx, application.ReplenishInput{
 		SKU:      params.Sku,
 		Quantity: req.Quantity,
@@ -44,8 +49,8 @@ func (h *Handler) ReplenishStock(ctx context.Context, req *openapi.ReplenishRequ
 	return toStockView(res), nil
 }
 
-// GetStock は GET /stock/{sku} を処理する。
-func (h *Handler) GetStock(ctx context.Context, params openapi.GetStockParams) (*openapi.StockView, error) {
+// GetStock は GET /stock/{sku} を処理する。戻り値は union（openapi.GetStockRes。理由は ReplenishStock 参照）。
+func (h *Handler) GetStock(ctx context.Context, params openapi.GetStockParams) (openapi.GetStockRes, error) {
 	res, err := h.viewer.QueryStock(ctx, application.QueryStockInput{SKU: params.Sku})
 	if err != nil {
 		return nil, err

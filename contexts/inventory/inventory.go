@@ -158,8 +158,13 @@ func assembleModule(
 	viewer := application.NewStockViewer(readStock, log)
 
 	// 公開サーバ（補充・照会）。
+	//
+	// ServerOptions() を必ず渡す。渡さないと ogen の既定エラーハンドラが使われ、
+	// デコード失敗・未定義パス・メソッド不許可が problem+json ではなく
+	// {"error_message": "operation replenishStock: decode request: ..."} で返る（FR-1）。
+	// テストも同じヘルパー経由で組み立て、本番とエラー経路を一致させる（NFR-6）。
 	publicHandler := httpapi.NewHandler(replenisher, viewer, log)
-	publicServer, err := openapi.NewServer(publicHandler)
+	publicServer, err := openapi.NewServer(publicHandler, publicHandler.ServerOptions()...)
 	if err != nil {
 		return nil, fmt.Errorf("inventory: 公開 HTTP サーバの構築に失敗しました: %w", err)
 	}
@@ -171,7 +176,7 @@ func assembleModule(
 
 	// 内部サーバ（予約・確定・解放・メッセージ取り込み）。公開サーバとは別のルート群。
 	internalHandler := internalhttp.NewHandler(reserver, confirmer, releaser, router, log)
-	internalServer, err := openapiinternal.NewServer(internalHandler)
+	internalServer, err := openapiinternal.NewServer(internalHandler, internalHandler.ServerOptions()...)
 	if err != nil {
 		return nil, fmt.Errorf("inventory: 内部 HTTP サーバの構築に失敗しました: %w", err)
 	}

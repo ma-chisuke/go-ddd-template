@@ -1,7 +1,6 @@
 package order
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -16,11 +15,12 @@ type ReservationRef struct {
 }
 
 // NewReservationRef は予約参照を検証して生成する。前後の空白を取り除いた結果が
-// 空なら ErrInvalidReservationRef を返す（永続化された値からの復元に使う）。
+// 空なら ErrInvalidReservationRef を包んだ FieldViolation を返す
+// （永続化された値からの復元に使う）。
 func NewReservationRef(s string) (ReservationRef, error) {
 	trimmed := strings.TrimSpace(s)
 	if trimmed == "" {
-		return ReservationRef{}, fmt.Errorf("予約参照は空にできません: %w", ErrInvalidReservationRef)
+		return ReservationRef{}, VReservationRef.Violated("予約参照は空にできません")
 	}
 	return ReservationRef{value: trimmed}, nil
 }

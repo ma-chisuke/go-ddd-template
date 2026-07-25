@@ -9,10 +9,17 @@ type Quantity struct {
 }
 
 // NewQuantity は非負であることを検証して Quantity を生成する。
-// 負数の場合は ErrInvalidQuantity を返す。
+// 負数の場合は ErrInvalidQuantity を包んだ FieldViolation を返す
+// （errors.Is(err, ErrInvalidQuantity) は従来どおり真になる — 規則 R-15）。
+//
+// 重要: 0 は「有効な数量」として通過する（利用可能在庫を表すため）。したがって
+// quantity: 0 は値オブジェクトを通り抜け、集約の不変条件（Replenish / Reserve /
+// ReservationService.Allocate）で初めて弾かれる。その集約側の規則も FieldViolation で
+// 名乗らないと、注文コンテキストと比べて「422 でフィールドが分かるときと分からないときが
+// ある」という体験の割れが在庫側で再現する（FR-4.7）。
 func NewQuantity(n int) (Quantity, error) {
 	if n < 0 {
-		return Quantity{}, fmt.Errorf("数量は 0 以上でなければなりません（指定値: %d）: %w", n, ErrInvalidQuantity)
+		return Quantity{}, VQuantity.Violated("数量は 0 以上でなければなりません（指定値: %d）", n)
 	}
 	return Quantity{value: n}, nil
 }

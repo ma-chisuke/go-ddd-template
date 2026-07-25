@@ -1,7 +1,6 @@
 package order
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -16,11 +15,11 @@ type SKU struct {
 }
 
 // NewSKU は SKU を検証して生成する。前後の空白を取り除いた結果が空なら
-// ErrInvalidSKU を返す。
+// ErrInvalidSKU を包んだ FieldViolation を返す。
 func NewSKU(s string) (SKU, error) {
 	trimmed := strings.TrimSpace(s)
 	if trimmed == "" {
-		return SKU{}, fmt.Errorf("SKU は空にできません: %w", ErrInvalidSKU)
+		return SKU{}, VSKU.Violated("SKU は空にできません")
 	}
 	return SKU{value: trimmed}, nil
 }

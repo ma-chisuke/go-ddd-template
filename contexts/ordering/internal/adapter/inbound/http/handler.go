@@ -33,7 +33,12 @@ func NewHandler(place *application.PlaceOrder, get *application.GetOrder, cancel
 var _ openapi.Handler = (*Handler)(nil)
 
 // PlaceOrder は POST /orders を処理する。作成後、作成された注文の現在状態を射影して返す。
-func (h *Handler) PlaceOrder(ctx context.Context, req *openapi.PlaceOrderRequest) (*openapi.OrderView, error) {
+//
+// 戻り値は生成された union（openapi.PlaceOrderRes）。契約が明示ステータス（400/409/422/503）と
+// default を宣言するため、ogen は成功応答（*OrderView）とエラー応答をまとめた union をハンドラの
+// 戻り型にする。*OrderView は union を満たすので成功は toOrderView をそのまま返し、エラーは
+// nil を返して NewError（動的ステータスの ProblemResponseStatusCode）へ委譲する。
+func (h *Handler) PlaceOrder(ctx context.Context, req *openapi.PlaceOrderRequest) (openapi.PlaceOrderRes, error) {
 	id, err := h.place.Handle(ctx, toPlaceOrderInput(req))
 	if err != nil {
 		// ドメイン／アプリケーションのエラーはそのまま返す。HTTP への翻訳は NewError が行う。
@@ -46,8 +51,8 @@ func (h *Handler) PlaceOrder(ctx context.Context, req *openapi.PlaceOrderRequest
 	return toOrderView(view), nil
 }
 
-// GetOrder は GET /orders/{id} を処理する。
-func (h *Handler) GetOrder(ctx context.Context, params openapi.GetOrderParams) (*openapi.OrderView, error) {
+// GetOrder は GET /orders/{id} を処理する。戻り値は union（openapi.GetOrderRes。理由は PlaceOrder 参照）。
+func (h *Handler) GetOrder(ctx context.Context, params openapi.GetOrderParams) (openapi.GetOrderRes, error) {
 	view, err := h.get.Handle(ctx, params.ID)
 	if err != nil {
 		return nil, err
@@ -56,7 +61,8 @@ func (h *Handler) GetOrder(ctx context.Context, params openapi.GetOrderParams) (
 }
 
 // CancelOrder は POST /orders/{id}/cancel を処理する。取消後、注文の現在状態を射影して返す。
-func (h *Handler) CancelOrder(ctx context.Context, params openapi.CancelOrderParams) (*openapi.OrderView, error) {
+// 戻り値は union（openapi.CancelOrderRes。理由は PlaceOrder 参照）。
+func (h *Handler) CancelOrder(ctx context.Context, params openapi.CancelOrderParams) (openapi.CancelOrderRes, error) {
 	if err := h.cancel.Handle(ctx, params.ID); err != nil {
 		return nil, err
 	}

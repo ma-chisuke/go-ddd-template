@@ -60,7 +60,7 @@ func (s *Server) handleCancelOrderRequest(args [1]string, argsEscaped bool, w ht
 
 	var rawBody []byte
 
-	var response *OrderView
+	var response CancelOrderRes
 	if m := s.cfg.Middleware; m != nil {
 		mreq := middleware.Request{
 			Context:          ctx,
@@ -81,7 +81,7 @@ func (s *Server) handleCancelOrderRequest(args [1]string, argsEscaped bool, w ht
 		type (
 			Request  = struct{}
 			Params   = CancelOrderParams
-			Response = *OrderView
+			Response = CancelOrderRes
 		)
 		response, err = middleware.HookMiddleware[
 			Request,
@@ -155,7 +155,7 @@ func (s *Server) handleGetOrderRequest(args [1]string, argsEscaped bool, w http.
 
 	var rawBody []byte
 
-	var response *OrderView
+	var response GetOrderRes
 	if m := s.cfg.Middleware; m != nil {
 		mreq := middleware.Request{
 			Context:          ctx,
@@ -176,7 +176,7 @@ func (s *Server) handleGetOrderRequest(args [1]string, argsEscaped bool, w http.
 		type (
 			Request  = struct{}
 			Params   = GetOrderParams
-			Response = *OrderView
+			Response = GetOrderRes
 		)
 		response, err = middleware.HookMiddleware[
 			Request,
@@ -257,7 +257,7 @@ func (s *Server) handlePlaceOrderRequest(args [0]string, argsEscaped bool, w htt
 		}
 	}()
 
-	var response *OrderView
+	var response PlaceOrderRes
 	if m := s.cfg.Middleware; m != nil {
 		mreq := middleware.Request{
 			Context:          ctx,
@@ -273,7 +273,7 @@ func (s *Server) handlePlaceOrderRequest(args [0]string, argsEscaped bool, w htt
 		type (
 			Request  = *PlaceOrderRequest
 			Params   = struct{}
-			Response = *OrderView
+			Response = PlaceOrderRes
 		)
 		response, err = middleware.HookMiddleware[
 			Request,

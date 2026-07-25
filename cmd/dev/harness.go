@@ -72,3 +72,8 @@ func (h *harness) inventoryHandler() http.Handler { return h.inventory.HTTPHandl
 
 // orderingHandler は注文の公開 HTTP ハンドラ（作成・照会・取消）を返す。
 func (h *harness) orderingHandler() http.Handler { return h.ordering.HTTPHandler() }
+
+// inventoryInternalHandler は在庫の内部 HTTP ハンドラ（予約・確定・解放・取り込み）を返す。
+// デモの結線では使わない（in-process のシームを直接呼ぶため）が、3 サーバのエラー応答が
+// 一致していることを検証するテスト（problem_parity_test.go）が必要とする。
+func (h *harness) inventoryInternalHandler() http.Handler { return h.inventory.InternalHTTPHandler() }

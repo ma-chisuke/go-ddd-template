@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/url"
 	"time"
+
+	"github.com/go-faster/errors"
 )
 
 func (s *ProblemResponseStatusCode) Error() string {
@@ -91,6 +93,171 @@ func (s *InboundMessage) SetTraceID(val OptString) {
 // SetOccurredAt sets the value of OccurredAt.
 func (s *InboundMessage) SetOccurredAt(val OptDateTime) {
 	s.OccurredAt = val
+}
+
+// 1 件のフィールド違反。RFC 9457 の拡張メンバー invalid-params の要素。.
+// Ref: #/components/schemas/InvalidParam
+type InvalidParam struct {
+	// 違反したフィールドのパス（ドット + 角括弧記法）。
+	// 契約検証（400）では配列添字は付かない。ドメイン検証（422）では付く。
+	// クライアントは添字の有無に依存した解析をしてはならない。.
+	Name string `json:"name"`
+	// 機械可読な違反理由。語彙は type によって決まる （validation-error
+	// なら契約検証語彙、invalid-input ならドメイン検証語彙）。 enum
+	// はこの内部契約のサーバが実際に載せうる値の全体（契約検証語彙 ∪
+	// 在庫コンテキストの
+	// ドメイン検証語彙）。新しいドメイン検証規則（inventory.Rule）を足したら、その
+	// code を ここへも足す（規則 R-19。手順は CONVENTIONS.md）。.
+	Code InvalidParamCode `json:"code"`
+	// 人間可読な説明。code から導出される定型文であり、受信値を含まない。.
+	Reason OptString `json:"reason"`
+}
+
+// GetName returns the value of Name.
+func (s *InvalidParam) GetName() string {
+	return s.Name
+}
+
+// GetCode returns the value of Code.
+func (s *InvalidParam) GetCode() InvalidParamCode {
+	return s.Code
+}
+
+// GetReason returns the value of Reason.
+func (s *InvalidParam) GetReason() OptString {
+	return s.Reason
+}
+
+// SetName sets the value of Name.
+func (s *InvalidParam) SetName(val string) {
+	s.Name = val
+}
+
+// SetCode sets the value of Code.
+func (s *InvalidParam) SetCode(val InvalidParamCode) {
+	s.Code = val
+}
+
+// SetReason sets the value of Reason.
+func (s *InvalidParam) SetReason(val OptString) {
+	s.Reason = val
+}
+
+// 機械可読な違反理由。語彙は type によって決まる （validation-error
+// なら契約検証語彙、invalid-input ならドメイン検証語彙）。 enum
+// はこの内部契約のサーバが実際に載せうる値の全体（契約検証語彙 ∪
+// 在庫コンテキストの
+// ドメイン検証語彙）。新しいドメイン検証規則（inventory.Rule）を足したら、その
+// code を ここへも足す（規則 R-19。手順は CONVENTIONS.md）。.
+type InvalidParamCode string
+
+const (
+	InvalidParamCodeRequired              InvalidParamCode = "required"
+	InvalidParamCodeType                  InvalidParamCode = "type"
+	InvalidParamCodeMinLength             InvalidParamCode = "min_length"
+	InvalidParamCodeMaxLength             InvalidParamCode = "max_length"
+	InvalidParamCodePattern               InvalidParamCode = "pattern"
+	InvalidParamCodeUniqueItems           InvalidParamCode = "unique_items"
+	InvalidParamCodeInvalidParam          InvalidParamCode = "invalid_param"
+	InvalidParamCodeBodyRequired          InvalidParamCode = "body_required"
+	InvalidParamCodeInvalid               InvalidParamCode = "invalid"
+	InvalidParamCodeInvalidSku            InvalidParamCode = "invalid_sku"
+	InvalidParamCodeInvalidQuantity       InvalidParamCode = "invalid_quantity"
+	InvalidParamCodeInvalidReservationRef InvalidParamCode = "invalid_reservation_ref"
+)
+
+// AllValues returns all InvalidParamCode values.
+func (InvalidParamCode) AllValues() []InvalidParamCode {
+	return []InvalidParamCode{
+		InvalidParamCodeRequired,
+		InvalidParamCodeType,
+		InvalidParamCodeMinLength,
+		InvalidParamCodeMaxLength,
+		InvalidParamCodePattern,
+		InvalidParamCodeUniqueItems,
+		InvalidParamCodeInvalidParam,
+		InvalidParamCodeBodyRequired,
+		InvalidParamCodeInvalid,
+		InvalidParamCodeInvalidSku,
+		InvalidParamCodeInvalidQuantity,
+		InvalidParamCodeInvalidReservationRef,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s InvalidParamCode) MarshalText() ([]byte, error) {
+	switch s {
+	case InvalidParamCodeRequired:
+		return []byte(s), nil
+	case InvalidParamCodeType:
+		return []byte(s), nil
+	case InvalidParamCodeMinLength:
+		return []byte(s), nil
+	case InvalidParamCodeMaxLength:
+		return []byte(s), nil
+	case InvalidParamCodePattern:
+		return []byte(s), nil
+	case InvalidParamCodeUniqueItems:
+		return []byte(s), nil
+	case InvalidParamCodeInvalidParam:
+		return []byte(s), nil
+	case InvalidParamCodeBodyRequired:
+		return []byte(s), nil
+	case InvalidParamCodeInvalid:
+		return []byte(s), nil
+	case InvalidParamCodeInvalidSku:
+		return []byte(s), nil
+	case InvalidParamCodeInvalidQuantity:
+		return []byte(s), nil
+	case InvalidParamCodeInvalidReservationRef:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *InvalidParamCode) UnmarshalText(data []byte) error {
+	switch InvalidParamCode(data) {
+	case InvalidParamCodeRequired:
+		*s = InvalidParamCodeRequired
+		return nil
+	case InvalidParamCodeType:
+		*s = InvalidParamCodeType
+		return nil
+	case InvalidParamCodeMinLength:
+		*s = InvalidParamCodeMinLength
+		return nil
+	case InvalidParamCodeMaxLength:
+		*s = InvalidParamCodeMaxLength
+		return nil
+	case InvalidParamCodePattern:
+		*s = InvalidParamCodePattern
+		return nil
+	case InvalidParamCodeUniqueItems:
+		*s = InvalidParamCodeUniqueItems
+		return nil
+	case InvalidParamCodeInvalidParam:
+		*s = InvalidParamCodeInvalidParam
+		return nil
+	case InvalidParamCodeBodyRequired:
+		*s = InvalidParamCodeBodyRequired
+		return nil
+	case InvalidParamCodeInvalid:
+		*s = InvalidParamCodeInvalid
+		return nil
+	case InvalidParamCodeInvalidSku:
+		*s = InvalidParamCodeInvalidSku
+		return nil
+	case InvalidParamCodeInvalidQuantity:
+		*s = InvalidParamCodeInvalidQuantity
+		return nil
+	case InvalidParamCodeInvalidReservationRef:
+		*s = InvalidParamCodeInvalidReservationRef
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
 }
 
 // NewOptDateTime returns new OptDateTime with value set to v.
@@ -234,7 +401,10 @@ func (o OptURI) Or(d url.URL) url.URL {
 // RFC 9457 (Problem Details for HTTP APIs) に準拠したエラー表現.
 // Ref: #/components/schemas/ProblemDetails
 type ProblemDetails struct {
-	// 問題の種別を示す URI。既定は "about:blank"。.
+	// 問題の種別を示す安定した URI。クライアントは status
+	// ではなくこの値で分岐する。 同じ status でも原因が異なれば別の URI
+	// を与える（例 404 は経路が無い not-found と、対象が無い resource-not-found
+	// に分かれる）。 URI は識別子であり、解決可能である必要はない。.
 	Type url.URL `json:"type"`
 	// 問題種別の短い人間可読な要約.
 	Title string `json:"title"`
@@ -244,6 +414,12 @@ type ProblemDetails struct {
 	Detail OptString `json:"detail"`
 	// 問題が発生した具体的なリソースを示す URI.
 	Instance OptURI `json:"instance"`
+	// 違反したフィールドの一覧（RFC 9457 の拡張メンバー）。
+	// フィールドを特定できない場合はこのメンバー自体を省略する（空配列は返さない）。
+	// 判明した違反のみを含み、網羅は保証しない。
+	// 腐敗防止層（ACL）はステータスコードのみを見るため、このメンバーの追加で
+	// 呼び出し側の翻訳結果は変わらない（規則 R-16）。.
+	InvalidParams []InvalidParam `json:"invalid-params"`
 }
 
 // GetType returns the value of Type.
@@ -271,6 +447,11 @@ func (s *ProblemDetails) GetInstance() OptURI {
 	return s.Instance
 }
 
+// GetInvalidParams returns the value of InvalidParams.
+func (s *ProblemDetails) GetInvalidParams() []InvalidParam {
+	return s.InvalidParams
+}
+
 // SetType sets the value of Type.
 func (s *ProblemDetails) SetType(val url.URL) {
 	s.Type = val
@@ -294,6 +475,11 @@ func (s *ProblemDetails) SetDetail(val OptString) {
 // SetInstance sets the value of Instance.
 func (s *ProblemDetails) SetInstance(val OptURI) {
 	s.Instance = val
+}
+
+// SetInvalidParams sets the value of InvalidParams.
+func (s *ProblemDetails) SetInvalidParams(val []InvalidParam) {
+	s.InvalidParams = val
 }
 
 // ProblemResponseStatusCode wraps ProblemDetails with StatusCode.

@@ -15,13 +15,13 @@ type Handler interface {
 	// 在庫コンテキストがそれを購読して解放する）。.
 	//
 	// POST /orders/{id}/cancel
-	CancelOrder(ctx context.Context, params CancelOrderParams) (*OrderView, error)
+	CancelOrder(ctx context.Context, params CancelOrderParams) (CancelOrderRes, error)
 	// GetOrder implements getOrder operation.
 	//
 	// 指定した注文 ID の現在の状態を返す。.
 	//
 	// GET /orders/{id}
-	GetOrder(ctx context.Context, params GetOrderParams) (*OrderView, error)
+	GetOrder(ctx context.Context, params GetOrderParams) (GetOrderRes, error)
 	// PlaceOrder implements placeOrder operation.
 	//
 	// 注文明細から注文を作成する。作成時に在庫を同期予約し、予約できたときのみ
@@ -29,7 +29,7 @@ type Handler interface {
 	// 状態で確定する。予約が拒否された場合は注文を作成しない。.
 	//
 	// POST /orders
-	PlaceOrder(ctx context.Context, req *PlaceOrderRequest) (*OrderView, error)
+	PlaceOrder(ctx context.Context, req *PlaceOrderRequest) (PlaceOrderRes, error)
 	// NewError creates *ProblemResponseStatusCode from error returned by handler.
 	//
 	// Used for common default response.

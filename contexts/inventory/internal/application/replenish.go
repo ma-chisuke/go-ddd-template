@@ -49,11 +49,11 @@ func NewReplenisher(exec uow.Executor, work UnitOfWork, dispatch EventDispatcher
 func (r *Replenisher) Replenish(ctx context.Context, in ReplenishInput) (StockResult, error) {
 	sku, err := inventory.NewSKU(in.SKU)
 	if err != nil {
-		return StockResult{}, err
+		return StockResult{}, locate("", err)
 	}
 	qty, err := inventory.NewQuantity(in.Quantity)
 	if err != nil {
-		return StockResult{}, err
+		return StockResult{}, locate("", err)
 	}
 
 	// クロージャの外で結果とイベントを退避する。再試行時は最後（成功時）の値で上書きされる。
@@ -73,8 +73,9 @@ func (r *Replenisher) Replenish(ctx context.Context, in ReplenishInput) (StockRe
 			}
 		}
 
+		// 集約の不変条件（補充数量は 1 以上）。NewQuantity は 0 を通すのでここで弾かれる。
 		if err := item.Replenish(qty); err != nil {
-			return err
+			return locate("", err)
 		}
 		if err := repos.Stock().Save(ctx, item); err != nil {
 			return err

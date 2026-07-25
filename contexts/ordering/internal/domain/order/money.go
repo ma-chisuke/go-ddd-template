@@ -20,14 +20,20 @@ type Money struct {
 }
 
 // NewMoney は金額を検証して生成する。amount が負なら、または通貨が空なら
-// ErrInvalidMoney を返す。
+// ErrInvalidMoney を包んだ FieldViolation を返す。
+//
+// 重要（FR-4.3 の中核）: 番兵は双方とも ErrInvalidMoney で同一のため、番兵だけでは
+// 「金額が悪いのか通貨が悪いのか」をリクエスターに言い分けられない。同じ番兵を指す
+// 2 つの Rule（VMoneyAmount / VMoneyCurrency）に分けることで、初めて
+// unitPrice.amount と unitPrice.currency を区別できる。Rule は番兵より細かくてよい
+// （errors.Is の判定単位は 1 つのままでよい。規則 R-6）。
 func NewMoney(amount int64, currency string) (Money, error) {
 	if amount < 0 {
-		return Money{}, fmt.Errorf("金額は 0 以上でなければなりません（指定値: %d）: %w", amount, ErrInvalidMoney)
+		return Money{}, VMoneyAmount.Violated("金額は 0 以上でなければなりません（指定値: %d）", amount)
 	}
 	cur := strings.TrimSpace(currency)
 	if cur == "" {
-		return Money{}, fmt.Errorf("通貨は空にできません: %w", ErrInvalidMoney)
+		return Money{}, VMoneyCurrency.Violated("通貨は空にできません")
 	}
 	return Money{amount: amount, currency: cur}, nil
 }
@@ -55,6 +61,11 @@ func (m Money) Mul(n int) Money {
 
 // Add は 2 つの金額の和を返す。いずれかがゼロ値なら他方をそのまま返す（単位元）。
 // 双方が非ゼロで通貨が異なる場合は ErrInvalidMoney を返す（通貨をまたいだ加算は不正）。
+//
+// ここは FieldViolation にしない。通貨不一致は「2 つの明細行の通貨が食い違う」という
+// 集約レベルの矛盾であり、単一の入力フィールドに帰着しないためである。この場合は
+// invalid-params をキーごと省略する（規則 R-14 / FR-3.4）。「違反フィールドが 0 件」と
+// 「特定できなかった」を区別できるようにするため、空配列は返さない。
 func (m Money) Add(other Money) (Money, error) {
 	if m.IsZero() {
 		return other, nil

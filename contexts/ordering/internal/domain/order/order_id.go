@@ -1,7 +1,6 @@
 package order
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -16,11 +15,11 @@ type OrderID struct {
 }
 
 // NewOrderID は注文 ID を検証して生成する。前後の空白を取り除いた結果が空なら
-// ErrInvalidOrderID を返す。
+// ErrInvalidOrderID を包んだ FieldViolation を返す。
 func NewOrderID(s string) (OrderID, error) {
 	trimmed := strings.TrimSpace(s)
 	if trimmed == "" {
-		return OrderID{}, fmt.Errorf("注文 ID は空にできません: %w", ErrInvalidOrderID)
+		return OrderID{}, VOrderID.Violated("注文 ID は空にできません")
 	}
 	return OrderID{value: trimmed}, nil
 }

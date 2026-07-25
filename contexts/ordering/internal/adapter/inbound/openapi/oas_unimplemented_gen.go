@@ -20,7 +20,7 @@ var _ Handler = UnimplementedHandler{}
 // 在庫コンテキストがそれを購読して解放する）。.
 //
 // POST /orders/{id}/cancel
-func (UnimplementedHandler) CancelOrder(ctx context.Context, params CancelOrderParams) (r *OrderView, _ error) {
+func (UnimplementedHandler) CancelOrder(ctx context.Context, params CancelOrderParams) (r CancelOrderRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -29,7 +29,7 @@ func (UnimplementedHandler) CancelOrder(ctx context.Context, params CancelOrderP
 // 指定した注文 ID の現在の状態を返す。.
 //
 // GET /orders/{id}
-func (UnimplementedHandler) GetOrder(ctx context.Context, params GetOrderParams) (r *OrderView, _ error) {
+func (UnimplementedHandler) GetOrder(ctx context.Context, params GetOrderParams) (r GetOrderRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -40,7 +40,7 @@ func (UnimplementedHandler) GetOrder(ctx context.Context, params GetOrderParams)
 // 状態で確定する。予約が拒否された場合は注文を作成しない。.
 //
 // POST /orders
-func (UnimplementedHandler) PlaceOrder(ctx context.Context, req *PlaceOrderRequest) (r *OrderView, _ error) {
+func (UnimplementedHandler) PlaceOrder(ctx context.Context, req *PlaceOrderRequest) (r PlaceOrderRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
