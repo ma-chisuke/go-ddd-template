@@ -5,6 +5,8 @@ package openapi
 import (
 	"fmt"
 	"net/url"
+
+	"github.com/go-faster/errors"
 )
 
 func (s *ProblemResponseStatusCode) Error() string {
@@ -19,8 +21,12 @@ type InvalidParam struct {
 	// クライアントは添字の有無に依存した解析をしてはならない。.
 	Name string `json:"name"`
 	// 機械可読な違反理由。語彙は type によって決まる （validation-error
-	// なら契約検証語彙、invalid-input ならドメイン検証語彙）。.
-	Code string `json:"code"`
+	// なら契約検証語彙、invalid-input ならドメイン検証語彙）。 enum
+	// はこの契約のサーバが実際に載せうる値の全体（契約検証語彙 ∪
+	// 在庫コンテキストの
+	// ドメイン検証語彙）。新しいドメイン検証規則（inventory.Rule）を足したら、その
+	// code を ここへも足す（規則 R-19。手順は CONVENTIONS.md）。.
+	Code InvalidParamCode `json:"code"`
 	// 人間可読な説明。code から導出される定型文であり、受信値を含まない。.
 	Reason OptString `json:"reason"`
 }
@@ -31,7 +37,7 @@ func (s *InvalidParam) GetName() string {
 }
 
 // GetCode returns the value of Code.
-func (s *InvalidParam) GetCode() string {
+func (s *InvalidParam) GetCode() InvalidParamCode {
 	return s.Code
 }
 
@@ -46,13 +52,130 @@ func (s *InvalidParam) SetName(val string) {
 }
 
 // SetCode sets the value of Code.
-func (s *InvalidParam) SetCode(val string) {
+func (s *InvalidParam) SetCode(val InvalidParamCode) {
 	s.Code = val
 }
 
 // SetReason sets the value of Reason.
 func (s *InvalidParam) SetReason(val OptString) {
 	s.Reason = val
+}
+
+// 機械可読な違反理由。語彙は type によって決まる （validation-error
+// なら契約検証語彙、invalid-input ならドメイン検証語彙）。 enum
+// はこの契約のサーバが実際に載せうる値の全体（契約検証語彙 ∪
+// 在庫コンテキストの
+// ドメイン検証語彙）。新しいドメイン検証規則（inventory.Rule）を足したら、その
+// code を ここへも足す（規則 R-19。手順は CONVENTIONS.md）。.
+type InvalidParamCode string
+
+const (
+	InvalidParamCodeRequired              InvalidParamCode = "required"
+	InvalidParamCodeType                  InvalidParamCode = "type"
+	InvalidParamCodeMinLength             InvalidParamCode = "min_length"
+	InvalidParamCodeMaxLength             InvalidParamCode = "max_length"
+	InvalidParamCodePattern               InvalidParamCode = "pattern"
+	InvalidParamCodeUniqueItems           InvalidParamCode = "unique_items"
+	InvalidParamCodeInvalidParam          InvalidParamCode = "invalid_param"
+	InvalidParamCodeBodyRequired          InvalidParamCode = "body_required"
+	InvalidParamCodeInvalid               InvalidParamCode = "invalid"
+	InvalidParamCodeInvalidSku            InvalidParamCode = "invalid_sku"
+	InvalidParamCodeInvalidQuantity       InvalidParamCode = "invalid_quantity"
+	InvalidParamCodeInvalidReservationRef InvalidParamCode = "invalid_reservation_ref"
+)
+
+// AllValues returns all InvalidParamCode values.
+func (InvalidParamCode) AllValues() []InvalidParamCode {
+	return []InvalidParamCode{
+		InvalidParamCodeRequired,
+		InvalidParamCodeType,
+		InvalidParamCodeMinLength,
+		InvalidParamCodeMaxLength,
+		InvalidParamCodePattern,
+		InvalidParamCodeUniqueItems,
+		InvalidParamCodeInvalidParam,
+		InvalidParamCodeBodyRequired,
+		InvalidParamCodeInvalid,
+		InvalidParamCodeInvalidSku,
+		InvalidParamCodeInvalidQuantity,
+		InvalidParamCodeInvalidReservationRef,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s InvalidParamCode) MarshalText() ([]byte, error) {
+	switch s {
+	case InvalidParamCodeRequired:
+		return []byte(s), nil
+	case InvalidParamCodeType:
+		return []byte(s), nil
+	case InvalidParamCodeMinLength:
+		return []byte(s), nil
+	case InvalidParamCodeMaxLength:
+		return []byte(s), nil
+	case InvalidParamCodePattern:
+		return []byte(s), nil
+	case InvalidParamCodeUniqueItems:
+		return []byte(s), nil
+	case InvalidParamCodeInvalidParam:
+		return []byte(s), nil
+	case InvalidParamCodeBodyRequired:
+		return []byte(s), nil
+	case InvalidParamCodeInvalid:
+		return []byte(s), nil
+	case InvalidParamCodeInvalidSku:
+		return []byte(s), nil
+	case InvalidParamCodeInvalidQuantity:
+		return []byte(s), nil
+	case InvalidParamCodeInvalidReservationRef:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *InvalidParamCode) UnmarshalText(data []byte) error {
+	switch InvalidParamCode(data) {
+	case InvalidParamCodeRequired:
+		*s = InvalidParamCodeRequired
+		return nil
+	case InvalidParamCodeType:
+		*s = InvalidParamCodeType
+		return nil
+	case InvalidParamCodeMinLength:
+		*s = InvalidParamCodeMinLength
+		return nil
+	case InvalidParamCodeMaxLength:
+		*s = InvalidParamCodeMaxLength
+		return nil
+	case InvalidParamCodePattern:
+		*s = InvalidParamCodePattern
+		return nil
+	case InvalidParamCodeUniqueItems:
+		*s = InvalidParamCodeUniqueItems
+		return nil
+	case InvalidParamCodeInvalidParam:
+		*s = InvalidParamCodeInvalidParam
+		return nil
+	case InvalidParamCodeBodyRequired:
+		*s = InvalidParamCodeBodyRequired
+		return nil
+	case InvalidParamCodeInvalid:
+		*s = InvalidParamCodeInvalid
+		return nil
+	case InvalidParamCodeInvalidSku:
+		*s = InvalidParamCodeInvalidSku
+		return nil
+	case InvalidParamCodeInvalidQuantity:
+		*s = InvalidParamCodeInvalidQuantity
+		return nil
+	case InvalidParamCodeInvalidReservationRef:
+		*s = InvalidParamCodeInvalidReservationRef
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
 }
 
 // NewOptString returns new OptString with value set to v.

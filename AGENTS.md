@@ -103,7 +103,7 @@
 
 ### 新しい値オブジェクト・検証規則を追加する（エラー応答の規約）
 
-ドメインの検証規則を足すコストは **2 箇所の編集**である。規約の全体像は `CONVENTIONS.md` の
+ドメインの検証規則を足すコストは **3 箇所の編集**である。規約の全体像は `CONVENTIONS.md` の
 「HTTP エラー応答（RFC 9457 / Problem Details）」にある。
 
 1. **ドメイン層** `internal/domain/<ctx>/errors.go` の `Rule` 一覧に 1 行足す。
@@ -125,6 +125,20 @@
 
    受信値も閾値も書かない（FR-2.3 / FR-2.4）。キーを `Rule` から引いているので、
    `code` の綴りがドメイン側とずれることは構造的に起こらない。
+
+3. **契約（OpenAPI）** `contracts/<ctx>/openapi.yaml`（在庫コンテキストは内部 API の
+   `contracts/inventory/internal.openapi.yaml` も）の `InvalidParam.code` の `enum` に、その
+   `code` を 1 行足す。
+
+   ```yaml
+   - invalid_quantity
+   ```
+
+   `code` は契約で `enum` 化されており、ogen が `InvalidParamCode`（`string` の別名）を生成する。
+   契約は機械可読な語彙台帳を兼ねる（契約を読むだけで取りうる `code` が分かる）。足し忘れると、
+   その `code` を載せた応答が生成型 `ProblemDetails.Validate()` で弾かれ CI が落ちる
+   （`problem_test.go` の網羅テストと `readProblem` の Validate が二重に守る）。`go generate`
+   の再生成も忘れずに。
 
 そして呼び出し側は 1 行で書く。
 
@@ -151,7 +165,8 @@ if n < 1 {
 状態の矛盾（409）は素の番兵のまま返し、`invalid-params` を省略する。
 
 テストは 3 層それぞれに足す。`field_violation_test.go`（違反が名乗る `Rule` と `errors.Is`）、
-`validation_path_test.go`（`Path`）、`problem_test.go`（JSON パスと `code` / `reason`）。
+`validation_path_test.go`（`Path`）、`problem_test.go`（JSON パスと `code` / `reason`、および
+新 `code` が契約の `enum` に含まれることを固定する `TestProblem_InvalidParamCodeEnumCoversVocabulary`）。
 
 ### 永続化のクエリ／スキーマを変更する
 

@@ -27,7 +27,7 @@ func (s *InvalidParam) encodeFields(e *jx.Encoder) {
 	}
 	{
 		e.FieldStart("code")
-		e.Str(s.Code)
+		s.Code.Encode(e)
 	}
 	{
 		if s.Reason.Set {
@@ -67,9 +67,7 @@ func (s *InvalidParam) Decode(d *jx.Decoder) error {
 		case "code":
 			requiredBitSet[0] |= 1 << 1
 			if err := func() error {
-				v, err := d.Str()
-				s.Code = string(v)
-				if err != nil {
+				if err := s.Code.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -138,6 +136,76 @@ func (s *InvalidParam) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *InvalidParam) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes InvalidParamCode as json.
+func (s InvalidParamCode) Encode(e *jx.Encoder) {
+	e.Str(string(s))
+}
+
+// Decode decodes InvalidParamCode from json.
+func (s *InvalidParamCode) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode InvalidParamCode to nil")
+	}
+	v, err := d.StrBytes()
+	if err != nil {
+		return err
+	}
+	// Try to use constant string.
+	switch InvalidParamCode(v) {
+	case InvalidParamCodeRequired:
+		*s = InvalidParamCodeRequired
+	case InvalidParamCodeType:
+		*s = InvalidParamCodeType
+	case InvalidParamCodeMinLength:
+		*s = InvalidParamCodeMinLength
+	case InvalidParamCodeMaxLength:
+		*s = InvalidParamCodeMaxLength
+	case InvalidParamCodePattern:
+		*s = InvalidParamCodePattern
+	case InvalidParamCodeUniqueItems:
+		*s = InvalidParamCodeUniqueItems
+	case InvalidParamCodeInvalidParam:
+		*s = InvalidParamCodeInvalidParam
+	case InvalidParamCodeBodyRequired:
+		*s = InvalidParamCodeBodyRequired
+	case InvalidParamCodeInvalid:
+		*s = InvalidParamCodeInvalid
+	case InvalidParamCodeEmptyOrder:
+		*s = InvalidParamCodeEmptyOrder
+	case InvalidParamCodeInvalidSku:
+		*s = InvalidParamCodeInvalidSku
+	case InvalidParamCodeInvalidQuantity:
+		*s = InvalidParamCodeInvalidQuantity
+	case InvalidParamCodeInvalidMoneyAmount:
+		*s = InvalidParamCodeInvalidMoneyAmount
+	case InvalidParamCodeInvalidMoneyCurrency:
+		*s = InvalidParamCodeInvalidMoneyCurrency
+	case InvalidParamCodeInvalidCustomerID:
+		*s = InvalidParamCodeInvalidCustomerID
+	case InvalidParamCodeInvalidOrderID:
+		*s = InvalidParamCodeInvalidOrderID
+	case InvalidParamCodeInvalidReservationRef:
+		*s = InvalidParamCodeInvalidReservationRef
+	default:
+		*s = InvalidParamCode(v)
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s InvalidParamCode) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *InvalidParamCode) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

@@ -148,6 +148,24 @@ RFC 9457 の拡張メンバーとして、違反したフィールドを機械�
 でも、注文コンテキストは「1 以上」、在庫コンテキストは「0 以上」を意味します。値域の違いは
 `reason` の文言差として現れます。クライアントは `type` を見ればどちらの語彙かを判別できます。
 
+**この 2 系統の語彙は、各契約（OpenAPI）の `InvalidParam.code` に `enum` として列挙して
+あります**（契約検証語彙 ∪ そのコンテキストのドメイン検証語彙）。契約が機械可読な語彙台帳を
+兼ねるので、契約を読むだけで取りうる `code` が分かります。ogen は `enum` から
+`InvalidParamCode`（`string` の別名）を生成し、応答を復号するときに `Validate()` で enum
+membership を検査します（`InvalidParam` を組み立てるインターフェース層の境界で、素の文字列を
+この生成型へ写します — ドメイン／アプリ層は素の文字列のまま）。**新しいドメイン `code` を
+足したら、対応する契約の `enum` にも足してください**（在庫は公開・内部の 2 契約が同じドメイン
+語彙を載せるので両方）。実装（`Rule` / `domainReasons`）と契約の `enum` が乖離しないよう、
+`problem_test.go` の網羅テスト `TestProblem_InvalidParamCodeEnumCoversVocabulary` が全語彙を
+`enum` と突き合わせ、`readProblem` は実応答を生成型 `Validate()` に通します。この結合を壊すと
+CI が落ちます（規則 R-19）。
+
+対して `type` は `code` と違い OpenAPI の `enum` にしていません（素の `format: uri` のまま）。
+ogen v1.23.0 は `enum` + `format: uri` の組み合わせで壊れた Go（`url.URL` を基底にした型に
+文字列定数を代入し、JSON 生成も失敗）を出すためです。したがって `type` の機械可読な台帳は
+OpenAPI の `enum` ではなく `shared/problem/types.go`（サフィックス台帳）であり、
+`problemTypeBase` を書き換えても契約側の更新は不要です。
+
 ### 検証規則は `Rule` に 1 つだけ書く
 
 ドメインの検証規則は **`Rule` 型 1 つ**にまとめます。フィールド名・`code`・番兵が
@@ -178,8 +196,11 @@ func NewQuantity(n int) (Quantity, error) {
 それを指すだけで置き換えません。`Rule` は番兵より細かくてよく、`ErrInvalidMoney` が
 `VMoneyAmount` と `VMoneyCurrency` の 2 つに分かれるのがその実例です（規則 R-6）。
 
-**新しい規則を足すコストは 2 箇所の編集です。** `Rule` を 1 行、インターフェース層の
-`domainReasons` を 1 行。それ以上は要りません（規則 R-19）。
+**新しい規則を足すコストは 3 箇所の編集です。** `Rule` を 1 行、インターフェース層の
+`domainReasons` を 1 行、そして**その `code` を契約（OpenAPI）の `InvalidParam.code` の
+`enum` に 1 行**（在庫は公開・内部の両契約）。`code` は契約で `enum` 化されており、足し忘れると
+生成型 `InvalidParamCode.Validate()` が弾いて CI が落ちます。再生成（`go generate`）も忘れずに。
+それ以上は要りません（規則 R-19）。
 
 ### フィールド識別情報は 3 層で組み立てる
 

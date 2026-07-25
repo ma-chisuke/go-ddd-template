@@ -26,8 +26,10 @@
   （SKU・数量・在庫数）も含めない。ogen サーバは必ず `NewServer(h, h.ServerOptions()...)` で
   組み立てる（渡し忘れると ogen の既定ハンドラが内部文字列を返す）。ドメインの検証規則は
   `Rule{Field, Code, Err}` に 1 つだけ定義し、呼び出し側は `VQuantity.Violated("...")`
-  の 1 行で返す。規則を足すコストは **2 箇所**（domain の `Rule` 1 行 + interfaces の
-  `domainReasons` 1 行）。番兵は消さない（`errors.Is` の判定単位）。詳細は
+  の 1 行で返す。規則を足すコストは **3 箇所**（domain の `Rule` 1 行 + interfaces の
+  `domainReasons` 1 行 + 契約 OpenAPI の `InvalidParam.code` `enum` 1 行、在庫は公開・内部の
+  両契約）。`code` は契約で `enum` 化されており、足し忘れると生成型の `Validate()` が弾いて
+  CI が落ちる。番兵は消さない（`errors.Is` の判定単位）。詳細は
   `CONVENTIONS.md` の「HTTP エラー応答（RFC 9457 / Problem Details）」と `AGENTS.md` のレシピ。
 - **秘密情報をハードコードしない**。DB 資格情報・トークンはコード/イメージに焼き込まず、
   実行時に環境変数から注入する（compose の認証情報はデモ専用）。

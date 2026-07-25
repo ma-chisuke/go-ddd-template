@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/openapi"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
 	"github.com/example/go-ddd-template/shared/problem"
 )
@@ -58,6 +59,14 @@ func readProblem(t *testing.T, resp *http.Response, wantStatus int, wantTypeSuff
 	var pb problemBody
 	require.NoError(t, json.Unmarshal(raw, &pb), "problem+json のデコード: %s", raw)
 	pb.raw = string(raw)
+
+	// 生成型（ogen）へも復号して Validate を通す。応答の code は契約で enum 化されており、
+	// ProblemDetails.Validate が invalid-params[].code を enum と突き合わせる。readProblem を
+	// 通る全経路（E1〜E4）のテストがこれを実行するので、サーバが enum 外の code を載せた瞬間に
+	// CI が落ちる（契約の enum と実装の語彙が乖離しない保証）。
+	var typed openapi.ProblemDetails
+	require.NoError(t, json.Unmarshal(raw, &typed), "生成型 ProblemDetails への復号: %s", raw)
+	assert.NoError(t, typed.Validate(), "生成型 Validate（code enum を含む）: %s", raw)
 
 	assert.Equal(t, wantStatus, pb.Status, "problem.status")
 	assert.Equal(t, typeBase+wantTypeSuffix, pb.Type, "problem.type")
@@ -226,4 +235,31 @@ func TestProblem_SameStatusDifferentType(t *testing.T) {
 	assert.NotEqual(t, routing.Type, resource.Type, "URL の誤りと ID の誤りは type で区別できる")
 	assert.NotEqual(t, routing.Title, resource.Title, "title も type と 1 対 1（規則 R-3）")
 	assert.NotEqual(t, routing.Detail, resource.Detail)
+}
+
+// TestProblem_InvalidParamCodeEnumCoversVocabulary は、このサーバが応答に載せうる code
+// 語彙のすべてが、契約（openapi.yaml）の InvalidParam.code enum に含まれることを網羅的に
+// 検証する。列挙元は語彙の唯一の情報源そのもの——契約検証語彙（shared/problem の Code*）と、
+// 在庫コンテキストが所有するドメイン検証語彙（inventory.Rule の Code）——である。
+//
+// readProblem 内の Validate はテストが実際に踏んだ経路の code しか検証できない。この網羅
+// テストは経路に依存せず、語彙 → enum の対応を直接固定する。新しい inventory.Rule を足したのに
+// 契約の enum へ足し忘れれば、その code の生成型 Validate が invalid value を返し CI が落ちる
+// （規則 R-19）。
+func TestProblem_InvalidParamCodeEnumCoversVocabulary(t *testing.T) {
+	// 契約検証語彙（400 / validation-error）。shared/problem/vocab.go の Code* が唯一の情報源。
+	contractCodes := []string{
+		problem.CodeRequired, problem.CodeType, problem.CodeMinLength, problem.CodeMaxLength,
+		problem.CodePattern, problem.CodeUniqueItems, problem.CodeInvalidParam,
+		problem.CodeBodyRequired, problem.CodeInvalid,
+	}
+	// ドメイン検証語彙（422 / invalid-input）。在庫コンテキストの inventory.Rule が唯一の情報源。
+	domainCodes := []string{
+		inventory.VSKU.Code, inventory.VQuantity.Code, inventory.VReservationRef.Code,
+	}
+
+	for _, code := range append(contractCodes, domainCodes...) {
+		assert.NoErrorf(t, openapi.InvalidParamCode(code).Validate(),
+			"code %q は契約（openapi.yaml）の InvalidParam.code enum に含まれる必要がある", code)
+	}
 }

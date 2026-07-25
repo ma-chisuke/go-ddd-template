@@ -202,8 +202,11 @@ func contractParams(err error) []openapi.InvalidParam {
 	out := make([]openapi.InvalidParam, 0, len(params))
 	for _, p := range params {
 		out = append(out, openapi.InvalidParam{
-			Name:   p.Name,
-			Code:   p.Code,
+			Name: p.Name,
+			// code は契約で enum 化されており、生成型 InvalidParamCode（string の別名）になる。
+			// ドメイン／アプリ層はプレーンな文字列のまま扱い、この境界（インターフェース層）で
+			// enum 型へ写す。綴りが契約の enum から外れれば生成型の Validate が弾く。
+			Code:   openapi.InvalidParamCode(p.Code),
 			Reason: openapi.NewOptString(problem.ReasonOf(p.Code)),
 		})
 	}
@@ -220,8 +223,9 @@ func domainParams(err error) []openapi.InvalidParam {
 	out := make([]openapi.InvalidParam, 0, len(ve.Violations))
 	for _, v := range ve.Violations {
 		out = append(out, openapi.InvalidParam{
-			Name:   toJSONPath(v.Path),
-			Code:   v.Code,
+			Name: toJSONPath(v.Path),
+			// ドメイン検証 code も契約の enum に含める（規則 R-19）。境界で enum 型へ写す。
+			Code:   openapi.InvalidParamCode(v.Code),
 			Reason: openapi.NewOptString(domainReasonOf(v.Code)),
 		})
 	}

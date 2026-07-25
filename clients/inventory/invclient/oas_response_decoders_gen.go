@@ -82,6 +82,15 @@ func decodeConfirmReservationResponse(resp *http.Response) (res *Ack, _ error) {
 				}
 				return res, err
 			}
+			// Validate response.
+			if err := func() error {
+				if err := response.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return res, errors.Wrap(err, "validate")
+			}
 			return &ProblemResponseStatusCode{
 				StatusCode: resp.StatusCode,
 				Response:   response,
@@ -164,6 +173,15 @@ func decodeIngestEventResponse(resp *http.Response) (res *Ack, _ error) {
 					Err:         err,
 				}
 				return res, err
+			}
+			// Validate response.
+			if err := func() error {
+				if err := response.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return res, errors.Wrap(err, "validate")
 			}
 			return &ProblemResponseStatusCode{
 				StatusCode: resp.StatusCode,
@@ -248,6 +266,15 @@ func decodeReleaseReservationResponse(resp *http.Response) (res *Ack, _ error) {
 				}
 				return res, err
 			}
+			// Validate response.
+			if err := func() error {
+				if err := response.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return res, errors.Wrap(err, "validate")
+			}
 			return &ProblemResponseStatusCode{
 				StatusCode: resp.StatusCode,
 				Response:   response,
@@ -330,6 +357,15 @@ func decodeReserveStockResponse(resp *http.Response) (res *Ack, _ error) {
 					Err:         err,
 				}
 				return res, err
+			}
+			// Validate response.
+			if err := func() error {
+				if err := response.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return res, errors.Wrap(err, "validate")
 			}
 			return &ProblemResponseStatusCode{
 				StatusCode: resp.StatusCode,

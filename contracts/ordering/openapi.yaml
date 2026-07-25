@@ -302,6 +302,30 @@ components:
           description: |
             機械可読な違反理由。語彙は type によって決まる
             （validation-error なら契約検証語彙、invalid-input ならドメイン検証語彙）。
+            enum はこの契約のサーバが実際に載せうる値の全体（契約検証語彙 ∪ 注文コンテキストの
+            ドメイン検証語彙）。新しいドメイン検証規則（order.Rule）を足したら、その code を
+            ここへも足す（規則 R-19。手順は CONVENTIONS.md）。
+          enum:
+            # 契約検証語彙（400 / validation-error）。shared/problem/vocab.go が唯一の情報源。
+            - required
+            - type
+            - min_length
+            - max_length
+            - pattern
+            - unique_items
+            - invalid_param
+            - body_required
+            - invalid
+            # ドメイン検証語彙（422 / invalid-input）。注文コンテキストが所有する
+            # （contexts/ordering/internal/domain/order/errors.go の order.Rule）。
+            - empty_order
+            - invalid_sku
+            - invalid_quantity
+            - invalid_money_amount
+            - invalid_money_currency
+            - invalid_customer_id
+            - invalid_order_id
+            - invalid_reservation_ref
         reason:
           type: string
           description: 人間可読な説明。code から導出される定型文であり、受信値を含まない。

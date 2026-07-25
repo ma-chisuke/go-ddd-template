@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/inbound/openapi"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
 	"github.com/example/go-ddd-template/shared/problem"
@@ -68,6 +69,14 @@ func readProblem(t *testing.T, resp *http.Response, wantStatus int, wantTypeSuff
 	var pb problemBody
 	require.NoError(t, json.Unmarshal(raw, &pb), "problem+json のデコード: %s", raw)
 	pb.raw = string(raw)
+
+	// 生成型（ogen）へも復号して Validate を通す。応答の code は契約で enum 化されており、
+	// ProblemDetails.Validate が invalid-params[].code を enum と突き合わせる。readProblem を
+	// 通る全経路（E1〜E4）のテストがこれを実行するので、サーバが enum 外の code を載せた瞬間に
+	// CI が落ちる（契約の enum と実装の語彙が乖離しない保証）。
+	var typed openapi.ProblemDetails
+	require.NoError(t, json.Unmarshal(raw, &typed), "生成型 ProblemDetails への復号: %s", raw)
+	assert.NoError(t, typed.Validate(), "生成型 Validate（code enum を含む）: %s", raw)
 
 	assert.Equal(t, wantStatus, pb.Status, "problem.status は HTTP ステータスと一致する")
 	assert.Equal(t, typeBase+wantTypeSuffix, pb.Type, "problem.type")
@@ -358,4 +367,33 @@ func TestProblem_E4_SameStatusDifferentType(t *testing.T) {
 	assert.Equal(t, rejected.Status, conflict.Status, "status は同じ")
 	assert.NotEqual(t, rejected.Type, conflict.Type, "type は異なる（クライアントはこれで分岐できる）")
 	assert.NotEqual(t, rejected.Title, conflict.Title, "title も type と 1 対 1（規則 R-3）")
+}
+
+// TestProblem_InvalidParamCodeEnumCoversVocabulary は、このサーバが応答に載せうる code
+// 語彙のすべてが、契約（openapi.yaml）の InvalidParam.code enum に含まれることを網羅的に
+// 検証する。列挙元は語彙の唯一の情報源そのもの——契約検証語彙（shared/problem の Code*）と、
+// 注文コンテキストが所有するドメイン検証語彙（order.Rule の Code）——である。
+//
+// readProblem 内の Validate はテストが実際に踏んだ経路の code しか検証できない（例えば
+// invalid_reservation_ref は公開 API から容易には誘発できない）。この網羅テストは経路に
+// 依存せず、語彙 → enum の対応を直接固定する。新しい order.Rule を足したのに契約の enum へ
+// 足し忘れれば、その code の生成型 Validate が invalid value を返し CI が落ちる（規則 R-19）。
+func TestProblem_InvalidParamCodeEnumCoversVocabulary(t *testing.T) {
+	// 契約検証語彙（400 / validation-error）。shared/problem/vocab.go の Code* が唯一の情報源。
+	contractCodes := []string{
+		problem.CodeRequired, problem.CodeType, problem.CodeMinLength, problem.CodeMaxLength,
+		problem.CodePattern, problem.CodeUniqueItems, problem.CodeInvalidParam,
+		problem.CodeBodyRequired, problem.CodeInvalid,
+	}
+	// ドメイン検証語彙（422 / invalid-input）。注文コンテキストの order.Rule が唯一の情報源。
+	domainCodes := []string{
+		order.VEmptyOrder.Code, order.VSKU.Code, order.VQuantity.Code,
+		order.VMoneyAmount.Code, order.VMoneyCurrency.Code, order.VCustomerID.Code,
+		order.VOrderID.Code, order.VReservationRef.Code,
+	}
+
+	for _, code := range append(contractCodes, domainCodes...) {
+		assert.NoErrorf(t, openapi.InvalidParamCode(code).Validate(),
+			"code %q は契約（openapi.yaml）の InvalidParam.code enum に含まれる必要がある", code)
+	}
 }
