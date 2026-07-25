@@ -220,6 +220,9 @@ make test
 ### ドキュメント
 
 - [CONVENTIONS.md](CONVENTIONS.md) — Go / SQL / DDD の規約（命名・層分離・`UnitOfWork[R]` など）。
+- [docs/testing-conventions.md](docs/testing-conventions.md) — テストの規約（テスト関数名の 2 形、
+  サブテスト名の 8 語語彙、`t.Parallel()` の適用範囲、テストの日本語コメント）。
+  どちらの文書も `make lint` と `make conventions` が機械的に強制します。
 - [AGENTS.md](AGENTS.md) / [CLAUDE.md](CLAUDE.md) — AI エージェント向けガイド（機械可読契約への案内・禁止事項）。
 - [docs/why-these-boundaries.md](docs/why-these-boundaries.md) — なぜ在庫と受注の 2 つに割ったのか（導出過程と却下した代替案）。
 - [docs/ddd-patterns.md](docs/ddd-patterns.md) — DDD パターン → このリポジトリでの実装位置の索引。

@@ -47,6 +47,19 @@
    イメージに焼き込みません。実行時に環境変数 / シークレットマネージャから注入します
    （`docker-compose.yml` の認証情報はすべて**デモ専用**であることを明記済み）。入力は
    境界（HTTP ハンドラ・契約）で検証します。
+9. **サブテスト名を 8 語の閉じた語彙で始める。** `t.Run` の名前とテーブル駆動の `name`
+   フィールドは `正常系` `異常系` `境界` `冪等` `並行` `契約` `回帰` `性質` のいずれか +
+   半角コロン + 半角スペースで始め、`/` を含めません（`go test -run` の階層区切りに
+   なるためです）。テーブル駆動のケース名は**必ず `name` フィールド**として持ちます
+   （位置指定の第 1 要素にしない — 機械検査から見えなくなります）。
+10. **規約は 2 文書に分かれている。** 識別子・ファイル・パッケージ・言語ポリシーは
+    [CONVENTIONS.md](CONVENTIONS.md)（「命名」＝ A 群、「パッケージ / ファイルの構成」＝ B 群、
+    「言語ポリシー」＝ F 群、「整形・静的解析」の「機械強制の一覧」＝ G 群）、テスト関数名・
+    サブテスト名・テストの日本語コメントは
+    [docs/testing-conventions.md](docs/testing-conventions.md)（C 群 / D 群 / E 群）にあります。
+    どちらも `make lint`（golangci-lint）と `make conventions`
+    （`scripts/convention-gate.sh`）が機械的に強制し、両方とも `make ci` に含まれます。
+    **規約を足したら強制手段も足す**（規約だけ書いて守られない状態を作らない）。
 
 ## どこに何を書くか
 
@@ -70,6 +83,8 @@
 | DB スキーマ・クエリ | `db/schema.sql`, `db/queries.sql` |
 | 最小権限ロール/GRANT・本番参照データ・dev/test フィクスチャ・psqldef スコープ | `db/roles.sql`, `db/seed.sql`, `db/fixtures.sql`, `db/sqldef.yml` |
 | bring-up オーケストレーション（schema → roles → seed → fixtures） | `deploy/migrate.Dockerfile`, `deploy/apply.sh`, `docker-compose.yml` |
+| **テストの名前・サブテスト名・日本語コメントの規約**（C 群 / D 群 / E 群） | `docs/testing-conventions.md`（識別子・ファイル・言語ポリシーの規約は `CONVENTIONS.md`） |
+| **lint で表現できない規約の機械強制**（サブテスト名の 8 語語彙、package 名 = ディレクトリ名、規約系 Markdown の半角スペース境界など） | `scripts/convention-gate.sh`（`make conventions` で実行。`make ci` と CI の step にも入っている） |
 | 契約ガバナンスゲート（後方互換・カバレッジ） | `contracts/check-openapi-compat.sh`, `contracts/events/check-compat.sh`, `scripts/coverage-gate.sh` |
 | **腐敗防止層（ACL）ポート** `StockReserver` と番兵 `ErrReservationRejected` / `ErrReservationUnavailable`（注文） | `contexts/ordering/internal/application/acl.go` |
 | **ACL の HTTP 実装**（生成クライアントで在庫を予約・解放 + trace 伝播）（注文） | `contexts/ordering/internal/adapter/outbound/aclhttp/` |
@@ -318,6 +333,7 @@ make fmt              # gofmt + goimports で整形する
 make fmt-check        # 未整形が無いことを検証する
 make vet
 make lint             # golangci-lint（depguard の層 / seam 境界強制を含む）
+make conventions      # 規約ゲート（lint で表現できない規約。scripts/convention-gate.sh）
 make build            # 統合タグのコンパイル検証を含む
 make test
 make test-race
