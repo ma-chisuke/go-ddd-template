@@ -87,6 +87,27 @@ func requireStopped(t *testing.T, addr string) {
 		"停止したはずのサーバ %s が待ち受けている", addr)
 }
 
+// requireRebindable は addr を自分で bind できることを確認する（誰も待ち受けていない）。
+//
+// dial が拒否されることより強い観測である。dial の失敗は「ランナーのサーバが停止した」
+// 場合にも「そのポートを無関係のプロセスが握っていてランナーは最初から bind できて
+// いなかった」場合にも成立してしまうが、bind が成功するのは後者では起こり得ない。
+// 「停止している」という検証が空虚に満たされる経路を潰すために使う。
+func requireRebindable(t *testing.T, addr string) {
+	t.Helper()
+	var held net.Listener
+	require.Eventually(t, func() bool {
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			return false
+		}
+		held = ln
+		return true
+	}, 2*time.Second, 20*time.Millisecond,
+		"%s を bind できない = まだ誰かが待ち受けている（ランナーが停止させ切れていない）", addr)
+	require.NoError(t, held.Close(), "確認用リスナのクローズ")
+}
+
 // requireHTTPOK は addr へ GET して 200 が返ることを確認する（実際に処理できていること）。
 func requireHTTPOK(t *testing.T, addr string) {
 	t.Helper()
@@ -223,27 +244,45 @@ func TestRun_IsServerCountAgnostic(t *testing.T) {
 // --- ケース 3: サーバエラー時に兄弟サーバも停止する（EMPTY+PRESENT 対）-------------
 
 func TestRun_ServerErrorAlsoShutsDownSiblings(t *testing.T) {
-	healthyAddr := freeAddr(t)
-	busyAddr := occupiedAddr(t)
+	// 2 本に「同じアドレス」を渡す。これは採用者が現実に踏む設定ミス（HTTP_ADDR と
+	// INTERNAL_HTTP_ADDR を同じ値にしてしまう）であり、同時に、この検証が必要とする
+	// 因果順序を保証する構成でもある。
+	//
+	// 後から bind する側が EADDRINUSE で失敗するのは、**先に bind した側が既に
+	// 待ち受けているから**である。つまり「bind 失敗が起きた」という事実そのものが、
+	// 兄弟サーバが待ち受けを開始していたことの証明になる（順序は偶然ではなく因果）。
+	//
+	// 「空きポート 1 本 + 別途占有しておいたポート 1 本」という組み方だと、占有側の
+	// bind 失敗は即座に起きるため、健全側が bind する前に停止処理へ入り得る。その場合
+	// 「停止している」は「そもそも起動していなかった」でも満たせてしまい、EMPTY 側が
+	// 空虚になる（何も停止させない壊れた実装でも通ってしまう）。
+	addr := freeAddr(t)
 
 	// ctx はキャンセルしない。停止の契機はサーバのエラーだけである。
 	done := make(chan error, 1)
 	go func() {
 		done <- Run(context.Background(), discardLogger(),
-			Server{Name: "健全", Addr: healthyAddr, Handler: okHandler()},
-			Server{Name: "失敗", Addr: busyAddr, Handler: okHandler()},
+			Server{Name: "競合A", Addr: addr, Handler: okHandler()},
+			Server{Name: "競合B", Addr: addr, Handler: okHandler()},
 		)
 	}()
 
 	err := waitRun(t, done)
 
-	// PRESENT: 失敗したサーバのエラーが呼び出し元へ返る（握り潰されない）。
+	// PRESENT: bind に失敗した側のエラーが呼び出し元へ返る（握り潰されない）。
+	// かつ、このエラーが返ったこと自体が「もう 1 本が待ち受けていた」ことの証拠である。
 	require.Error(t, err, "bind の失敗は Run の戻り値として返るべき")
-	assert.Contains(t, err.Error(), busyAddr, "bind に失敗したアドレスがエラーに含まれるべき")
+	assert.Contains(t, err.Error(), addr, "bind に失敗したアドレスがエラーに含まれるべき")
 
-	// EMPTY: 兄弟サーバはプロセス終了任せに放置されず、確実に停止している。
+	// EMPTY: 待ち受けていた兄弟サーバは、プロセス終了任せに放置されず確実に停止している。
 	// 片方だけでは壊れた実装でも満たせるため、この 2 点を同じ観測で同時に確認する。
-	requireStopped(t, healthyAddr)
+	//
+	// まず「待ち受けていないこと」を窓で見る（停止させ忘れた側は bind が数ミリ秒遅れても
+	// その直後に待ち受けを始めるため、この窓で捕まる）。
+	requireStopped(t, addr)
+	// そのうえで自分で bind できることまで確認する。これで「無関係のプロセスがポートを
+	// 握っていて、ランナーは 2 本とも bind に失敗していた」という空虚な成立経路も潰れる。
+	requireRebindable(t, addr)
 }
 
 // --- ケース 4: shutdown 途中失敗でも残りを続行する ---------------------------------
@@ -257,7 +296,10 @@ func TestRun_ShutdownFailureDoesNotSkipRemainingServers(t *testing.T) {
 	// PRESENT: 1 本目の失敗が戻り値として現れる。
 	require.ErrorIs(t, err, context.DeadlineExceeded, "1 本目の Shutdown は猶予切れで失敗すべき")
 	// EMPTY: それでも 2 本目には Shutdown が呼ばれ、待ち受けを残していない。
+	// 2 本目が起動していたことは runWithStuckShutdown の waitServing で確認済みなので、
+	// この EMPTY 側が空虚に満たされることはない。
 	requireStopped(t, healthyAddr)
+	requireRebindable(t, healthyAddr)
 }
 
 // --- ケース 5: 戻り値の優先順位（3 分岐）------------------------------------------
