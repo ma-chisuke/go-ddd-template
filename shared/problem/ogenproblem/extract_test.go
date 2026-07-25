@@ -192,8 +192,8 @@ func TestOgenCharacteristics_ParamAndBodyErrors(t *testing.T) {
 
 	t.Run("契約: パラメータの解釈失敗は *ogenerrors.DecodeParamError で名前を持つ", func(t *testing.T) {
 		for _, tc := range []struct{ name, query string }{
-			{"型不一致", "?attempt=xyz"},
-			{"欠落", ""},
+			{name: "契約: 型不一致でも名前を持つ", query: "?attempt=xyz"},
+			{name: "契約: 欠落でも名前を持つ", query: ""},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				err := p.sendWith(t, tc.query, "application/json", validBody)

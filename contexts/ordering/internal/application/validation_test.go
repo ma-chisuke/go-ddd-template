@@ -45,10 +45,30 @@ func TestPlaceOrder_InvalidLineValues(t *testing.T) {
 		line     application.PlaceOrderLine
 		want     error
 	}{
-		{"数量 0", "CUST-1", application.PlaceOrderLine{SKU: "SKU-A", Quantity: 0, UnitPriceAmount: 100, Currency: "JPY"}, order.ErrInvalidQuantity},
-		{"SKU 空", "CUST-1", application.PlaceOrderLine{SKU: "  ", Quantity: 1, UnitPriceAmount: 100, Currency: "JPY"}, order.ErrInvalidSKU},
-		{"通貨空", "CUST-1", application.PlaceOrderLine{SKU: "SKU-A", Quantity: 1, UnitPriceAmount: 100, Currency: ""}, order.ErrInvalidMoney},
-		{"顧客空", "  ", application.PlaceOrderLine{SKU: "SKU-A", Quantity: 1, UnitPriceAmount: 100, Currency: "JPY"}, order.ErrInvalidCustomerID},
+		{
+			name:     "境界: 数量 0 は ErrInvalidQuantity",
+			customer: "CUST-1",
+			line:     application.PlaceOrderLine{SKU: "SKU-A", Quantity: 0, UnitPriceAmount: 100, Currency: "JPY"},
+			want:     order.ErrInvalidQuantity,
+		},
+		{
+			name:     "境界: SKU が空なら ErrInvalidSKU",
+			customer: "CUST-1",
+			line:     application.PlaceOrderLine{SKU: "  ", Quantity: 1, UnitPriceAmount: 100, Currency: "JPY"},
+			want:     order.ErrInvalidSKU,
+		},
+		{
+			name:     "境界: 通貨が空なら ErrInvalidMoney",
+			customer: "CUST-1",
+			line:     application.PlaceOrderLine{SKU: "SKU-A", Quantity: 1, UnitPriceAmount: 100, Currency: ""},
+			want:     order.ErrInvalidMoney,
+		},
+		{
+			name:     "境界: 顧客 ID が空なら ErrInvalidCustomerID",
+			customer: "  ",
+			line:     application.PlaceOrderLine{SKU: "SKU-A", Quantity: 1, UnitPriceAmount: 100, Currency: "JPY"},
+			want:     order.ErrInvalidCustomerID,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

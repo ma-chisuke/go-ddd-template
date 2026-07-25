@@ -15,15 +15,15 @@ func TestJoinPath(t *testing.T) {
 		segs []string
 		want string
 	}{
-		{"空", nil, ""},
-		{"単一", []string{"quantity"}, "quantity"},
-		{"入れ子", []string{"lines", "unitPrice", "amount"}, "lines.unitPrice.amount"},
-		{"添字はドットを挟まない", []string{"lines", "[0]"}, "lines[0]"},
-		{"添字のあとはドットで繋ぐ", []string{"lines", "[0]", "quantity"}, "lines[0].quantity"},
-		{"深い入れ子と添字", []string{"lines", "[0]", "unitPrice", "amount"}, "lines[0].unitPrice.amount"},
-		{"多次元の添字", []string{"matrix", "[1]", "[2]"}, "matrix[1][2]"},
-		{"空の断片は無視する", []string{"", "lines", "", "[0]"}, "lines[0]"},
-		{"先頭が添字でも壊れない", []string{"[0]", "sku"}, "[0].sku"},
+		{name: "境界: 断片が無ければ空文字列になる", segs: nil, want: ""},
+		{name: "正常系: 断片 1 つはそのまま返る", segs: []string{"quantity"}, want: "quantity"},
+		{name: "正常系: 入れ子はドットで繋ぐ", segs: []string{"lines", "unitPrice", "amount"}, want: "lines.unitPrice.amount"},
+		{name: "正常系: 添字はドットを挟まない", segs: []string{"lines", "[0]"}, want: "lines[0]"},
+		{name: "正常系: 添字のあとはドットで繋ぐ", segs: []string{"lines", "[0]", "quantity"}, want: "lines[0].quantity"},
+		{name: "正常系: 深い入れ子と添字を混ぜても組み立てる", segs: []string{"lines", "[0]", "unitPrice", "amount"}, want: "lines[0].unitPrice.amount"},
+		{name: "正常系: 多次元の添字は連結する", segs: []string{"matrix", "[1]", "[2]"}, want: "matrix[1][2]"},
+		{name: "境界: 空の断片は無視する", segs: []string{"", "lines", "", "[0]"}, want: "lines[0]"},
+		{name: "境界: 先頭が添字でも壊れない", segs: []string{"[0]", "sku"}, want: "[0].sku"},
 	}
 
 	for _, tc := range cases {

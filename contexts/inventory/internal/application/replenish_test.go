@@ -101,9 +101,21 @@ func TestReplenish_ValidationErrors(t *testing.T) {
 		input application.ReplenishInput
 		want  error
 	}{
-		{"空 SKU", application.ReplenishInput{SKU: "", Quantity: 1}, inventory.ErrInvalidSKU},
-		{"負の数量", application.ReplenishInput{SKU: "X", Quantity: -1}, inventory.ErrInvalidQuantity},
-		{"数量 0", application.ReplenishInput{SKU: "X", Quantity: 0}, inventory.ErrInvalidQuantity},
+		{
+			name:  "境界: 空の SKU は ErrInvalidSKU",
+			input: application.ReplenishInput{SKU: "", Quantity: 1},
+			want:  inventory.ErrInvalidSKU,
+		},
+		{
+			name:  "境界: 負の数量は ErrInvalidQuantity",
+			input: application.ReplenishInput{SKU: "X", Quantity: -1},
+			want:  inventory.ErrInvalidQuantity,
+		},
+		{
+			name:  "境界: 数量 0 は ErrInvalidQuantity",
+			input: application.ReplenishInput{SKU: "X", Quantity: 0},
+			want:  inventory.ErrInvalidQuantity,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

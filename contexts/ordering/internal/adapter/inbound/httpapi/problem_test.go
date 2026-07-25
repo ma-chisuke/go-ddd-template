@@ -216,16 +216,40 @@ func TestProblem_E4_DomainValidationHasInvalidParams(t *testing.T) {
 		wantName string
 		wantCode string
 	}{
-		{"数量 0", orderBody("CUST-1", orderLine("SKU-A", 0, 100, "JPY")), "lines[0].quantity", order.VQuantity.Code},
-		{"SKU 空", orderBody("CUST-1", orderLine(" ", 1, 100, "JPY")), "lines[0].sku", order.VSKU.Code},
-		{"金額が負", orderBody("CUST-1", orderLine("SKU-A", 1, -1, "JPY")), "lines[0].unitPrice.amount", order.VMoneyAmount.Code},
-		{"通貨が空", orderBody("CUST-1", orderLine("SKU-A", 1, 100, "")), "lines[0].unitPrice.currency", order.VMoneyCurrency.Code},
-		{"顧客 ID 空", orderBody("  ", orderLine("SKU-A", 1, 100, "JPY")), "customerId", order.VCustomerID.Code},
-		{"明細が空（集約規則）", orderBody("CUST-1"), "lines", order.VEmptyOrder.Code},
 		{
-			"2 行目が壊れている（添字が正しい行を指す）",
-			orderBody("CUST-1", orderLine("SKU-A", 1, 100, "JPY"), orderLine("SKU-B", 0, 100, "JPY")),
-			"lines[1].quantity", order.VQuantity.Code,
+			name:     "境界: 数量 0 は lines[0].quantity を指す",
+			body:     orderBody("CUST-1", orderLine("SKU-A", 0, 100, "JPY")),
+			wantName: "lines[0].quantity", wantCode: order.VQuantity.Code,
+		},
+		{
+			name:     "境界: SKU が空なら lines[0].sku を指す",
+			body:     orderBody("CUST-1", orderLine(" ", 1, 100, "JPY")),
+			wantName: "lines[0].sku", wantCode: order.VSKU.Code,
+		},
+		{
+			name:     "境界: 金額が負なら lines[0].unitPrice.amount を指す",
+			body:     orderBody("CUST-1", orderLine("SKU-A", 1, -1, "JPY")),
+			wantName: "lines[0].unitPrice.amount", wantCode: order.VMoneyAmount.Code,
+		},
+		{
+			name:     "境界: 通貨が空なら lines[0].unitPrice.currency を指す",
+			body:     orderBody("CUST-1", orderLine("SKU-A", 1, 100, "")),
+			wantName: "lines[0].unitPrice.currency", wantCode: order.VMoneyCurrency.Code,
+		},
+		{
+			name:     "境界: 顧客 ID が空なら customerId を指す",
+			body:     orderBody("  ", orderLine("SKU-A", 1, 100, "JPY")),
+			wantName: "customerId", wantCode: order.VCustomerID.Code,
+		},
+		{
+			name:     "境界: 明細が空なら lines を指す（集約規則）",
+			body:     orderBody("CUST-1"),
+			wantName: "lines", wantCode: order.VEmptyOrder.Code,
+		},
+		{
+			name:     "境界: 2 行目が壊れていれば添字は lines[1] を指す",
+			body:     orderBody("CUST-1", orderLine("SKU-A", 1, 100, "JPY"), orderLine("SKU-B", 0, 100, "JPY")),
+			wantName: "lines[1].quantity", wantCode: order.VQuantity.Code,
 		},
 	}
 
