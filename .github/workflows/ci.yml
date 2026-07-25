@@ -97,6 +97,16 @@ jobs:
       - name: golangci-lint
         run: make lint
 
+      - name: 規約ゲート（convention-gate）
+        # lint で表現できない規約（テスト関数名の主題の一意性・t.Run とテーブル駆動 name の
+        # 8 語語彙・カタログ的ファイル名・package 名 = ディレクトリ名・日本語と英数の間の半角スペース）。
+        #
+        # このワークフローは make ci を呼ばず個別ターゲットを呼ぶ設計なので、Makefile の ci の
+        # 依存に conventions を足しただけでは CI で 1 度も走らない。ここに step を足して初めて
+        # マージ前ゲートになる（step 分割は「どの検査で落ちたか」がログで一目でわかる利点が
+        # あるので、make ci 一発呼び出しには変えない）。
+        run: make conventions
+
       - name: ビルド（統合タグのコンパイル検証を含む）
         # 通常ビルドに加え、統合テスト（build tag integration、DB 接続時のみ実行）が
         # コンパイル可能であることを -run='^$' で検証する（DB 不要・テストは実行しない）。

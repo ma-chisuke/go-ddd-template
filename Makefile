@@ -120,6 +120,9 @@ cover: ## カバレッジゲート（domain + application >= 80% ／ モジュ�
 
 # --- ゲート -----------------------------------------------------------------
 
+conventions: ## 規約ゲート（lint で表現できない規約。CONVENTIONS.md / docs/testing-conventions.md）
+	@bash scripts/convention-gate.sh
+
 contracts: ## 契約の後方互換ゲート（OpenAPI + クロスコンテキストのメッセージスキーマ）
 	@bash contracts/check-openapi-compat.sh
 	@bash contracts/events/check-compat.sh
@@ -130,7 +133,7 @@ vuln: ## 依存関係の既知脆弱性をスキャンする（govulncheck）
 		(cd $$m && govulncheck ./...) || exit 1; \
 	done
 
-ci: generate-check fmt-check vet lint build test-race cover ## CI の ci ジョブと同じ検査一式をローカルで再現する
+ci: generate-check fmt-check vet lint conventions build test-race cover ## CI の ci ジョブと同じ検査一式をローカルで再現する
 	@echo "ci: OK"
 
 # --- 動かす -----------------------------------------------------------------
@@ -153,4 +156,4 @@ test-integration: ## PostgreSQL を起動して統合テスト（build tag integ
 	done
 
 .PHONY: help generate generate-check fmt fmt-check vet lint build test test-race \
-        cover contracts vuln ci dev up down test-integration
+        conventions cover contracts vuln ci dev up down test-integration
