@@ -108,7 +108,23 @@ components:
 
   responses:
     ProblemResponse:
-      description: RFC 9457 形式のエラー詳細
+      description: |
+        RFC 9457 形式のエラー詳細。エラー応答はすべて default（= このコンテキストが返しうる
+        4xx/5xx すべて。classify を参照）として 1 つにまとめて宣言する。
+
+        公開契約（openapi.yaml）と違い、この内部契約はオペレーション単位の明示ステータス
+        （'400' / '409' など）を **あえて宣言しない**。理由は消費のされ方にある: この契約から
+        生成されるのはサーバではなく **クライアント**（clients/inventory）であり、その唯一の
+        利用者は注文コンテキストの腐敗防止層（ACL）である。ACL はステータスコードのみを見て
+        自分の番兵へ翻訳する（規則 R-16）。ogen は default だけのとき、非 2xx をすべて 1 つの
+        型付きエラー（ProblemResponseStatusCode）としてクライアントに返す（convenient errors）。
+        ここに明示ステータスを足すと、宣言済みコードがエラーではなく union の値としてクライアントに
+        返るようになり、ACL の「非 2xx = エラー」翻訳が壊れる（かつ ACL はコード別分岐を必要と
+        しない）。よってこの契約は default 集約のままにする。
+
+        なお 415（メディアタイプ非対応）と、経路レベルの 404（未定義パス）/ 405（メソッド
+        不許可）はサーバ全体のトランスポート層（ServerOption ハンドラ）で生成され、同じ
+        ProblemDetails 形状を共有する。
       content:
         application/problem+json:
           schema:
@@ -192,6 +208,12 @@ components:
     ProblemDetails:
       type: object
       description: RFC 9457 (Problem Details for HTTP APIs) に準拠したエラー表現
+      # 生成される Go のフィールド名を明示する。JSON 名 invalid-params はハイフンを
+      # 含むため、ogen の既定では InvalidMinusParams という不自然な識別子になる。
+      # x-ogen-properties は Go 側の名前だけを是正し、ワイヤ形式（JSON 名）は変えない。
+      x-ogen-properties:
+        invalid-params:
+          name: InvalidParams
       required:
         - type
         - title
@@ -200,7 +222,11 @@ components:
         type:
           type: string
           format: uri
-          description: 問題の種別を示す URI。既定は "about:blank"。
+          description: |
+            問題の種別を示す安定した URI。クライアントは status ではなくこの値で分岐する。
+            同じ status でも原因が異なれば別の URI を与える（例 404 は経路が無い
+            not-found と、対象が無い resource-not-found に分かれる）。
+            URI は識別子であり、解決可能である必要はない。
         title:
           type: string
           description: 問題種別の短い人間可読な要約
@@ -214,8 +240,64 @@ components:
           type: string
           format: uri
           description: 問題が発生した具体的なリソースを示す URI
+        invalid-params:
+          type: array
+          description: |
+            違反したフィールドの一覧（RFC 9457 の拡張メンバー）。
+            フィールドを特定できない場合はこのメンバー自体を省略する（空配列は返さない）。
+            判明した違反のみを含み、網羅は保証しない。
+            腐敗防止層（ACL）はステータスコードのみを見るため、このメンバーの追加で
+            呼び出し側の翻訳結果は変わらない（規則 R-16）。
+          items:
+            $ref: '#/components/schemas/InvalidParam'
       example:
-        type: about:blank
+        type: https://github.com/example/go-ddd-template/problems/resource-not-found
         title: Not Found
         status: 404
-        detail: 予約が見つかりません
+        detail: 要求されたリソースは存在しません
+
+    InvalidParam:
+      type: object
+      description: |
+        1 件のフィールド違反。RFC 9457 の拡張メンバー invalid-params の要素。
+      required:
+        - name
+        - code
+      properties:
+        name:
+          type: string
+          description: |
+            違反したフィールドのパス（ドット + 角括弧記法）。
+            契約検証（400）では配列添字は付かない。ドメイン検証（422）では付く。
+            クライアントは添字の有無に依存した解析をしてはならない。
+        code:
+          type: string
+          description: |
+            機械可読な違反理由。語彙は type によって決まる
+            （validation-error なら契約検証語彙、invalid-input ならドメイン検証語彙）。
+            enum はこの内部契約のサーバが実際に載せうる値の全体（契約検証語彙 ∪ 在庫コンテキストの
+            ドメイン検証語彙）。新しいドメイン検証規則（inventory.Rule）を足したら、その code を
+            ここへも足す（規則 R-19。手順は CONVENTIONS.md）。
+          enum:
+            # 契約検証語彙（400 / validation-error）。shared/problem/vocab.go が唯一の情報源。
+            - required
+            - type
+            - min_length
+            - max_length
+            - pattern
+            - unique_items
+            - invalid_param
+            - body_required
+            - invalid
+            # ドメイン検証語彙（422 / invalid-input）。在庫コンテキストが所有する
+            # （contexts/inventory/internal/domain/inventory/errors.go の inventory.Rule）。
+            - invalid_sku
+            - invalid_quantity
+            - invalid_reservation_ref
+        reason:
+          type: string
+          description: 人間可読な説明。code から導出される定型文であり、受信値を含まない。
+      example:
+        name: lines[0].quantity
+        code: invalid_quantity
+        reason: 0 以上の値を指定してください
