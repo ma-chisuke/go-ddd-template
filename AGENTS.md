@@ -60,6 +60,7 @@
 | デコード失敗・未定義パス・メソッド不許可（E1〜E3）と `type` URI・`code` → `reason` 表 | `internal/adapter/inbound/http/problem.go` |
 | ogen 生成の HTTP サーバ | `internal/adapter/inbound/openapi/`（在庫の内部 API は `openapiinternal/`） |
 | 依存の結線（合成ルート） | ファサード（`inventory.go` / `ordering.go`）と `cmd/<ctx>/` |
+| HTTP サーバの起動・停止（ライフサイクル機構） | `shared/serve`。`cmd/<ctx>/main.go` には配線（env 読取・`signal.NotifyContext`・`defer pool.Close()`・`Deps` 組立・mux + healthz）だけを残す |
 | Docker 不要の開発ハーネス（両コンテキストを 1 プロセスで結線） | `cmd/dev/`（公開ファサード + `port` + `shared` + `clients` のみ） |
 | DB スキーマ・クエリ | `db/schema.sql`, `db/queries.sql` |
 | 最小権限ロール/GRANT・本番参照データ・dev/test フィクスチャ・psqldef スコープ | `db/roles.sql`, `db/seed.sql`, `db/fixtures.sql`, `db/sqldef.yml` |
@@ -72,7 +73,7 @@
 | 公開 HTTP 契約 / 在庫の内部 HTTP 契約（= ACL サーフェス） | `contracts/inventory/{openapi,internal.openapi}.yaml`, `contracts/ordering/openapi.yaml` |
 | **クロスコンテキストのメッセージ契約**（コマンド / イベント） | `contracts/events/*.schema.json` |
 | **共有の生成クライアント**（消費側が import・手編集しない） | `clients/inventory/invclient/` |
-| コンテキスト横断の汎用機構（純インフラ） | `shared/`（`uow`〔+`pgxuow`〕 / `event` / `outbox`〔+`memory`,+`logpub`〕 / `id` / `correlation`〔+`corrhttp`〕 / `logging` / `problem`〔+`ogenproblem`〕 / `worker` / `testutil`） |
+| コンテキスト横断の汎用機構（純インフラ） | `shared/`（`uow`〔+`pgxuow`〕 / `event` / `serve` / `outbox`〔+`memory`,+`logpub`〕 / `id` / `correlation`〔+`corrhttp`〕 / `logging` / `problem`〔+`ogenproblem`〕 / `worker` / `testutil`） |
 
 ## よくある作業のレシピ
 
@@ -251,15 +252,46 @@ if n < 1 {
 ## `shared/`（共有インフラ）を扱うときの要点
 
 - **置いてよいのはドメイン非依存かつ外部依存ゼロの建材だけ**（`id` / `correlation` / `uow` /
-  `outbox` / `logging` / `worker`）。ドメイン値オブジェクト（`SKU` / `Quantity` / `Money`）や
-  DB ドライバ・HTTP フレームワーク・特定コンテキストの型は `shared/` に置かない。迷ったら
-  「どのコンテキストからでも安全に共有できる純インフラか」で判断する。
+  `outbox` / `logging` / `worker` / `event` / `serve` / `problem` / `testutil`）。ドメイン値
+  オブジェクト（`SKU` / `Quantity` / `Money`）や DB ドライバ・HTTP フレームワーク・特定
+  コンテキストの型は `shared/` に置かない。判断は上から順に 4 つ:
+  ① ドメイン語彙を名前にも構造にも含まないか →
+  ② 型パラメータで受けるだけで済み、コンテキストの package を import せずに書けるか →
+  ③ `shared/go.mod` に `require` を足さずに書けるか →
+  ④ 呼び出し元が 2 つ以上あるか（1 つなら置かない = 先回りの共通化をしない）。
+  1 つでも「いいえ」なら `shared/` へは置かず、コンテキスト側に残す。
+- **依存は「コンテキスト → `shared`」の一方向**で、depguard の `shared-purity` rule が
+  `shared/` からの `contexts/`・`clients/` import を機械的に禁じている（`_test.go` も対象）。
+  この rule に引っかかったら回避策を探すのではなく、**それは `shared/` に置くべきものではない**
+  というシグナルとして扱う。
+- **`shared/event`**: `event.go` が型なしコア（`InProcess`）、`typed.go` が型付きファサード
+  （`Typed[E Occurred]`）。合成ルートは `event.NewTyped[order.DomainEvent](log)` のように型引数を
+  綴って直接生成する。per-context の委譲コンストラクタは作らない（「機構は共有・型はコンテキスト
+  固有」が呼び出し側から見えている状態を保つ）。ドメイン層は `shared/event` を import せず、
+  `DomainEvent` が `EventName()` + `OccurredAt()` を持つことで `event.Occurred` を構造的に満たす。
+  `Dispatch` はエラーを返さない（永続化成功後の後処理という契約 — 署名を変えない）。
+  `contexts/*/internal/application/dispatcher.go` の `EventDispatcher` ポートは**消さない**
+  （mockgen の生成元であり、ポートはコンテキストのドメイン型で宣言されるべきものだから）。
+- **`shared/serve`**: `serve.Run(ctx, log, servers ...serve.Server)` が HTTP サーバ群の起動・
+  停止待ち・全サーバのグレースフルシャットダウンを担う（本数非依存）。サーバを足すときは
+  `serve.Server{Name: …, Addr: …, Handler: …}` を 1 つ増やすだけでよく、`*http.Server` の
+  組み立て・起動 goroutine・`ErrServerClosed` の除外・`Shutdown` を `main.go` に書き戻さない。
+  逆に**ランナーへ移してはいけないもの**が 3 つある: シグナル受信（`signal.NotifyContext`。
+  プールとワーカーがランナー起動前に同じ ctx を要る）、資源解放（`defer pool.Close()`。
+  ランナー到達前の早期 return で漏れる）、ヘルスチェック（運用契約なので各 mux に載せる）。
+- **重複を見つけても機械的に `shared/` へ寄せない**。判断は「抽出後にテンプレートが読みやすく
+  なるか」で、差の量ではなく性質で決める。生成型（ogen `openapi.*` / sqlc `sqlcgen.*`）を包む
+  アダプタコードの重複（`problem.go` / `postgres/outbox.go`）と、ドメイン番兵を名指しする写像
+  （`errmap.go`）は**意図的に重複させたまま**にしている（理由は CONVENTIONS.md「共通化しない
+  重複」）。これらを共通化する変更は提案しない。
 - **ポート本体は純粋に、実装はサブパッケージへ隔離**する。`shared/outbox`・`shared/correlation`・
   `shared/uow` の本体は依存を増やさず、`net/http` や DB ドライバを持ち込まない。実装は
   `shared/uow/pgxuow`（pgx）、`shared/outbox/memory`（インメモリ `Stores`）/ `shared/outbox/logpub`
   （no-op Publisher）、`shared/correlation/corrhttp`（`net/http` ミドルウェア）へ分ける。
 - **コンテキストを単独モジュールとして切り出すときは `shared/` も併せて持ち出す**。各コンテキストは
   `shared` に `replace`（相対パス）で依存しており、`shared` を残置するとビルドできない。
+  共通化を進めるほど同伴面積は増えるが、これは設計上の後退ではなく明示的なトレードオフである
+  （重複を各コンテキストに残せば同伴面積は減るが、間違えやすい機構が 1 箇所にある利点を失う）。
 - **相関 ID ミドルウェアは現存する 3 つのサーバ（注文の公開・在庫の公開・在庫の内部）が同じ
   `shared/correlation/corrhttp.Middleware` を使う**。新しい HTTP サーバを足すときもこれを結線し、
   取り込み優先順位（traceparent → X-Correlation-ID → 新規採番）を一箇所に保つ。
