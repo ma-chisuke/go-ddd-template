@@ -4,7 +4,7 @@
 # 再現できる。規約の本文は CONVENTIONS.md と docs/testing-conventions.md にあり、
 # ここは「その文言のうち機械化できるもの」だけを実装する。
 #
-# 検査は 8 つ。fail は終了コード 1、warn は報告のみで終了コード 0 のまま:
+# 検査は 10 個（fail 9 個 + warn 1 個）。fail は終了コード 1、warn は報告のみで終了コード 0 のまま:
 #   1  テスト関数名の主題の一意性（C-1b）                    fail
 #   2  t.Run の 8 語語彙（D-1 / D-2）                        fail
 #   2' テーブル駆動の name フィールドの 8 語語彙（D-6）        fail
@@ -14,6 +14,13 @@
 #   5  package 名 = ディレクトリ名（A-7）                     fail
 #   6  規約系 Markdown の半角スペース境界（F-3）              fail
 #   7  ファイル凝集（40 行未満の単型ファイルの乱立）           warn
+#   8  位置指定の複合リテラルの不在（D-6）                     fail
+#
+# 検査 8 は検査 2' / 3' の**盲点をふさぐためだけに在る**。検査 2' は `name:` に続く文字列
+# リテラルを拾うので、`{"空 SKU", …}` のように位置で並べたケースは構造体に name フィールドが
+# あっても見えない。つまり検査 2' が 0 件でも「準拠しているから 0」なのか「見えていないから 0」
+# なのか区別できない。検査 8 が位置指定そのものを禁じることで、検査 2' の視界が
+# テーブルのケース名を悉皆的に覆う。
 #
 # 実装方針: go/parser を使わず grep + sort + uniq + awk で書く。依存を増やさず、
 # テンプレートの読者が読める規模に保つためである。この選択の代償として
@@ -47,6 +54,22 @@ COHESION_MIN_FILES=3
 
 # 8 語の閉じた語彙（docs/testing-conventions.md の D-2）。
 VOCAB='正常系|異常系|境界|冪等|並行|契約|回帰|性質'
+
+# 検査 8（位置指定の複合リテラル）で「位置指定ではない」と見なす形。テーブル以外の複合リテラルを
+# 巻き込まないための線引きをここ 1 箇所に集める（awk 側にリテラルを散らさない）。
+#   OK 1: フィールド名つきの 1 行要素            {name: "…", want: …}
+#   OK 2: 開き括弧だけの行の次にフィールド名が来る  { → name: "…"
+# 逆に「位置指定」と断ずるのは、開き括弧の直後（同じ行、または次の行の先頭）に**値リテラル**
+# （文字列・生文字列・数値）が来る場合だけに限る。この線引きにより、文で始まる裸ブロック
+# `{ x := 1 … }` や map のキー `"a": {…}` を誤検出しない。
+# ブラケット式（[{] / [[:blank:]]）で書くのは、awk の -v がバックスラッシュを解釈するため。
+POSITIONAL_KEYED_FIELD='^[[:blank:]]*[{][A-Za-z_][A-Za-z0-9_]*:'
+POSITIONAL_VALUE_HEAD='^[[:blank:]]*("|`|-?[0-9])'
+
+# テーブル以外の正当な位置指定（[][]string のような入れ子のスライスリテラルなど）が
+# どうしても必要になったファイルを、リポジトリルートからの相対パスで列挙する。
+# 現時点で該当は無い（空）。足すときは理由をコメントで併記すること。
+POSITIONAL_EXCLUDE_FILES=()
 
 # --- 報告 -------------------------------------------------------------------
 
@@ -149,6 +172,48 @@ check_table_case_names() {
       report_fail "検査 3' テーブル駆動 name の / 不在（D-6）" "$loc: \"$name\""
     fi
   done <<< "$hits"
+}
+
+# --- 検査 8: 位置指定の複合リテラルの不在（D-6） ------------------------------
+#
+# *_test.go の複合リテラルの要素は、必ずフィールド名つきで書く。テーブル駆動のケース名を
+# 位置で並べると、検査 2' / 3'（name: に続く文字列を拾う）から見えなくなるためである。
+# 検査 2' が 0 件であることを「準拠している」と読めるようにするのが、この検査の役目。
+#
+# 検出は 2 形:
+#   inline    行頭が { で始まり、直後がフィールド名でない  → {"境界: …", 1},
+#   multiline 開き括弧だけの行の次が値リテラルで始まる      → {  ⏎  "境界: …",
+#
+# 既知の限界（規約にも明記）: gofmt が 1 行 1 要素に整形することを前提にしている。
+# `[]T{{…}, {…}}` のように 1 行へ詰め込んだ形や、`}, {…},` のように閉じ括弧と同じ行に
+# 書いた形は行頭が { にならないので見えない。本番コード（*_test.go 以外）は対象外で、
+# import した型の unkeyed リテラルは go vet の composites が別に見ている。
+check_positional_case_literals() {
+  local f hit loc content ex skip
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    skip=0
+    for ex in ${POSITIONAL_EXCLUDE_FILES[@]+"${POSITIONAL_EXCLUDE_FILES[@]}"}; do
+      [ "$f" = "$ex" ] && skip=1
+    done
+    [ "$skip" -eq 1 ] && continue
+    while IFS= read -r hit; do
+      [ -z "$hit" ] && continue
+      loc="$f:${hit%%:*}"
+      content=$(printf '%s' "${hit#*:}" | sed -E 's/^[[:space:]]+//')
+      report_fail "検査 8 位置指定の複合リテラルの不在（D-6）" \
+        "$loc: 位置ではなくフィールド名で書く（ケース名は name: に入れる）: ${content}"
+    done < <(awk -v keyed="$POSITIONAL_KEYED_FIELD" -v value_head="$POSITIONAL_VALUE_HEAD" '
+      # 直前が「開き括弧だけの行」で、この行が値リテラルで始まる = 複数行の位置指定
+      pending == 1 {
+        pending = 0
+        if ($0 ~ value_head) { print FNR ":" $0 }
+      }
+      /^[[:blank:]]*[{][[:blank:]]*$/ { pending = 1; next }
+      # 1 行に書かれた要素。フィールド名で始まらなければ位置指定
+      /^[[:blank:]]*[{][^[:blank:]]/ { if ($0 !~ keyed) print FNR ":" $0 }
+    ' "$f")
+  done < <(find "${SCAN_DIRS[@]}" -type f -name '*_test.go' 2>/dev/null | sort)
 }
 
 # --- 検査 4: カタログ的ファイル名の不在（B-4） -------------------------------
@@ -283,6 +348,7 @@ echo "== 規約ゲート（scripts/convention-gate.sh） =="
 check_test_subject_uniqueness
 check_trun_names
 check_table_case_names
+check_positional_case_literals
 check_catalog_filenames
 check_package_matches_dir
 check_doc_spacing

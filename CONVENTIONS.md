@@ -776,6 +776,7 @@ for i, l := range lines {
 | 9 | `t.Run` の 8 語語彙 | `scripts/convention-gate.sh` 検査 2 | **fail** |
 | 10 | `t.Run` 名の `/` 不在 | `scripts/convention-gate.sh` 検査 3 | **fail** |
 | 11 | テーブル駆動の `name` フィールドの 8 語語彙と `/` 不在（D-6） | `scripts/convention-gate.sh` 検査 2' / 3' | **fail** |
+| 11b | `*_test.go` の複合リテラルを位置指定で書かない（D-6。#11 の**視界**を担保する） | `scripts/convention-gate.sh` 検査 8 | **fail** |
 | 12 | カタログ的ファイル名の不在（B-4） | `scripts/convention-gate.sh` 検査 4 | **fail** |
 | 13 | package 名 = ディレクトリ名（A-7） | `scripts/convention-gate.sh` 検査 5 | **fail** |
 | 14 | 規約系 Markdown の半角スペース境界（F-3） | `scripts/convention-gate.sh` 検査 6 | **fail** |
