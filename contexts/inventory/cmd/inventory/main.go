@@ -17,6 +17,7 @@ import (
 
 	inventory "github.com/example/go-ddd-template/contexts/inventory"
 	sharedlog "github.com/example/go-ddd-template/shared/logging"
+	"github.com/example/go-ddd-template/shared/serve"
 )
 
 func main() {
@@ -76,47 +77,12 @@ func run(log *slog.Logger) error {
 		_, _ = w.Write([]byte("ok"))
 	})
 	publicMux.Handle("/", mod.HTTPHandler())
-	publicSrv := &http.Server{Addr: addr, Handler: publicMux, ReadHeaderTimeout: 10 * time.Second}
 
-	// 内部サーバ（予約・確定・解放・メッセージ取り込み）。公開サーバとは別ポートで待ち受ける。
-	internalSrv := &http.Server{Addr: internalAddr, Handler: mod.InternalHTTPHandler(), ReadHeaderTimeout: 10 * time.Second}
-
-	// 2 つのサーバを別 goroutine で起動する。
-	serverErr := make(chan error, 2)
-	go func() {
-		log.Info("公開 HTTP サーバを起動します", "addr", addr)
-		if err := publicSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			serverErr <- err
-			return
-		}
-		serverErr <- nil
-	}()
-	go func() {
-		log.Info("内部 HTTP サーバを起動します", "addr", internalAddr)
-		if err := internalSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			serverErr <- err
-			return
-		}
-		serverErr <- nil
-	}()
-
-	// 停止シグナルかサーバエラーのどちらかを待つ。
-	select {
-	case <-ctx.Done():
-		log.Info("停止シグナルを受信しました。グレースフルシャットダウンを開始します")
-	case err := <-serverErr:
-		return err
-	}
-
-	// グレースフルシャットダウン（両サーバ）。
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer shutdownCancel()
-	if err := publicSrv.Shutdown(shutdownCtx); err != nil {
-		return err
-	}
-	if err := internalSrv.Shutdown(shutdownCtx); err != nil {
-		return err
-	}
-	log.Info("サービスを正常に停止しました")
-	return nil
+	// プロセスのライフサイクル（起動・停止待ち・グレースフルシャットダウン）は共有ランナーに
+	// 委ねる。内部サーバ（予約・確定・解放・メッセージ取り込み）は公開サーバとは別ポートで
+	// 待ち受ける 2 本目として同じランナーへ渡す — ランナーは本数に依存しない。
+	return serve.Run(ctx, log,
+		serve.Server{Name: "公開", Addr: addr, Handler: publicMux},
+		serve.Server{Name: "内部", Addr: internalAddr, Handler: mod.InternalHTTPHandler()},
+	)
 }

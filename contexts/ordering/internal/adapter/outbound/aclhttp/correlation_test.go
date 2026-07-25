@@ -14,7 +14,9 @@ import (
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/aclhttp"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
 	"github.com/example/go-ddd-template/shared/correlation"
+	"github.com/example/go-ddd-template/shared/event"
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
@@ -34,7 +36,7 @@ func TestTraceIDFlowsPlaceToReserve(t *testing.T) {
 		uow.NewExecutor(uow.WithBaseBackoff(0)),
 		memory.NewUnitOfWork(store, memory.NewStores()),
 		reserver,
-		application.NewInProcessDispatcher(log),
+		event.NewTyped[order.DomainEvent](log),
 		log,
 	)
 

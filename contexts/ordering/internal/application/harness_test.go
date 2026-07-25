@@ -25,6 +25,7 @@ import (
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/mock"
+	"github.com/example/go-ddd-template/shared/event"
 	"github.com/example/go-ddd-template/shared/outbox"
 	"github.com/example/go-ddd-template/shared/uow"
 )
@@ -66,7 +67,7 @@ func newMemFixtureWith(t *testing.T, work application.UnitOfWork, store *memory.
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 	log := testLogger()
 	captured := &[]order.DomainEvent{}
-	dispatcher := application.NewInProcessDispatcher(log, func(_ context.Context, e order.DomainEvent) {
+	dispatcher := event.NewTyped[order.DomainEvent](log, func(_ context.Context, e order.DomainEvent) {
 		*captured = append(*captured, e)
 	})
 	return memFixture{

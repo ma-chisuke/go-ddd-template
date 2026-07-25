@@ -11,6 +11,7 @@ import (
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/shared/event"
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
@@ -31,7 +32,7 @@ func newReserveFixture(t *testing.T, work application.UnitOfWork, store *memory.
 	log := testLogger()
 
 	captured := &[]inventory.DomainEvent{}
-	dispatcher := application.NewInProcessDispatcher(log, func(_ context.Context, e inventory.DomainEvent) {
+	dispatcher := event.NewTyped[inventory.DomainEvent](log, func(_ context.Context, e inventory.DomainEvent) {
 		*captured = append(*captured, e)
 	})
 
@@ -194,14 +195,14 @@ func TestReserve_GivesUpAfterMaxAttempts(t *testing.T) {
 	log := testLogger()
 
 	// まず非フレーキーな UoW で在庫を用意する。
-	seed := application.NewReplenisher(uow.NewExecutor(uow.WithBaseBackoff(0)), inner, application.NewInProcessDispatcher(log), log)
+	seed := application.NewReplenisher(uow.NewExecutor(uow.WithBaseBackoff(0)), inner, event.NewTyped[inventory.DomainEvent](log), log)
 	_, err := seed.Replenish(ctx, application.ReplenishInput{SKU: "SKU-A", Quantity: 10})
 	require.NoError(t, err, "補充")
 
 	// 衝突を注入し続ける UoW で、試行回数 1 回（再試行なし）にすると衝突が表面化する。
 	flaky := &flakyUoW{inner: inner, failsLeft: 5}
 	exec := uow.NewExecutor(uow.WithMaxAttempts(1), uow.WithBaseBackoff(0))
-	reserver := application.NewReserver(exec, flaky, application.NewInProcessDispatcher(log), log, time.Hour)
+	reserver := application.NewReserver(exec, flaky, event.NewTyped[inventory.DomainEvent](log), log, time.Hour)
 
 	err = reserver.Reserve(ctx, application.ReserveInput{
 		Ref:   "ORDER-1",

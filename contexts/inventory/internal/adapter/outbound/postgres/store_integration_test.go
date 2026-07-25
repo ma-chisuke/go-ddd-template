@@ -25,6 +25,7 @@ import (
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/postgres"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/shared/event"
 	"github.com/example/go-ddd-template/shared/outbox"
 	"github.com/example/go-ddd-template/shared/testutil"
 	"github.com/example/go-ddd-template/shared/uow"
@@ -82,7 +83,7 @@ func newPgFixture(t *testing.T, pool *pgxpool.Pool, _ application.Clock) pgFixtu
 	log := testLogger()
 	work := postgres.NewUnitOfWork(pool)
 	exec := uow.NewExecutor()
-	dispatcher := application.NewInProcessDispatcher(log)
+	dispatcher := event.NewTyped[inventory.DomainEvent](log)
 	return pgFixture{
 		replenisher: application.NewReplenisher(exec, work, dispatcher, log),
 		reserver:    application.NewReserver(exec, work, dispatcher, log, time.Hour),
@@ -162,7 +163,7 @@ func TestPostgres_ReaperReleasesExpiredPending(t *testing.T) {
 	require.NoError(t, f.reserver.Reserve(ctx, application.ReserveInput{Ref: "CONFIRMED", Lines: []application.ReserveLine{{SKU: "PGX-R", Quantity: 20}}}), "confirmed 予約")
 	require.NoError(t, f.confirmer.Confirm(ctx, "CONFIRMED"), "Confirm")
 
-	reaper := application.NewReaper(uow.NewExecutor(), f.work, application.NewInProcessDispatcher(log), clock, log, 100)
+	reaper := application.NewReaper(uow.NewExecutor(), f.work, event.NewTyped[inventory.DomainEvent](log), clock, log, 100)
 	require.NoError(t, reaper.Sweep(ctx), "Sweep")
 
 	view, _ := f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "PGX-R"})

@@ -17,7 +17,9 @@ import (
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/openapiinternal"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
 	"github.com/example/go-ddd-template/shared/correlation/corrhttp"
+	"github.com/example/go-ddd-template/shared/event"
 	"github.com/example/go-ddd-template/shared/outbox"
 	"github.com/example/go-ddd-template/shared/uow"
 )
@@ -28,7 +30,7 @@ func newInternalServer(t *testing.T) *httptest.Server {
 	store := memory.NewStore()
 	work := memory.NewUnitOfWork(store, memory.NewStores())
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
-	dispatcher := application.NewInProcessDispatcher(log)
+	dispatcher := event.NewTyped[inventory.DomainEvent](log)
 
 	// 内部エンドポイントのテストには在庫が必要なので、補充ユースケースで種を蒔く。
 	replenisher := application.NewReplenisher(exec, work, dispatcher, log)

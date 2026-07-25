@@ -26,6 +26,7 @@ import (
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
 	"github.com/example/go-ddd-template/contexts/ordering/port"
+	"github.com/example/go-ddd-template/shared/event"
 	"github.com/example/go-ddd-template/shared/outbox"
 	"github.com/example/go-ddd-template/shared/uow"
 )
@@ -79,7 +80,7 @@ func newPgFixture(t *testing.T, pool *pgxpool.Pool) pgFixture {
 	log := testLogger()
 	work := postgres.NewUnitOfWork(pool)
 	exec := uow.NewExecutor()
-	dispatcher := application.NewInProcessDispatcher(log)
+	dispatcher := event.NewTyped[order.DomainEvent](log)
 	return pgFixture{
 		place:  application.NewPlaceOrder(exec, work, okReserver{}, dispatcher, log),
 		get:    application.NewGetOrder(postgres.NewReadOrderStore(pool), log),

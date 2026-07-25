@@ -56,7 +56,13 @@ Go でドメイン駆動設計（DDD）とヘキサゴナルアーキテクチ�
   なお `events` は保持ジョブを持たず**無制限に増え続ける**ため、本番採用時はアーカイブ・
   パーティション・保持ジョブのいずれかを足してください（テンプレートは単純さを優先して
   意図的に持ちません）。
-- **プロセス内イベント配信**（`shared/event`）と、決定的テスト用の擬似時計（`shared/testutil`）。
+- **プロセス内イベント配信**（`shared/event`）: 型なしコア `InProcess` と、コンテキストの
+  ドメインイベント型で使う generic な型付きファサード `Typed[E]`。ドメイン層は `shared/event` を
+  import せず、`shared/event` もコンテキストを import しない — 双方向に import が無いまま、
+  Go の構造的型付けだけで型が噛み合う。決定的テスト用の擬似時計は `shared/testutil`。
+- **HTTP サーバ群のランナー**（`shared/serve`）: 起動・停止待ち・全サーバのグレースフル
+  シャットダウンをサーバ本数に依存せず担う（注文は公開 1 本、在庫は公開 + 内部の 2 本）。
+  シグナル受信・資源解放・ヘルスチェックは意図的に持たず、各 `main.go` に残す。
 
 これらは「OpenAPI / SQL → 生成コード → アプリケーションのユースケース → 純粋なドメイン →
 リポジトリ（インメモリ実装と PostgreSQL 実装の両方）」という構成で、端から端まで
@@ -214,7 +220,7 @@ Go でドメイン駆動設計（DDD）とヘキサゴナルアーキテクチ�
 ├── clients/                    … 共有の生成クライアント（消費側が import・コミット・手編集しない）
 │   └── inventory/              … 在庫の内部 API から生成した Go クライアント（invclient）
 ├── cmd/dev/                    … Docker 不要の開発ハーネス（両コンテキストを 1 プロセスで結線）
-├── shared/                     … ドメイン非依存の共有モジュール（uow / event / outbox / id / correlation / testutil）
+├── shared/                     … ドメイン非依存の共有モジュール（uow / event / serve / outbox / id / correlation / problem / testutil）
 └── contexts/
     ├── inventory/              … 「在庫」境界づけられたコンテキスト（1 モジュール）
     │   ├── inventory.go         … 公開ファサード（Module, New, NewInMemory, HTTPHandler, InternalHTTPHandler,

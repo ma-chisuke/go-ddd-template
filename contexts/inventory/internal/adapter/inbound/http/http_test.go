@@ -17,7 +17,9 @@ import (
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/openapi"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
 	"github.com/example/go-ddd-template/shared/correlation/corrhttp"
+	"github.com/example/go-ddd-template/shared/event"
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
@@ -31,7 +33,7 @@ func newServer(t *testing.T) *httptest.Server {
 	work := memory.NewUnitOfWork(store, memory.NewStores())
 	read := memory.NewReadStockStore(store)
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
-	dispatcher := application.NewInProcessDispatcher(log)
+	dispatcher := event.NewTyped[inventory.DomainEvent](log)
 
 	replenisher := application.NewReplenisher(exec, work, dispatcher, log)
 	viewer := application.NewStockViewer(read, log)
