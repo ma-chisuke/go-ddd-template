@@ -27,7 +27,7 @@ func TestNewMoney(t *testing.T) {
 		require.ErrorIs(t, err, order.ErrInvalidMoney)
 	})
 
-	t.Run("Add: ゼロ値は加法の単位元", func(t *testing.T) {
+	t.Run("境界: ゼロ値は加法の単位元", func(t *testing.T) {
 		a, _ := order.NewMoney(300, "JPY")
 		sum, err := (order.Money{}).Add(a)
 		require.NoError(t, err)
@@ -35,14 +35,14 @@ func TestNewMoney(t *testing.T) {
 		assert.Equal(t, "JPY", sum.Currency())
 	})
 
-	t.Run("Add: 通貨不一致は ErrInvalidMoney", func(t *testing.T) {
+	t.Run("異常系: 通貨不一致の加算は ErrInvalidMoney", func(t *testing.T) {
 		a, _ := order.NewMoney(300, "JPY")
 		b, _ := order.NewMoney(5, "USD")
 		_, err := a.Add(b)
 		require.ErrorIs(t, err, order.ErrInvalidMoney)
 	})
 
-	t.Run("Mul: 単価 × 数量", func(t *testing.T) {
+	t.Run("正常系: Mul は単価 × 数量を返す", func(t *testing.T) {
 		a, _ := order.NewMoney(1200, "JPY")
 		got := a.Mul(3)
 		assert.Equal(t, int64(3600), got.Amount())

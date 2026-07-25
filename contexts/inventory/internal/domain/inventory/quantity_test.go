@@ -23,7 +23,7 @@ func TestNewQuantity(t *testing.T) {
 		require.ErrorIs(t, err, inventory.ErrInvalidQuantity)
 	})
 
-	t.Run("IsZero と Add", func(t *testing.T) {
+	t.Run("正常系: IsZero と Add が数量を正しく扱う", func(t *testing.T) {
 		zero := mustQuantity(t, 0)
 		assert.True(t, zero.IsZero(), "0 は IsZero であるべき")
 		sum := mustQuantity(t, 3).Add(mustQuantity(t, 4))

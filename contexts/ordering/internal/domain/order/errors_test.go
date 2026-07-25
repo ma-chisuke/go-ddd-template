@@ -122,7 +122,7 @@ func TestFieldViolation_AggregateRuleEmptyOrder(t *testing.T) {
 // 「違反フィールドが 0 件」と「特定できなかった」を区別するため、ここで
 // FieldViolation を返してしまわないことを固定する。
 func TestFieldViolation_NotAttributableToOneField(t *testing.T) {
-	t.Run("通貨をまたぐ加算（Money.Add）", func(t *testing.T) {
+	t.Run("異常系: 通貨をまたぐ加算は FieldViolation にしない", func(t *testing.T) {
 		jpy, err := order.NewMoney(100, "JPY")
 		require.NoError(t, err)
 		usd, err := order.NewMoney(100, "USD")
@@ -135,7 +135,7 @@ func TestFieldViolation_NotAttributableToOneField(t *testing.T) {
 		assert.False(t, errors.As(err, &v), "単一フィールドに帰着しないので FieldViolation にしない")
 	})
 
-	t.Run("状態の矛盾（Cancel: Confirmed でない）", func(t *testing.T) {
+	t.Run("異常系: Confirmed でない注文の取消は FieldViolation にしない", func(t *testing.T) {
 		id, err := order.NewOrderID("ORDER-1")
 		require.NoError(t, err)
 		customer, err := order.NewCustomerID("CUST-1")

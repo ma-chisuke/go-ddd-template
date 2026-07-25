@@ -99,7 +99,7 @@ func send(t *testing.T, ts *httptest.Server, method, path, contentType, body str
 func TestProblem_E1_ContractValidation(t *testing.T) {
 	ts := newServer(t)
 
-	t.Run("必須欠落", func(t *testing.T) {
+	t.Run("境界: 必須欠落は兄弟フィールドを全件列挙する", func(t *testing.T) {
 		pb := readProblem(t, postJSON(t, ts.Client(), ts.URL+"/stock/WIDGET-001/replenish", `{}`),
 			http.StatusBadRequest, problem.TypeValidationError)
 
@@ -109,7 +109,7 @@ func TestProblem_E1_ContractValidation(t *testing.T) {
 		assert.Equal(t, problem.ReasonOf(problem.CodeRequired), pb.InvalidParams[0].Reason)
 	})
 
-	t.Run("型不一致", func(t *testing.T) {
+	t.Run("異常系: 型不一致はラップ列からパスを組む", func(t *testing.T) {
 		pb := readProblem(t, postJSON(t, ts.Client(), ts.URL+"/stock/WIDGET-001/replenish", `{"quantity":"ten"}`),
 			http.StatusBadRequest, problem.TypeValidationError)
 
@@ -118,7 +118,7 @@ func TestProblem_E1_ContractValidation(t *testing.T) {
 		assert.Equal(t, problem.CodeType, pb.InvalidParams[0].Code)
 	})
 
-	t.Run("不正 JSON は invalid-params をキーごと省略する（規則 R-14）", func(t *testing.T) {
+	t.Run("異常系: 不正 JSON は invalid-params をキーごと省略する（規則 R-14）", func(t *testing.T) {
 		pb := readProblem(t, postJSON(t, ts.Client(), ts.URL+"/stock/WIDGET-001/replenish", `{"quantity":`),
 			http.StatusBadRequest, problem.TypeValidationError)
 
@@ -126,7 +126,7 @@ func TestProblem_E1_ContractValidation(t *testing.T) {
 		assert.NotContains(t, pb.raw, "invalid-params")
 	})
 
-	t.Run("Content-Type 不正は 415", func(t *testing.T) {
+	t.Run("異常系: Content-Type 不正は 415", func(t *testing.T) {
 		pb := readProblem(t, send(t, ts, http.MethodPost, "/stock/WIDGET-001/replenish", "text/plain", `{"quantity":1}`),
 			http.StatusUnsupportedMediaType, problem.TypeUnsupportedMediaType)
 		assert.Empty(t, pb.InvalidParams)
@@ -150,14 +150,14 @@ func TestProblem_E2_NotFoundIsProblemJSON(t *testing.T) {
 func TestProblem_E3_MethodNotAllowed(t *testing.T) {
 	ts := newServer(t)
 
-	t.Run("405 は problem+json で Allow ヘッダを維持する", func(t *testing.T) {
+	t.Run("異常系: 405 は problem+json で Allow ヘッダを維持する", func(t *testing.T) {
 		resp := send(t, ts, http.MethodDelete, "/stock/WIDGET-001", "", "")
 		allow := resp.Header.Get("Allow")
 		readProblem(t, resp, http.StatusMethodNotAllowed, problem.TypeMethodNotAllowed)
 		assert.Contains(t, allow, http.MethodGet, "Allow は本文書き出し前に設定される")
 	})
 
-	t.Run("OPTIONS は 405 にしない（CORS プリフライトを壊さない）", func(t *testing.T) {
+	t.Run("正常系: OPTIONS は 405 にせず CORS プリフライトを壊さない", func(t *testing.T) {
 		resp := send(t, ts, http.MethodOptions, "/stock/WIDGET-001", "", "")
 		require.NoError(t, resp.Body.Close())
 		assert.Equal(t, http.StatusNoContent, resp.StatusCode)
@@ -171,7 +171,7 @@ func TestProblem_E3_MethodNotAllowed(t *testing.T) {
 func TestProblem_E4_DomainValidation(t *testing.T) {
 	ts := newServer(t)
 
-	t.Run("補充数量 0 は quantity を指す（値オブジェクトを通過し集約で弾かれる）", func(t *testing.T) {
+	t.Run("境界: 補充数量 0 は quantity を指す（値オブジェクトを通過し集約で弾かれる）", func(t *testing.T) {
 		pb := readProblem(t, postJSON(t, ts.Client(), ts.URL+"/stock/WIDGET-001/replenish", `{"quantity":0}`),
 			http.StatusUnprocessableEntity, problem.TypeInvalidInput)
 
@@ -181,7 +181,7 @@ func TestProblem_E4_DomainValidation(t *testing.T) {
 		assert.NotEmpty(t, pb.InvalidParams[0].Reason)
 	})
 
-	t.Run("補充数量が負も quantity を指す（値オブジェクトで弾かれる）", func(t *testing.T) {
+	t.Run("境界: 補充数量が負も quantity を指す（値オブジェクトで弾かれる）", func(t *testing.T) {
 		pb := readProblem(t, postJSON(t, ts.Client(), ts.URL+"/stock/WIDGET-001/replenish", `{"quantity":-1}`),
 			http.StatusUnprocessableEntity, problem.TypeInvalidInput)
 
@@ -189,7 +189,7 @@ func TestProblem_E4_DomainValidation(t *testing.T) {
 		assert.Equal(t, "quantity", pb.InvalidParams[0].Name)
 	})
 
-	t.Run("SKU 空（パスパラメータ）は sku を指す", func(t *testing.T) {
+	t.Run("境界: 空の SKU パスパラメータは sku を指す", func(t *testing.T) {
 		pb := readProblem(t, send(t, ts, http.MethodGet, "/stock/%20", "", ""),
 			http.StatusUnprocessableEntity, problem.TypeInvalidInput)
 
@@ -203,20 +203,20 @@ func TestProblem_E4_DomainValidation(t *testing.T) {
 func TestProblem_E4_TypeMigration(t *testing.T) {
 	ts := newServer(t)
 
-	t.Run("404 は resource-not-found（E2 の not-found とは別種別）", func(t *testing.T) {
+	t.Run("契約: 404 は resource-not-found で E2 の not-found とは別種別", func(t *testing.T) {
 		pb := readProblem(t, send(t, ts, http.MethodGet, "/stock/MISSING", "", ""),
 			http.StatusNotFound, problem.TypeResourceNotFound)
 		assert.Empty(t, pb.InvalidParams)
 		assert.Equal(t, problem.DetailResourceNotFound, pb.Detail)
 	})
 
-	t.Run("404 の detail に SKU が漏れない（FR-2.4）", func(t *testing.T) {
+	t.Run("異常系: 404 の detail に SKU が漏れない（FR-2.4）", func(t *testing.T) {
 		pb := readProblem(t, send(t, ts, http.MethodGet, "/stock/SECRET-SKU", "", ""),
 			http.StatusNotFound, problem.TypeResourceNotFound)
 		assert.NotContains(t, pb.raw, "SECRET-SKU", "受信値をエコーバックしない")
 	})
 
-	t.Run("422 は invalid-input", func(t *testing.T) {
+	t.Run("契約: 422 は invalid-input", func(t *testing.T) {
 		readProblem(t, postJSON(t, ts.Client(), ts.URL+"/stock/WIDGET-001/replenish", `{"quantity":0}`),
 			http.StatusUnprocessableEntity, problem.TypeInvalidInput)
 	})

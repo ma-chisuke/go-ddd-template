@@ -73,7 +73,7 @@ func TestStockItem_Reserve(t *testing.T) {
 		require.ErrorIs(t, item.Reserve(inventory.ReservationRef{}, mustQuantity(t, 1), time.Hour), inventory.ErrInvalidReservationRef)
 	})
 
-	t.Run("available が 0 到達で StockDepleted", func(t *testing.T) {
+	t.Run("境界: available が 0 到達で StockDepleted", func(t *testing.T) {
 		item := seededItem(t, "WIDGET-001", 5)
 		require.NoError(t, item.Reserve(mustRef(t, "RES-1"), mustQuantity(t, 5), time.Hour))
 		assert.Equal(t, 0, item.Available().Int(), "Available")

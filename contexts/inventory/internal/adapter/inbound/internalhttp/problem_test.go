@@ -109,7 +109,7 @@ func reserveLine(sku string, qty int) string {
 func TestProblem_E1_ContractValidation(t *testing.T) {
 	ts := newInternalServer(t)
 
-	t.Run("必須欠落: 兄弟フィールドを全件列挙する", func(t *testing.T) {
+	t.Run("境界: 必須欠落は兄弟フィールドを全件列挙する", func(t *testing.T) {
 		pb := readProblem(t, post(t, ts.Client(), ts.URL+"/reservations", `{}`),
 			http.StatusBadRequest, problem.TypeValidationError)
 
@@ -121,7 +121,7 @@ func TestProblem_E1_ContractValidation(t *testing.T) {
 		assert.ElementsMatch(t, []string{"ref", "lines"}, names)
 	})
 
-	t.Run("型不一致（明細の中。添字は付かない — 規則 R-9）", func(t *testing.T) {
+	t.Run("異常系: 明細の中の型不一致は添字を付けない（規則 R-9）", func(t *testing.T) {
 		pb := readProblem(t, post(t, ts.Client(), ts.URL+"/reservations",
 			reserveBody("ORDER-1", `{"sku":"WIDGET-001","quantity":"three"}`)),
 			http.StatusBadRequest, problem.TypeValidationError)
@@ -131,14 +131,14 @@ func TestProblem_E1_ContractValidation(t *testing.T) {
 		assert.Equal(t, problem.CodeType, pb.InvalidParams[0].Code)
 	})
 
-	t.Run("不正 JSON は invalid-params をキーごと省略する（規則 R-14）", func(t *testing.T) {
+	t.Run("異常系: 不正 JSON は invalid-params をキーごと省略する（規則 R-14）", func(t *testing.T) {
 		pb := readProblem(t, post(t, ts.Client(), ts.URL+"/reservations", `{"ref":`),
 			http.StatusBadRequest, problem.TypeValidationError)
 		assert.Empty(t, pb.InvalidParams)
 		assert.NotContains(t, pb.raw, "invalid-params")
 	})
 
-	t.Run("Content-Type 不正は 415", func(t *testing.T) {
+	t.Run("異常系: Content-Type 不正は 415", func(t *testing.T) {
 		pb := readProblem(t, send(t, ts, http.MethodPost, "/reservations", "text/plain",
 			reserveBody("ORDER-1", reserveLine("WIDGET-001", 1))),
 			http.StatusUnsupportedMediaType, problem.TypeUnsupportedMediaType)
@@ -163,14 +163,14 @@ func TestProblem_E2_NotFoundIsProblemJSON(t *testing.T) {
 func TestProblem_E3_MethodNotAllowed(t *testing.T) {
 	ts := newInternalServer(t)
 
-	t.Run("405 は problem+json で Allow ヘッダを維持する", func(t *testing.T) {
+	t.Run("異常系: 405 は problem+json で Allow ヘッダを維持する", func(t *testing.T) {
 		resp := send(t, ts, http.MethodGet, "/reservations", "", "")
 		allow := resp.Header.Get("Allow")
 		readProblem(t, resp, http.StatusMethodNotAllowed, problem.TypeMethodNotAllowed)
 		assert.Contains(t, allow, http.MethodPost, "Allow は本文書き出し前に設定される")
 	})
 
-	t.Run("OPTIONS は 405 にしない（CORS プリフライトを壊さない）", func(t *testing.T) {
+	t.Run("正常系: OPTIONS は 405 にせず CORS プリフライトを壊さない", func(t *testing.T) {
 		resp := send(t, ts, http.MethodOptions, "/reservations", "", "")
 		require.NoError(t, resp.Body.Close())
 		assert.Equal(t, http.StatusNoContent, resp.StatusCode)
@@ -260,7 +260,7 @@ func TestProblem_E4_ZeroQuantityCarriesLineIndexFromDomain(t *testing.T) {
 func TestProblem_E4_TypeMigrationAndNoEcho(t *testing.T) {
 	ts := newInternalServer(t)
 
-	t.Run("404（予約が無い）は resource-not-found で参照をエコーしない", func(t *testing.T) {
+	t.Run("契約: 予約が無い 404 は resource-not-found で参照をエコーしない", func(t *testing.T) {
 		pb := readProblem(t, post(t, ts.Client(), ts.URL+"/reservations/SECRET-REF/confirm", ""),
 			http.StatusNotFound, problem.TypeResourceNotFound)
 
@@ -269,7 +269,7 @@ func TestProblem_E4_TypeMigrationAndNoEcho(t *testing.T) {
 		assert.NotContains(t, pb.raw, "SECRET-REF", "受信値をエコーバックしない（FR-2.4）")
 	})
 
-	t.Run("404（在庫項目が無い）は SKU をエコーしない", func(t *testing.T) {
+	t.Run("異常系: 在庫項目が無い 404 は SKU をエコーしない", func(t *testing.T) {
 		pb := readProblem(t, post(t, ts.Client(), ts.URL+"/reservations",
 			reserveBody("ORDER-1", reserveLine("SECRET-SKU", 1))),
 			http.StatusNotFound, problem.TypeResourceNotFound)
@@ -277,7 +277,7 @@ func TestProblem_E4_TypeMigrationAndNoEcho(t *testing.T) {
 		assert.NotContains(t, pb.raw, "SECRET-SKU", "受信値をエコーバックしない（FR-2.4）")
 	})
 
-	t.Run("409（在庫不足）は conflict で数量・在庫数をエコーしない", func(t *testing.T) {
+	t.Run("契約: 在庫不足の 409 は conflict で数量・在庫数をエコーしない", func(t *testing.T) {
 		pb := readProblem(t, post(t, ts.Client(), ts.URL+"/reservations",
 			reserveBody("ORDER-1", reserveLine("WIDGET-001", 999))),
 			http.StatusConflict, problem.TypeConflict)
@@ -288,7 +288,7 @@ func TestProblem_E4_TypeMigrationAndNoEcho(t *testing.T) {
 		assert.NotContains(t, pb.raw, "WIDGET-001", "SKU を漏らさない")
 	})
 
-	t.Run("422（未登録のメッセージ種別）は invalid-input", func(t *testing.T) {
+	t.Run("契約: 未登録のメッセージ種別の 422 は invalid-input", func(t *testing.T) {
 		pb := readProblem(t, post(t, ts.Client(), ts.URL+"/events", `{"id":"m-1","type":"unknown.type","payload":"{}"}`),
 			http.StatusUnprocessableEntity, problem.TypeInvalidInput)
 		assert.Empty(t, pb.InvalidParams, "配送ルート未登録はフィールドに帰着しない")

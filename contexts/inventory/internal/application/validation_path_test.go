@@ -143,7 +143,7 @@ func TestValidationPath_ReserveLineIndex(t *testing.T) {
 		}
 	}
 
-	t.Run("値オブジェクト経路: SKU が空の行を指す（アプリ層のループが位置を付ける）", func(t *testing.T) {
+	t.Run("境界: SKU が空の行を指す（アプリ層のループが位置を付ける）", func(t *testing.T) {
 		for _, broken := range []int{0, 1, 2} {
 			t.Run(fmt.Sprintf("%d 行目", broken), func(t *testing.T) {
 				lines := okLines()
@@ -159,7 +159,7 @@ func TestValidationPath_ReserveLineIndex(t *testing.T) {
 		}
 	})
 
-	t.Run("集約経路: 数量 0 の行を指す（ドメインの Index が位置を運ぶ）", func(t *testing.T) {
+	t.Run("境界: 数量 0 の行を指す（ドメインの Index が位置を運ぶ）", func(t *testing.T) {
 		for _, broken := range []int{0, 1, 2} {
 			t.Run(fmt.Sprintf("%d 行目", broken), func(t *testing.T) {
 				lines := okLines()
@@ -182,14 +182,14 @@ func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
 	ctx := context.Background()
 	var ve *application.ValidationError
 
-	t.Run("在庫項目が無い（404 系）", func(t *testing.T) {
+	t.Run("異常系: 在庫項目が無いと 404 系になる", func(t *testing.T) {
 		f := newReserveOnlyFixture(t)
 		_, err := f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "SKU-UNKNOWN"})
 		require.ErrorIs(t, err, inventory.ErrStockItemNotFound)
 		assert.False(t, errors.As(err, &ve), "リポジトリ由来のエラーは検証エラーに化けない")
 	})
 
-	t.Run("予約時に在庫項目が無い（404 系）", func(t *testing.T) {
+	t.Run("異常系: 予約時に在庫項目が無いと 404 系になる", func(t *testing.T) {
 		f := newReserveOnlyFixture(t)
 		err := f.reserver.Reserve(ctx, application.ReserveInput{
 			Ref:   "ORDER-1",
@@ -199,7 +199,7 @@ func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
 		assert.False(t, errors.As(err, &ve), "在庫項目なしは検証エラーに化けない")
 	})
 
-	t.Run("在庫不足（409 系）", func(t *testing.T) {
+	t.Run("異常系: 在庫不足は 409 系になる", func(t *testing.T) {
 		f := newReserveOnlyFixture(t)
 		_, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: "SKU-A", Quantity: 1})
 		require.NoError(t, err)
@@ -212,7 +212,7 @@ func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
 		assert.False(t, errors.As(err, &ve), "在庫不足は状態の矛盾であり検証エラーではない")
 	})
 
-	t.Run("予約が無い（Confirm の 404 系）", func(t *testing.T) {
+	t.Run("異常系: 予約が無い Confirm は 404 系になる", func(t *testing.T) {
 		f := newReserveOnlyFixture(t)
 		err := f.confirmer.Confirm(ctx, "ORDER-UNKNOWN")
 		require.ErrorIs(t, err, inventory.ErrReservationNotFound)

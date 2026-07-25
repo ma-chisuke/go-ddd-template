@@ -125,7 +125,7 @@ func orderBody(customer string, lines ...string) string {
 func TestProblem_E1_ContractValidation(t *testing.T) {
 	ts := newServer(t, stubReserver{})
 
-	t.Run("必須欠落: 兄弟フィールドを全件列挙する", func(t *testing.T) {
+	t.Run("境界: 必須欠落は兄弟フィールドを全件列挙する", func(t *testing.T) {
 		pb := readProblem(t, postJSONBody(t, ts, "/orders", `{}`),
 			http.StatusBadRequest, problem.TypeValidationError)
 
@@ -138,7 +138,7 @@ func TestProblem_E1_ContractValidation(t *testing.T) {
 		assert.ElementsMatch(t, []string{"customerId", "lines"}, names)
 	})
 
-	t.Run("型不一致: ラップ列からパスを組む（添字は付かない — 規則 R-9）", func(t *testing.T) {
+	t.Run("異常系: 型不一致はラップ列からパスを組み添字を付けない（規則 R-9）", func(t *testing.T) {
 		pb := readProblem(t, postJSONBody(t, ts, "/orders",
 			orderBody("CUST-1", `{"sku":"SKU-A","quantity":"three","unitPrice":{"amount":1,"currency":"JPY"}}`)),
 			http.StatusBadRequest, problem.TypeValidationError)
@@ -148,7 +148,7 @@ func TestProblem_E1_ContractValidation(t *testing.T) {
 		assert.Equal(t, problem.CodeType, pb.InvalidParams[0].Code)
 	})
 
-	t.Run("不正 JSON: 特定できないので invalid-params をキーごと省略する（規則 R-14）", func(t *testing.T) {
+	t.Run("異常系: 不正 JSON は特定できないので invalid-params をキーごと省略する（規則 R-14）", func(t *testing.T) {
 		pb := readProblem(t, postJSONBody(t, ts, "/orders", `{"customerId":`),
 			http.StatusBadRequest, problem.TypeValidationError)
 
@@ -156,14 +156,14 @@ func TestProblem_E1_ContractValidation(t *testing.T) {
 		assert.NotContains(t, pb.raw, "invalid-params", "空配列ではなくキーごと省略する")
 	})
 
-	t.Run("空ボディ", func(t *testing.T) {
+	t.Run("境界: 空ボディは body を指す", func(t *testing.T) {
 		pb := readProblem(t, postJSONBody(t, ts, "/orders", ``),
 			http.StatusBadRequest, problem.TypeValidationError)
 		require.Len(t, pb.InvalidParams, 1)
 		assert.Equal(t, problem.CodeBodyRequired, pb.InvalidParams[0].Code)
 	})
 
-	t.Run("Content-Type 不正は 415", func(t *testing.T) {
+	t.Run("異常系: Content-Type 不正は 415", func(t *testing.T) {
 		pb := readProblem(t, send(t, ts, http.MethodPost, "/orders", "text/plain", placeBody),
 			http.StatusUnsupportedMediaType, problem.TypeUnsupportedMediaType)
 		assert.Empty(t, pb.InvalidParams)
@@ -187,7 +187,7 @@ func TestProblem_E2_NotFoundIsProblemJSON(t *testing.T) {
 func TestProblem_E3_MethodNotAllowed(t *testing.T) {
 	ts := newServer(t, stubReserver{})
 
-	t.Run("405 は problem+json で Allow ヘッダを維持する", func(t *testing.T) {
+	t.Run("異常系: 405 は problem+json で Allow ヘッダを維持する", func(t *testing.T) {
 		resp := send(t, ts, http.MethodDelete, "/orders", "", "")
 		allow := resp.Header.Get("Allow")
 		pb := readProblem(t, resp, http.StatusMethodNotAllowed, problem.TypeMethodNotAllowed)
@@ -196,7 +196,7 @@ func TestProblem_E3_MethodNotAllowed(t *testing.T) {
 		assert.Empty(t, pb.InvalidParams)
 	})
 
-	t.Run("OPTIONS は 405 にしない（CORS プリフライトを壊さない）", func(t *testing.T) {
+	t.Run("正常系: OPTIONS は 405 にせず CORS プリフライトを壊さない", func(t *testing.T) {
 		resp := send(t, ts, http.MethodOptions, "/orders", "", "")
 		require.NoError(t, resp.Body.Close())
 		assert.Equal(t, http.StatusNoContent, resp.StatusCode)

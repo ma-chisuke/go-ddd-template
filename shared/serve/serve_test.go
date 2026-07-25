@@ -301,7 +301,7 @@ func TestRun_ShutdownFailureDoesNotSkipRemainingServers(t *testing.T) {
 // --- ケース 5: 戻り値の優先順位（3 分岐）------------------------------------------
 
 func TestRun_ReturnValuePrecedence(t *testing.T) {
-	t.Run("サーバエラーがあればそれを返す", func(t *testing.T) {
+	t.Run("異常系: サーバエラーがあればそれを返す", func(t *testing.T) {
 		busyAddr := occupiedAddr(t)
 		done := make(chan error, 1)
 		go func() {
@@ -313,12 +313,12 @@ func TestRun_ReturnValuePrecedence(t *testing.T) {
 		assert.Contains(t, err.Error(), busyAddr, "返るのは bind 失敗そのもの")
 	})
 
-	t.Run("サーバエラーが無ければ最初のshutdownエラーを返す", func(t *testing.T) {
+	t.Run("異常系: サーバエラーが無ければ最初の shutdown エラーを返す", func(t *testing.T) {
 		err := runWithStuckShutdown(t)
 		require.ErrorIs(t, err, context.DeadlineExceeded, "shutdown の猶予切れが返るべき")
 	})
 
-	t.Run("どちらも無ければnilを返す", func(t *testing.T) {
+	t.Run("正常系: どちらも無ければ nil を返す", func(t *testing.T) {
 		addr := freeAddr(t)
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

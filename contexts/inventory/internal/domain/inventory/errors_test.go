@@ -83,25 +83,25 @@ func TestFieldViolation_AggregateRules(t *testing.T) {
 		return item
 	}
 
-	t.Run("Replenish(0) は quantity を名乗る", func(t *testing.T) {
+	t.Run("境界: Replenish(0) は quantity を名乗る", func(t *testing.T) {
 		err := newItem(t, 0).Replenish(mustQuantity(t, 0))
 		require.ErrorIs(t, err, inventory.ErrInvalidQuantity)
 		assert.Equal(t, inventory.VQuantity, requireViolation(t, err).Rule)
 	})
 
-	t.Run("Reserve(空 ref) は reservationRef を名乗る", func(t *testing.T) {
+	t.Run("境界: Reserve(空 ref) は reservationRef を名乗る", func(t *testing.T) {
 		err := newItem(t, 5).Reserve(inventory.ReservationRef{}, mustQuantity(t, 1), time.Minute)
 		require.ErrorIs(t, err, inventory.ErrInvalidReservationRef)
 		assert.Equal(t, inventory.VReservationRef, requireViolation(t, err).Rule)
 	})
 
-	t.Run("Reserve(0) は quantity を名乗る", func(t *testing.T) {
+	t.Run("境界: Reserve(0) は quantity を名乗る", func(t *testing.T) {
 		err := newItem(t, 5).Reserve(mustRef(t, "ORDER-1"), mustQuantity(t, 0), time.Minute)
 		require.ErrorIs(t, err, inventory.ErrInvalidQuantity)
 		assert.Equal(t, inventory.VQuantity, requireViolation(t, err).Rule)
 	})
 
-	t.Run("在庫不足（409）は FieldViolation にしない", func(t *testing.T) {
+	t.Run("異常系: 在庫不足の 409 は FieldViolation にしない", func(t *testing.T) {
 		err := newItem(t, 1).Reserve(mustRef(t, "ORDER-1"), mustQuantity(t, 5), time.Minute)
 		require.ErrorIs(t, err, inventory.ErrInsufficientStock)
 		var v *inventory.FieldViolation
@@ -122,7 +122,7 @@ func TestFieldViolation_AllocateCarriesLineIndex(t *testing.T) {
 
 	var svc inventory.ReservationService
 
-	t.Run("2 行目（添字 1）が 0 なら Index=1 を載せる", func(t *testing.T) {
+	t.Run("境界: 2 行目（添字 1）が 0 なら Index=1 を載せる", func(t *testing.T) {
 		lines := []inventory.ReservationLine{
 			{SKU: mustSKU(t, "SKU-A"), Quantity: mustQuantity(t, 1)},
 			{SKU: mustSKU(t, "SKU-B"), Quantity: mustQuantity(t, 0)},
@@ -138,7 +138,7 @@ func TestFieldViolation_AllocateCarriesLineIndex(t *testing.T) {
 		assert.Equal(t, 1, *v.Index)
 	})
 
-	t.Run("3 行目（添字 2）が 0 なら Index=2 を載せる", func(t *testing.T) {
+	t.Run("境界: 3 行目（添字 2）が 0 なら Index=2 を載せる", func(t *testing.T) {
 		lines := []inventory.ReservationLine{
 			{SKU: mustSKU(t, "SKU-A"), Quantity: mustQuantity(t, 1)},
 			{SKU: mustSKU(t, "SKU-B"), Quantity: mustQuantity(t, 1)},
@@ -150,7 +150,7 @@ func TestFieldViolation_AllocateCarriesLineIndex(t *testing.T) {
 		assert.Equal(t, 2, *v.Index)
 	})
 
-	t.Run("参照が空なら位置は載らない（明細の問題ではない）", func(t *testing.T) {
+	t.Run("境界: 参照が空なら位置は載らない（明細の問題ではない）", func(t *testing.T) {
 		lines := []inventory.ReservationLine{
 			{SKU: mustSKU(t, "SKU-A"), Quantity: mustQuantity(t, 1)},
 		}
@@ -162,7 +162,7 @@ func TestFieldViolation_AllocateCarriesLineIndex(t *testing.T) {
 		assert.Nil(t, v.Index, "参照は明細に帰着しないので位置を持たない")
 	})
 
-	t.Run("在庫項目が無い / 在庫不足は FieldViolation にしない", func(t *testing.T) {
+	t.Run("異常系: 在庫項目が無い場合と在庫不足は FieldViolation にしない", func(t *testing.T) {
 		var v *inventory.FieldViolation
 
 		missing := []inventory.ReservationLine{

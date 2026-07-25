@@ -134,7 +134,7 @@ func TestValidationPath_PlaceOrderReportsTheBrokenLine(t *testing.T) {
 func TestValidationPath_CancelAndGetOrder(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("CancelOrder", func(t *testing.T) {
+	t.Run("境界: CancelOrder は空白のみの ID を OrderId として指す", func(t *testing.T) {
 		f := newMemFixture(t)
 		err := f.cancel.Handle(ctx, "   ")
 		require.ErrorIs(t, err, order.ErrInvalidOrderID)
@@ -143,7 +143,7 @@ func TestValidationPath_CancelAndGetOrder(t *testing.T) {
 		assert.Equal(t, order.VOrderID.Code, v.Code)
 	})
 
-	t.Run("GetOrder", func(t *testing.T) {
+	t.Run("境界: GetOrder は空白のみの ID を OrderId として指す", func(t *testing.T) {
 		f := newMemFixture(t)
 		_, err := f.get.Handle(ctx, "   ")
 		require.ErrorIs(t, err, order.ErrInvalidOrderID)
@@ -159,14 +159,14 @@ func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
 	ctx := context.Background()
 	var ve *application.ValidationError
 
-	t.Run("存在しない注文の取消（404 系）", func(t *testing.T) {
+	t.Run("異常系: 存在しない注文の取消は 404 系になる", func(t *testing.T) {
 		f := newMemFixture(t)
 		err := f.cancel.Handle(ctx, "MISSING")
 		require.ErrorIs(t, err, order.ErrOrderNotFound)
 		assert.False(t, errors.As(err, &ve), "リポジトリ由来のエラーは検証エラーに化けない")
 	})
 
-	t.Run("在庫予約の拒否（409 系）", func(t *testing.T) {
+	t.Run("異常系: 在庫予約の拒否は 409 系になる", func(t *testing.T) {
 		f := newMemFixture(t)
 		f.reserver.EXPECT().
 			Reserve(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -177,7 +177,7 @@ func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
 		assert.False(t, errors.As(err, &ve), "ACL 由来のエラーは検証エラーに化けない")
 	})
 
-	t.Run("版衝突が再試行上限を超える（409 系）", func(t *testing.T) {
+	t.Run("並行: 版衝突が再試行上限を超えると 409 系になる", func(t *testing.T) {
 		store := memory.NewStore()
 		stores := memory.NewStores()
 		// 再試行上限（既定 3）を超える回数だけ衝突を注入し、UoW を必ず失敗させる。
