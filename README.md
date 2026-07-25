@@ -10,6 +10,31 @@ Go でドメイン駆動設計（DDD）とヘキサゴナルアーキテクチ�
 層の分離・境界・生成物との付き合い方を、そのまま自分のプロジェクトの出発点として
 コピーできる形で示すことです。
 
+## Getting Started（5 分）
+
+前提は Go 1.26 以上と `make` だけです（Docker はまだ要りません）。
+
+```sh
+# 1) 自分の module path にする（リポジトリ全体を一括置換。--dry-run で対象と件数を確認できる）
+./scripts/rename-module.sh github.com/you/your-repo
+
+# 2) Docker 無しで端から端まで動かす（両コンテキストを 1 プロセスで結線して一気に実行）
+make dev
+
+# 3) 全モジュールのテストを回す（CI と同じ検査一式は make ci）
+make test
+```
+
+1 の置換は Go の module path だけでなく、**RFC 9457 の problem type URI の名前空間**
+（エラー応答の `type` に載る公開契約の値）も同時に書き換えます。`.golangci.yml` の depguard
+設定や `contracts/**` のベースラインなど、手作業では取りこぼしやすい箇所まで含みます。
+
+打てるコマンドの一覧は引数なしの `make` で出ます（すべての操作の単一入口です）。
+
+**4) 次に読む** — [docs/why-these-boundaries.md](docs/why-these-boundaries.md)（なぜこの境界か）
+→ [docs/ddd-patterns.md](docs/ddd-patterns.md)（パターンがどのファイルにあるか）
+→ [docs/glossary.md](docs/glossary.md)（境界ごとの語彙と、境界を跨いで同名の語）。
+
 ## 実装済みのもの
 
 2 つの境界づけられたコンテキスト **Inventory（在庫）** と **Ordering（注文）** を、DDD の
@@ -172,21 +197,35 @@ Go でドメイン駆動設計（DDD）とヘキサゴナルアーキテクチ�
 あって、リポジトリ全体ではありません。インフラや横断的関心事が本番形状で厚いのは意図した
 特徴であり、この読解パスがその順序を制御します。
 
+0. **なぜこの境界か** — [docs/why-these-boundaries.md](docs/why-these-boundaries.md)。
+   在庫と受注の 2 つに割った導出過程（語の衝突・トランザクション境界・変更理由の違い）と、
+   却下した代替案。コードを読む前に、境界がどう決まったかを掴みます。
 1. **ドメイン** — `contexts/<ctx>/internal/domain/`。純粋なドメイン（集約・値オブジェクト・
-   不変条件・ドメインイベント・ドメインサービス）。外側を一切知りません。
+   不変条件・ドメインイベント・ドメインサービス）。外側を一切知りません。語彙は
+   [contexts/inventory/GLOSSARY.md](contexts/inventory/GLOSSARY.md) /
+   [contexts/ordering/GLOSSARY.md](contexts/ordering/GLOSSARY.md)、どのパターンがどのファイルかは
+   [docs/ddd-patterns.md](docs/ddd-patterns.md) § 戦術パターン。
 2. **アプリケーション（ユースケース）** — `contexts/<ctx>/internal/application/`。
    「読み込み → ドメイン操作 → 保存」のオーケストレーションと、依存を逆転させるポート。
+   リポジトリ／作業単位の位置は [docs/ddd-patterns.md](docs/ddd-patterns.md)。
 3. **戦略的シーム（ACL + イベント）** — コンテキスト間の縫い目。配置時の同期予約（腐敗防止層
    `aclhttp`）、確定コマンドと取消イベントのメッセージ契約（`contracts/events/`）。
-   全体像は [docs/context-map.md](docs/context-map.md) を参照。
+   全体像は [docs/context-map.md](docs/context-map.md)、パターンとしての位置づけは
+   [docs/ddd-patterns.md](docs/ddd-patterns.md) § 戦略パターン。
 4. **インフラの堅牢化** — 作業単位（`shared/uow`）・トランザクショナルアウトボックス
    （`shared/outbox`）・楽観的排他制御・宣言的 DB（`contexts/<ctx>/db/`）・契約ガバナンス
-   （`contracts/` + CI ゲート）。ここは本番形状で厚く、後から読みます。
+   （`contracts/` + CI ゲート）。ここは本番形状で厚く、後から読みます。索引は
+   [docs/ddd-patterns.md](docs/ddd-patterns.md) § 支援機構。
 
 ### ドキュメント
 
 - [CONVENTIONS.md](CONVENTIONS.md) — Go / SQL / DDD の規約（命名・層分離・`UnitOfWork[R]` など）。
 - [AGENTS.md](AGENTS.md) / [CLAUDE.md](CLAUDE.md) — AI エージェント向けガイド（機械可読契約への案内・禁止事項）。
+- [docs/why-these-boundaries.md](docs/why-these-boundaries.md) — なぜ在庫と受注の 2 つに割ったのか（導出過程と却下した代替案）。
+- [docs/ddd-patterns.md](docs/ddd-patterns.md) — DDD パターン → このリポジトリでの実装位置の索引。
+- [docs/glossary.md](docs/glossary.md) — 用語集の索引と、境界を跨いで同名の語の対比
+  （定義本体は [contexts/inventory/GLOSSARY.md](contexts/inventory/GLOSSARY.md) と
+  [contexts/ordering/GLOSSARY.md](contexts/ordering/GLOSSARY.md)）。
 - [docs/context-map.md](docs/context-map.md) — seam の 3 フロー（同期予約 / 確定コマンド / 取消イベント）。
 - [docs/copy-a-context.md](docs/copy-a-context.md) — 1 コンテキストを切り出して自分のプロジェクトの出発点にする手順。
 - [docs/add-a-use-case.md](docs/add-a-use-case.md) — 新しいユースケースを足すレシピ。
@@ -196,13 +235,17 @@ Go でドメイン駆動設計（DDD）とヘキサゴナルアーキテクチ�
 ```
 .
 ├── go.work                     … 複数モジュールのワークスペース
+├── Makefile                    … すべてのコマンドの単一入口（モジュール一覧は MODULES 変数 1 箇所）
 ├── docker-compose.yml          … 分散サービスのローカル起動（DB + init + 2 サービス）
 ├── docker-compose.test.yml     … 統合テスト時のみ Postgres をホスト公開するオーバーレイ
 ├── deploy/                     … bring-up 用の使い捨て init コンテナ（psqldef + psql）
 │   ├── migrate.Dockerfile        … スキーマ適用・ロール/seed 適用イメージ
 │   └── apply.sh                  … 適用オーケストレーション（schema → roles → seed → fixtures）
-├── docs/                       … 追加ドキュメント（context-map / copy-a-context / add-a-use-case）
-├── scripts/coverage-gate.sh    … カバレッジゲート（domain + application >= 80%）
+├── docs/                       … 追加ドキュメント（why-these-boundaries / ddd-patterns / glossary /
+│                                 context-map / copy-a-context / add-a-use-case）
+├── scripts/
+│   ├── coverage-gate.sh          … カバレッジゲート（domain + application >= 80%）
+│   └── rename-module.sh          … module path と problem type URI の名前空間を一括置換
 ├── contracts/                  … コード生成の入力（契約 = 真実の源。集中管理）
 │   ├── check-openapi-compat.sh   … OpenAPI 後方互換ゲート（oasdiff）
 │   ├── inventory/
@@ -223,6 +266,7 @@ Go でドメイン駆動設計（DDD）とヘキサゴナルアーキテクチ�
 ├── shared/                     … ドメイン非依存の共有モジュール（uow / event / serve / outbox / id / correlation / problem / testutil）
 └── contexts/
     ├── inventory/              … 「在庫」境界づけられたコンテキスト（1 モジュール）
+    │   ├── GLOSSARY.md          … この境界のユビキタス言語（コンテキストと一緒にコピーされる）
     │   ├── inventory.go         … 公開ファサード（Module, New, NewInMemory, HTTPHandler, InternalHTTPHandler,
     │   │                          Reserve/Confirm/Release/Deliver/Sweep のシーム, StartWorkers）
     │   ├── cmd/inventory/       … サービスの合成ルート（main）
@@ -230,6 +274,7 @@ Go でドメイン駆動設計（DDD）とヘキサゴナルアーキテクチ�
     │   ├── db/ · sqlc.yaml      … schema.sql / queries.sql（stock_items / stock_reservations / outbox / events）/ roles.sql / seed.sql / fixtures.sql / sqldef.yml
     │   └── internal/{domain, application, adapter/{inbound, outbound}}
     └── ordering/               … 「注文」境界づけられたコンテキスト（1 モジュール）
+        ├── GLOSSARY.md          … この境界のユビキタス言語（コンテキストと一緒にコピーされる）
         ├── ordering.go          … 公開ファサード（Module, New, NewInMemory, HTTPHandler, StartWorkers）
         ├── cmd/ordering/        … サービスの合成ルート（main。ACL / イベント送出クライアントを結線）
         ├── port/                … 公開の翻訳済み DTO（ReserveLine）と ACL の番兵（ErrReservationRejected など）
@@ -254,8 +299,8 @@ Go でドメイン駆動設計（DDD）とヘキサゴナルアーキテクチ�
 
 ## 動かし方
 
-2 つの実行モードがあります。**まず動かす**なら Docker 不要の `go run ./cmd/dev`、
-**分散構成を体験する**なら `docker compose up` です。
+2 つの実行モードがあります。**まず動かす**なら Docker 不要の `make dev`、
+**分散構成を体験する**なら `make up`（docker compose）です。
 
 > **タイミングに関する注意（誤解しないために）**: `cmd/dev` は同期 in-process publisher で
 > クロスコンテキストメッセージを即時配送します。これは「注文が在庫のドメイン型を知らずに
@@ -263,20 +308,18 @@ Go でドメイン駆動設計（DDD）とヘキサゴナルアーキテクチ�
 > consistency（結果整合）のタイミング**は示しません。遅延を伴う本物の結果整合は、PostgreSQL
 > のアウトボックス + 送信中継（`docker compose` 経路）で観察できます。
 
-### 1) Docker なしで動かす（`go run ./cmd/dev` と `go test`）
+### 1) Docker なしで動かす（`make dev` と `make test`）
 
 DB もコンテナも要らずに、両コンテキストを 1 プロセスで結線して「まず動く」様子を確認できます。
 インメモリ実装はモックではなく、擬似トランザクションと楽観的排他制御を備えた**本物のアダプタ**です。
 
 ```sh
 # 開発ハーネス: 補充 → 注文（予約 + 確定）→ 照会 → 取消（解放）→ 在庫不足で拒否 を一気に実行
-go run ./cmd/dev
+make dev
 
-# 全モジュールのテスト（相関 ID・作業単位・排他衝突・RFC 9457・seam の翻訳まで通しで検証）
-cd shared && go test ./...
-cd ../contexts/inventory && go test ./...
-cd ../ordering && go test ./...
-cd ../../cmd/dev && go test ./...   # 開発ハーネスの端から端までのスモークテスト
+# 全モジュールのテスト（相関 ID・作業単位・排他衝突・RFC 9457・seam の翻訳まで通しで検証。
+# 開発ハーネスの端から端までのスモークテストも含む）
+make test
 ```
 
 `cmd/dev` は各コンテキストの**公開ファサード**（`inventory.Module` / `ordering.Module`）と
@@ -303,12 +346,14 @@ PostgreSQL 起動 →（init コンテナで）**宣言的スキーマ適用（p
   （8081）と PostgreSQL（5432）は compose ネットワーク内に留めます。
 
 ```sh
-# tools/versions.env を export してから compose を呼ぶ（migrate の psqldef 版を build.args で渡すため）。
-# export 方式なので compose 既定の root .env 自動読込（デモ資格情報の上書き）も維持される。
-set -a && . ./tools/versions.env && set +a && docker compose up --build
+# バックグラウンドで起動する（停止と後片付けは make down）。
+# Makefile が tools/versions.env を export してから compose を呼ぶ（migrate の psqldef 版を
+# build.args で渡すため）。export 方式なので compose 既定の root .env 自動読込
+# （デモ資格情報の上書き）も維持される。
+make up
 ```
 
-起動後、別ターミナルから：
+起動後、次を試せます：
 
 ```sh
 # 在庫を補充する（未登録 SKU は新規作成される）
@@ -370,16 +415,10 @@ curl -X POST localhost:8082/orders/<ORDER_ID>/cancel
 Postgres をホストに publish しないため、テスト時のみオーバーレイで 5432 を公開します。
 
 ```sh
-# DB（+ init コンテナ）をテスト用に起動し、5432 をホストへ公開する
-# （migrate をビルドするため tools/versions.env を export してから compose を呼ぶ）
-set -a && . ./tools/versions.env && set +a && \
-  docker compose -f docker-compose.yml -f docker-compose.test.yml up -d db migrate
-
-# ホストから統合テストを実行する（後始末でスキーマ横断するため管理者ロールで接続）
-DATABASE_URL='postgres://app:app_admin_demo@localhost:5432/app?sslmode=disable' \
-  bash -c 'cd contexts/inventory && go test -tags=integration ./...'
-DATABASE_URL='postgres://app:app_admin_demo@localhost:5432/app?sslmode=disable' \
-  bash -c 'cd contexts/ordering && go test -tags=integration ./...'
+# DB（+ init コンテナ）をテスト用に起動して 5432 をホストへ公開し、そのまま統合テストを回す。
+# 接続は後始末でスキーマ横断するため管理者ロール（デモ専用）を使う。別の DB を指すなら
+# make test-integration DATABASE_URL=postgres://... で上書きする。
+make test-integration
 ```
 
 ## 契約ガバナンス（CI ゲート）
@@ -388,9 +427,9 @@ DATABASE_URL='postgres://app:app_admin_demo@localhost:5432/app?sslmode=disable' 
 ローカルでも同じスクリプトで再現できます。
 
 ```sh
-bash contracts/check-openapi-compat.sh   # OpenAPI 後方互換（oasdiff、released ベースライン比較）
-bash contracts/events/check-compat.sh    # メッセージ契約の後方互換（type/required の不変性）
-bash scripts/coverage-gate.sh            # domain + application のカバレッジ >= 80%
+make contracts   # OpenAPI 後方互換（oasdiff）+ メッセージ契約の後方互換（type/required の不変性）
+make cover       # domain + application のカバレッジ >= 80%
+make ci          # 上記を含む CI の ci ジョブ相当を丸ごと再現する
 ```
 
 破壊的変更が必要なときは、**既存の契約を「その場で」変えず**、メジャーバージョンを上げて
@@ -404,10 +443,12 @@ bash scripts/coverage-gate.sh            # domain + application のカバレッ�
 ピン留めした版を解決します（開発者のローカル環境に依存せず同一の生成物になります）。
 
 ```sh
-# 契約 / SQL を編集したら各モジュールで再生成する（生成物はコミットする）
-cd clients/inventory && go generate ./...   # 在庫内部 API → 共有クライアント（invclient）
-cd ../../contexts/inventory && go generate ./...
-cd ../ordering && go generate ./...
+# 契約 / SQL を編集したら再生成する（生成物はコミットする）。
+# クライアント → 各コンテキスト → shared の順で回る（順序は Makefile の GEN_MODULES が持つ）。
+make generate
+
+# 再生成しても差分が出ないこと（冪等性）を検証する。CI が回すのと同じ検査。
+make generate-check
 ```
 
 サーバはコンテキストごとに、クライアントは共有の `clients/inventory` に、同じ内部 OpenAPI から
@@ -421,6 +462,8 @@ cd ../ordering && go generate ./...
 [`tools/versions.env`](tools/versions.env) を単一情報源とし、版番号を他所へハードコードしません。
 
 - Go 1.26 以上（最新安定版。go.work と各 go.mod は `go 1.26.0` を要求）
+- `make` — すべてのコマンドの単一入口（[`Makefile`](Makefile)）。macOS / Linux は標準で入っています。
+  Windows は WSL または Git Bash を使うか、`make` を別途インストールしてください
 - Docker / Docker Compose（PostgreSQL で動かす場合）
 - ogen, sqlc, mockgen（コード生成）— 版は各モジュールの go.mod `tool` ディレクティブで固定。
   手動インストールは不要で、`go generate ./...` が `go tool` で解決する

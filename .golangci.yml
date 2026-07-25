@@ -16,10 +16,31 @@ linters:
     - goimports
     - misspell
     - depguard
+    - stylecheck
 
 linters-settings:
   goimports:
     local-prefixes: github.com/example/go-ddd-template
+  stylecheck:
+    # ST1000: 非 main パッケージは package コメントを持つこと。
+    #
+    # golangci-lint の既定では ST1000 は除外されているため、明示的に有効化する必要がある
+    # （enable: stylecheck だけでは発火しない）。
+    #
+    # なぜ revive の package-comments ではないのか: revive は package コメントが
+    # `Package <name>` で始まることを要求し、Go の main パッケージの慣習である
+    # `// Command <name> ...` 形式（cmd/dev・contexts/*/cmd/* の 3 つが採用）を違反として
+    # 弾いてしまう。ST1000 は main パッケージを対象外にするため、既存の正しい doc を
+    # 壊さずに「ドメインパッケージだけが無言」という欠落だけを塞げる。
+    #
+    # checks を ST1000 に限定するのは意図的である。stylecheck の他のチェック
+    # （ST1003 命名・ST1005 エラー文字列など）を同時に有効化すると、package コメントの
+    # 補完という関心とは無関係な大量の指摘が出る。必要になったときに 1 つずつ足す。
+    #
+    # 生成コード（ogen / sqlc / mockgen の出力）の除外リストはここに書かない。
+    # いずれも `Code generated ... DO NOT EDIT.` ヘッダを持ち、golangci-lint の既定の
+    # 自動生成除外が効く（明示リストは二重管理になり、新しい生成物への追随を忘れる）。
+    checks: ["ST1000"]
   depguard:
     # depguard で層の依存方向を機械的に守る。依存は常に内側（domain）へ向き、
     # 外側（adapter）が内側を知ってよいが、内側は外側を知らない。
@@ -122,6 +143,19 @@ linters-settings:
             desc: "共有モジュールは特定コンテキストの生成クライアントに依存してはならない"
 
 issues:
+  # 既定の除外パターンのうち EXC0011 だけを打ち消す。
+  #
+  # golangci-lint は既定でいくつかの「よくある指摘」を除外しており（exclude-use-default: true）、
+  # そのうち EXC0011 が stylecheck の "should have (a package) comment" と
+  # "comment should be of the form" を丸ごと握りつぶす。これを解除しないと、
+  # linters.enable に stylecheck を足し checks: ["ST1000"] を書いても **1 件も報告されない**
+  # ——「rule はあるが何も検査していない」状態になる（実際にカナリアで確認した:
+  # package コメントを削っても lint は green のままだった）。
+  #
+  # include は既定除外の解除であって新しい検査の追加ではないため、影響は
+  # stylecheck の checks で有効化した ST1000 の範囲に閉じる。
+  include:
+    - EXC0011
   # 生成ファイルは検査しない（明示的な保険）。
   exclude-rules:
     - path: (oas_.*_gen\.go|sqlcgen/.*\.go)

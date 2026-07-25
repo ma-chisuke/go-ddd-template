@@ -44,10 +44,17 @@
 秘密のハードコード / 他コンテキストの `internal/` の import / トランザクションを `ctx` に載せる /
 エラー応答に `err.Error()` や受信値を載せる / `NewServer` にサーバオプションを渡し忘れる。
 
+## コマンド
+
+**すべての操作はルートの `Makefile` が単一入口**です（README・AGENTS.md・CI も同じターゲットを
+呼びます）。引数なしの `make` でターゲット一覧が出ます。モジュールを個別に `cd` して回さないで
+ください。詳細は `AGENTS.md` の「コマンド」節。
+
 ## 動かし方（2 モード）
 
-- `go run ./cmd/dev` — Docker 不要。両コンテキストを 1 プロセスで結線して一気に動かす
+- `make dev` — Docker 不要。両コンテキストを 1 プロセスで結線して一気に動かす
   （同期 in-process 配送。decoupling は示すが遅延ある結果整合は示さない）。
-- `set -a && . ./tools/versions.env && set +a && docker compose up --build` — 分散サービス。
-  init コンテナが schema（psqldef）→ ロール/GRANT → seed →（dev）fixtures を適用してから
-  2 サービスを起動する。公開 API のみホスト公開。versions.env の export は migrate の psqldef 版を渡すため。
+- `make up` — 分散サービス（docker compose）。init コンテナが schema（psqldef）→ ロール/GRANT →
+  seed →（dev）fixtures を適用してから 2 サービスを起動する。公開 API のみホスト公開。
+  Makefile が tools/versions.env を export してから compose を呼ぶ（migrate の psqldef 版を渡すため）。
+  停止と後片付けは `make down`。
