@@ -2,6 +2,9 @@
 
 このリポジトリで AI コーディングアシスタント（および人間の開発者）が、設計を崩さずに
 作業するためのガイドです。まず `README.md` と `CONVENTIONS.md` を読んでから着手してください。
+語彙は `contexts/<ctx>/GLOSSARY.md`、パターンの実装位置は `docs/ddd-patterns.md`、
+境界を割った理由は `docs/why-these-boundaries.md` にあります。
+コマンドはすべてルートの `Makefile` が入口です（引数なしの `make` で一覧が出ます）。
 
 このリポジトリは、構造・規約・機械可読な契約によって「AI 支援開発が DDD 設計に
 忠実であり続ける」ことを狙っています。契約はコード生成の入力であると同時に、
@@ -52,7 +55,9 @@
 
 | 関心事 | 置き場所 |
 | --- | --- |
-| 集約・値オブジェクト・不変条件・ドメインイベント・ドメインサービス | `internal/domain/<ctx>/`（在庫は `inventory`、注文は `order`） |
+| 集約・値オブジェクト・不変条件・ドメインイベント・ドメインサービス | `internal/domain/<ctx>/`（在庫は `inventory`、注文は `order`）。集約ルートと不変条件の要約は同ディレクトリの `doc.go`（package コメントは `stylecheck` の ST1000 で必須化されている） |
+| **その境界のユビキタス言語**（語 → 業務上の意味 → Go 型 → 定義ファイル） | `contexts/<ctx>/GLOSSARY.md`。ドメインに公開型を足したらここにも 1 行足す（`docs/glossary.md` は索引と、境界を跨いで同名の語の対比だけを持つ） |
+| **DDD パターン → 実装位置の索引**（「集約はどこ？ ACL は？」に答える表） | `docs/ddd-patterns.md`（「新しいものをどう足すか」は `docs/add-a-use-case.md`、境界を割った理由は `docs/why-these-boundaries.md`） |
 | ユースケース、ポート（interface）、サブスクライバ、Reaper | `internal/application/` |
 | ポートの実装（DB・インメモリ）＝出口アダプタ | `internal/adapter/outbound/`（`memory` / `postgres`）。構造化ログは `shared/logging`、no-op Publisher は `shared/outbox/logpub` |
 | 公開 HTTP ハンドラ・エラー変換＝入口アダプタ（相関 ID ミドルウェアは共有の `shared/correlation/corrhttp`） | `internal/adapter/inbound/http/`（パッケージ `httpapi`） |
@@ -298,35 +303,42 @@ if n < 1 {
 
 ## コマンド
 
+**すべての操作はリポジトリルートの `Makefile` が単一入口**である。モジュールを個別に `cd` して
+回さない（モジュール一覧は `MODULES` 変数 1 箇所にあり、CI もこれと同じターゲットを呼ぶ）。
+ターゲットの一覧は引数なしの `make` で出る。
+
 ```sh
-# 生成（ogen + sqlc）。クライアント → 各コンテキスト → shared の順に。
+# 生成（ogen + sqlc + mockgen）。クライアント → 各コンテキスト → shared の順に回る。
 # shared はエラー抽出テスト用のフィクスチャ契約を生成する。
-cd clients/inventory && go generate ./...
-cd ../../contexts/inventory && go generate ./...
-cd ../ordering && go generate ./...
-cd ../../shared && go generate ./...
+make generate
+make generate-check   # 再生成しても差分が出ないこと（冪等性）
 
-# ビルド・静的解析・テスト（各モジュールで）
-go build ./...
-go vet ./...
-golangci-lint run ./...
-go test ./...
-
-# Docker 不要の開発ハーネス（両コンテキストを 1 プロセスで結線して一気に動かす）
-go run ./cmd/dev
+# 整形・静的解析・ビルド・テスト（全モジュール）
+make fmt              # gofmt + goimports で整形する
+make fmt-check        # 未整形が無いことを検証する
+make vet
+make lint             # golangci-lint（depguard の層 / seam 境界強制を含む）
+make build            # 統合タグのコンパイル検証を含む
+make test
+make test-race
 
 # 契約ガバナンス・カバレッジのゲート（CI と同じものをローカルで再現）
-bash contracts/check-openapi-compat.sh   # OpenAPI 後方互換（oasdiff）
-bash contracts/events/check-compat.sh    # メッセージ契約の後方互換
-bash scripts/coverage-gate.sh            # domain + application >= 80%
+make contracts        # OpenAPI + メッセージ契約の後方互換
+make cover            # domain + application >= 80%
+make vuln             # govulncheck
+make ci               # CI の ci ジョブ相当（generate-check → … → cover）を丸ごと
 
-# DB ありの統合テスト（テスト用オーバーレイで Postgres を公開してから）
-# migrate をビルドするため tools/versions.env を export してから compose を呼ぶ。
-set -a && . ./tools/versions.env && set +a && \
-  docker compose -f docker-compose.yml -f docker-compose.test.yml up -d db migrate
-DATABASE_URL=postgres://app:app_admin_demo@localhost:5432/app?sslmode=disable \
-  go test -tags=integration ./...
+# Docker 不要の開発ハーネス（両コンテキストを 1 プロセスで結線して一気に動かす）
+make dev
+
+# 分散構成（docker compose）と、DB ありの統合テスト
+make up               # 起動（バックグラウンド）
+make down             # 停止 + ボリューム削除
+make test-integration # テスト用オーバーレイで Postgres を公開してから統合テストを回す
 ```
+
+**新しいコマンドが要るときは Makefile にターゲットを足す。** README・AGENTS.md・CI に生の
+コマンド列を書き戻さない（3 箇所に散った手順が drift するのを構造的に防いでいる）。
 
 ## 設計上の要点（変更時に守ること）
 

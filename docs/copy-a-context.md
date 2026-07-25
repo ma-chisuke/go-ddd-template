@@ -9,7 +9,10 @@
 ## 何をコピーするか
 
 1. **コンテキスト本体** — `contexts/inventory/`（モジュールまるごと。`inventory.go` ファサード、
-   `cmd/inventory/`、`port/`、`db/`、`internal/**`、`go.mod`、`sqlc.yaml`、`generate.go`）。
+   `cmd/inventory/`、`port/`、`db/`、`internal/**`、`go.mod`、`sqlc.yaml`、`generate.go`、
+   そして **`GLOSSARY.md`**）。用語集は境界が所有するので、コンテキストと一緒に付いてきます
+   — ユビキタス言語はこの境界の内側でだけ通用するからです（境界を跨いで同名の語の対比は
+   [glossary.md](./glossary.md) 側に残り、切り出し先では不要になります）。
 2. **そのコンテキストの契約** — `contracts/inventory/`（`openapi.yaml`、内部 API を使うなら
    `internal.openapi.yaml` と ogen 設定、`*.baseline.*`）。
 3. **共有モジュール** — `shared/`（`uow` / `event` / `serve` / `outbox` / `id` / `correlation` /
@@ -37,9 +40,12 @@
 - [ ] `go.work` の `use` から、連れて行かないモジュール（例: `./contexts/ordering`、
       使わない `./clients/*`、`./cmd/dev`）の行を削除する。残すのは
       `./contexts/inventory`・`./shared`（+ 消費するなら `./clients/<peer>`）。
-- [ ] 各 `go.mod` の `module` パス（`github.com/example/go-ddd-template/...`）を自分の
-      モジュールパスへ置換する。`replace` の相対パス（`../../shared` など）が新レイアウトで
-      解決することを確認する。
+- [ ] module パスを自分のものへ置換する。**丸ごとコピーした直後なら
+      `./scripts/rename-module.sh github.com/you/your-repo` が一括で行う**
+      （`.golangci.yml` の depguard 指定・`contracts/**` のベースライン・RFC 9457 の
+      problem type URI の名前空間まで含む。`--dry-run` で対象を確認できる）。切り出しでは
+      ファイル構成が変わるので、各 `go.mod` の `module` パスと `replace` の相対パス
+      （`../../shared` など）が新レイアウトで解決することを確認する。
 - [ ] 連れて行かないコンテキストへの参照が残っていないか確認する。在庫だけなら、在庫は
       もともと他コンテキストを import しないので追加作業は不要（`clients/` も不要）。
 - [ ] `db/` の宣言的 DB 資産（`schema.sql` / `roles.sql` / `seed.sql` / `fixtures.sql` /
@@ -47,22 +53,21 @@
 - [ ] `docker-compose.yml` / `deploy/` から、連れて行かないサービスと、その DB マウント
       （`- ./contexts/ordering/db:/db/ordering:ro` など）・`depends_on`・ポートを削除する。
       1 コンテキストだけなら `inventory-service` と `migrate`・`db` を残す。
-- [ ] `.github/workflows/ci.yml` と `contracts/check-openapi-compat.sh` の対象一覧から、
-      連れて行かないモジュール/契約を外す。
+- [ ] `Makefile` の `MODULES` / `GEN_MODULES` / `ITEST_MODULES` / `FMT_DIRS` から、連れて行かない
+      モジュールを外す。**直すのはこの変数だけ**で、ターゲットと `.github/workflows/ci.yml` は
+      触らなくてよい（CI は Makefile のターゲットを呼ぶだけなので）。
+- [ ] `contracts/check-openapi-compat.sh` の対象一覧から、連れて行かない契約を外す。
 - [ ] README / AGENTS / CONVENTIONS を自分のプロジェクトに合わせて調整する。
+      切り出したコンテキストの `GLOSSARY.md` はそのまま使える（境界が変わっていないため）。
 
 ## コピー後の検証
 
 ```sh
-# 各モジュールでビルド・静的解析・テスト
-go build ./... && go vet ./... && golangci-lint run ./... && go test ./...
+# ビルド・静的解析・テスト（全モジュール）と生成物の冪等性を一度に
+make ci
 
-# 生成物の冪等性（契約/SQL を変えたら再生成してコミット）
-go generate ./...
-
-# 分散構成の起動（DB スキーマ適用 → サービス起動）
-# migrate の psqldef 版を渡すため tools/versions.env を export してから compose を呼ぶ。
-set -a && . ./tools/versions.env && set +a && docker compose up --build
+# 分散構成の起動（DB スキーマ適用 → サービス起動。停止と後片付けは make down）
+make up
 ```
 
 新しいコンテキストの足し方は [add-a-use-case.md](./add-a-use-case.md) と、コンテキスト間の

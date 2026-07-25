@@ -65,7 +65,7 @@
   ドメイン層のテストで、ユースケースはインメモリアダプタを結線した統合テストで検証します。
 - 時刻に依存する処理（TTL / Reaper）は `application.Clock` を注入し、`shared/testutil` の
   擬似時計で決定的にテストします。
-- **domain + application は行カバレッジ >= 80%** を保ちます（`bash scripts/coverage-gate.sh`）。
+- **domain + application は行カバレッジ >= 80%** を保ちます（`make cover`）。
 
 ## クロスコンテキストに関わる場合
 
@@ -79,7 +79,9 @@
 ## 仕上げ
 
 ```sh
-go generate ./... && go build ./... && go vet ./... && golangci-lint run ./... && go test ./...
-bash scripts/coverage-gate.sh
-bash contracts/check-openapi-compat.sh   # 契約を変えたなら後方互換を確認
+make ci          # 生成の冪等性 → 整形 → vet → lint → ビルド → テスト(-race) → カバレッジ
+make contracts   # 契約を変えたなら後方互換も確認する
 ```
+
+どのパターンがどのファイルにあるかは [ddd-patterns.md](./ddd-patterns.md)、足した語を用語集へ
+反映するときは `contexts/<ctx>/GLOSSARY.md` を参照してください。

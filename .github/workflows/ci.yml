@@ -1,6 +1,11 @@
 # CI: ビルド・整形検査・静的解析・テスト・コード生成の冪等性、
 #     カバレッジゲート、そして契約ガバナンス（API / メッセージスキーマの後方互換）。
 #
+# 各ジョブは検査そのものを書かず、リポジトリルートの Makefile のターゲットを呼ぶだけである。
+# モジュール一覧の単一情報源は Makefile の MODULES 変数であり、モジュールを 1 つ足しても
+# このワークフローは 1 行も変わらない。ローカルで `make ci` を打てば ci ジョブと同じ検査一式が
+# そのまま再現される（手順が CI とローカルで drift しない）。
+#
 # セキュリティ方針:
 #   - permissions は最小権限（contents: read）。書き込み権限は付与しない。
 #   - シークレットは一切使わない。したがって fork からの PR でも安全に実行できる
@@ -42,9 +47,14 @@ jobs:
       - name: 版を読み込む（tools/versions.env → GITHUB_ENV）
         run: |
           set -euo pipefail
-          # 横断ツールの版は tools/versions.env を単一情報源として読み込む。golangci-lint-action
-          # の with: は bash 展開（${VAR}）が効かないため、GITHUB_ENV 経由で後続 step から
-          # ${{ env.GOLANGCI_LINT_VERSION }} として参照できるようにする（goimports も同様に流す）。
+          # 横断ツールの版は tools/versions.env を単一情報源として読み込む。以降の複数 step から
+          # シェル変数 $<KEY> や式コンテキストの env.<KEY> として参照できるよう GITHUB_ENV へ流し、
+          # ジョブ全体に効かせる（step ごとに versions.env を読み直さない = 参照経路を 1 本に保つ）。
+          #
+          # 注意: このファイル内では、コメントの中であっても GitHub の式記法（二重波括弧で囲んだ
+          # 部分）が先に解釈される（run: の本文も対象）。プレースホルダを含む不正な式を書くと
+          # ワークフロー全体が無効になり、ジョブが 1 つも起動しないまま「workflow file issue」で
+          # 失敗する。コメントに式記法をそのまま書かないこと。
           set -a && . ./tools/versions.env && set +a
           echo "GOLANGCI_LINT_VERSION=$GOLANGCI_LINT_VERSION" >> "$GITHUB_ENV"
           echo "GOIMPORTS_VERSION=$GOIMPORTS_VERSION" >> "$GITHUB_ENV"
@@ -52,111 +62,51 @@ jobs:
       - name: ツールをインストール（goimports）
         run: |
           set -euo pipefail
-          # ogen / sqlc は go.mod の tool ディレクティブで解決するため手動 install しない
-          # （go generate が `go tool` で呼ぶ）。golangci-lint は下の公式 action が導入する。
-          # ここで導入するのは整形チェック用の goimports のみ（版は versions.env 由来）。
+          # ogen / sqlc / mockgen は go.mod の tool ディレクティブで解決するため手動 install しない
+          # （go generate が `go tool` で呼ぶ）。ここで導入するのは整形チェック用の goimports のみ
+          # （版は versions.env 由来）。
           go install golang.org/x/tools/cmd/goimports@${GOIMPORTS_VERSION}
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
-      - name: コード生成の冪等性を検証
+      - name: ツールをインストール（golangci-lint）
         run: |
           set -euo pipefail
-          # 生成物はコミット済み。再生成して差分が出たら失敗させる。
-          (cd clients/inventory && go generate ./...)
-          (cd contexts/inventory && go generate ./...)
-          (cd contexts/ordering && go generate ./...)
-          # shared はエラー抽出テスト用のフィクスチャ契約（ogen）を生成する。
-          (cd shared && go generate ./...)
-          if ! git diff --exit-code; then
-            echo "::error::生成物が最新ではありません。各モジュールで 'go generate ./...' を実行してコミットしてください。"
-            exit 1
-          fi
+          # golangci-lint（depguard による層／seam の境界強制を含む）。版は tools/versions.env が
+          # 単一情報源。公式 action ではなく go install を使う理由は 2 つある。
+          #   1) action は本質的に「1 モジュール 1 呼び出し」の形であり、go.work のマルチモジュール
+          #      構成ではモジュール数だけ step が増える。検査の入口を Makefile へ寄せる方針
+          #      （モジュール一覧は MODULES 変数 1 箇所）と両立しない。
+          #   2) action の install-mode: goinstall は内部的にこれと同じ `go install` である。
+          #      golangci-lint は「ビルドに使った Go >= 対象モジュールの go ディレクティブ」を
+          #      要求するため、いずれにせよ CI の Go(1.26) でソースからビルドする必要がある
+          #      （配布バイナリでは go 1.26.0 のモジュールを lint できない）。
+          # 引き換えに失うのは action のキャッシュのみで、検査内容は同一である。
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: コード生成の冪等性を検証
+        # 生成物はコミット済み。再生成して差分が出たら失敗させる。
+        run: make generate-check
 
       - name: 整形検査（gofmt / goimports）
-        run: |
-          set -euo pipefail
-          if [ -n "$(gofmt -l shared clients contexts cmd)" ]; then
-            echo "::error::gofmt 未整形のファイルがあります:"; gofmt -l shared clients contexts cmd; exit 1
-          fi
-          if [ -n "$(goimports -l shared clients contexts cmd)" ]; then
-            echo "::error::goimports 未整形のファイルがあります:"; goimports -l shared clients contexts cmd; exit 1
-          fi
+        run: make fmt-check
 
       - name: go vet
-        run: |
-          set -euo pipefail
-          (cd shared && go vet ./...)
-          (cd clients/inventory && go vet ./...)
-          (cd contexts/inventory && go vet ./...)
-          (cd contexts/ordering && go vet ./...)
-          (cd cmd/dev && go vet ./...)
+        run: make vet
 
-      # golangci-lint（depguard による層／seam の境界強制を含む）。
-      # 版は tools/versions.env が単一情報源（上の「版を読み込む」step で GITHUB_ENV に流した
-      # ${{ env.GOLANGCI_LINT_VERSION }} を参照）。install-mode: goinstall で、その版をソースから
-      # CI の Go(1.26) でビルドして実行する。※ 既定の binary モードは配布済みバイナリを取得するが、
-      # golangci-lint は「ビルドに使った Go >= 対象モジュールの go ディレクティブ」を要求するため、
-      # 古い Go でビルドされた配布バイナリでは go 1.26.0 のモジュールを lint できない（版は据え置き、
-      # ビルドに使う Go だけを 1.26 にして解決する）。
-      # go.work のマルチモジュール構成では 1 モジュールずつ working-directory を指定し、
-      # 5 モジュール（shared / clients/inventory / contexts/inventory / contexts/ordering / cmd/dev）
-      # を漏れなく lint する（従来の 5 回実行と同等の網羅を保つ）。
-      - name: golangci-lint（shared）
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: ${{ env.GOLANGCI_LINT_VERSION }}
-          install-mode: goinstall
-          working-directory: shared
-
-      - name: golangci-lint（clients/inventory）
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: ${{ env.GOLANGCI_LINT_VERSION }}
-          install-mode: goinstall
-          working-directory: clients/inventory
-
-      - name: golangci-lint（contexts/inventory）
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: ${{ env.GOLANGCI_LINT_VERSION }}
-          install-mode: goinstall
-          working-directory: contexts/inventory
-
-      - name: golangci-lint（contexts/ordering）
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: ${{ env.GOLANGCI_LINT_VERSION }}
-          install-mode: goinstall
-          working-directory: contexts/ordering
-
-      - name: golangci-lint（cmd/dev）
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: ${{ env.GOLANGCI_LINT_VERSION }}
-          install-mode: goinstall
-          working-directory: cmd/dev
+      - name: golangci-lint
+        run: make lint
 
       - name: ビルド（統合タグのコンパイル検証を含む）
-        run: |
-          set -euo pipefail
-          (cd shared && go build ./...)
-          (cd clients/inventory && go build ./...)
-          # 通常ビルドに加え、統合テスト（build tag integration、DB 接続時のみ実行）が
-          # コンパイル可能であることを -run='^$' で検証する（DB 不要・テストは実行しない）。
-          (cd contexts/inventory && go build ./... && go test -tags=integration -run='^$' ./...)
-          (cd contexts/ordering && go build ./... && go test -tags=integration -run='^$' ./...)
-          (cd cmd/dev && go build ./...)
+        # 通常ビルドに加え、統合テスト（build tag integration、DB 接続時のみ実行）が
+        # コンパイル可能であることを -run='^$' で検証する（DB 不要・テストは実行しない）。
+        run: make build
 
       - name: テスト（-race）
-        run: |
-          set -euo pipefail
-          (cd shared && go test -race ./...)
-          (cd contexts/inventory && go test -race ./...)
-          (cd contexts/ordering && go test -race ./...)
-          (cd cmd/dev && go test -race ./...)
+        run: make test-race
 
       - name: カバレッジゲート（domain + application >= 80%／モジュール）
-        run: bash scripts/coverage-gate.sh
+        run: make cover
 
   # 契約ガバナンス: API / メッセージスキーマの後方互換ゲート。
   # コード変更とは独立した関心事なので別ジョブにする。
@@ -180,11 +130,8 @@ jobs:
           go install github.com/oasdiff/oasdiff@${OASDIFF_VERSION}
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
-      - name: OpenAPI 契約の後方互換（oasdiff、released ベースライン比較）
-        run: bash contracts/check-openapi-compat.sh
-
-      - name: メッセージ契約の後方互換（イベント／コマンドの JSON スキーマ）
-        run: bash contracts/events/check-compat.sh
+      - name: 契約の後方互換（OpenAPI = oasdiff / メッセージ = type・required の不変性）
+        run: make contracts
 
   # サプライチェーン: 依存関係の既知脆弱性スキャン（govulncheck）。
   # コード・契約とは独立した関心事なので別ジョブにする。脆弱性データベースは
@@ -209,10 +156,4 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: 既知脆弱性スキャン（govulncheck、全モジュール）
-        run: |
-          set -euo pipefail
-          (cd shared && govulncheck ./...)
-          (cd clients/inventory && govulncheck ./...)
-          (cd contexts/inventory && govulncheck ./...)
-          (cd contexts/ordering && govulncheck ./...)
-          (cd cmd/dev && govulncheck ./...)
+        run: make vuln
