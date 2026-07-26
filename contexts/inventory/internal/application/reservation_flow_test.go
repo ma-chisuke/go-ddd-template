@@ -10,7 +10,7 @@ import (
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/event"
 	"github.com/example/go-ddd-template/shared/uow"
 )
@@ -22,7 +22,7 @@ type reserveFixture struct {
 	confirmer   *application.Confirmer
 	releaser    *application.Releaser
 	viewer      *application.StockViewer
-	captured    *[]inventory.DomainEvent
+	captured    *[]domain.DomainEvent
 }
 
 func newReserveFixture(t *testing.T, work application.UnitOfWork, store *memory.Store) reserveFixture {
@@ -31,8 +31,8 @@ func newReserveFixture(t *testing.T, work application.UnitOfWork, store *memory.
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 	log := testLogger()
 
-	captured := &[]inventory.DomainEvent{}
-	dispatcher := event.NewTyped[inventory.DomainEvent](log, func(_ context.Context, e inventory.DomainEvent) {
+	captured := &[]domain.DomainEvent{}
+	dispatcher := event.NewTyped[domain.DomainEvent](log, func(_ context.Context, e domain.DomainEvent) {
 		*captured = append(*captured, e)
 	})
 
@@ -46,7 +46,7 @@ func newReserveFixture(t *testing.T, work application.UnitOfWork, store *memory.
 	}
 }
 
-func capturedNames(events []inventory.DomainEvent) map[string]int {
+func capturedNames(events []domain.DomainEvent) map[string]int {
 	m := make(map[string]int)
 	for _, e := range events {
 		m[e.EventName()]++
@@ -55,6 +55,8 @@ func capturedNames(events []inventory.DomainEvent) map[string]int {
 }
 
 func TestReserveConfirmRelease_MultiSKU(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	store := memory.NewStore()
 	work := memory.NewUnitOfWork(store, memory.NewStores())
@@ -106,6 +108,8 @@ func TestReserveConfirmRelease_MultiSKU(t *testing.T) {
 }
 
 func TestReserve_InsufficientStockIsAllOrNothing(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	store := memory.NewStore()
 	work := memory.NewUnitOfWork(store, memory.NewStores())
@@ -123,7 +127,7 @@ func TestReserve_InsufficientStockIsAllOrNothing(t *testing.T) {
 			{SKU: "SKU-B", Quantity: 7},
 		},
 	})
-	require.ErrorIs(t, err, inventory.ErrInsufficientStock)
+	require.ErrorIs(t, err, domain.ErrInsufficientStock)
 	viewA, _ := f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "SKU-A"})
 	assert.Equal(t, 10, viewA.Available, "部分予約が作られていない（available）")
 	assert.Equal(t, 0, viewA.Reserved, "部分予約が作られていない（reserved）")
@@ -131,15 +135,19 @@ func TestReserve_InsufficientStockIsAllOrNothing(t *testing.T) {
 }
 
 func TestConfirm_NotFound(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	store := memory.NewStore()
 	work := memory.NewUnitOfWork(store, memory.NewStores())
 	f := newReserveFixture(t, work, store)
 
-	require.ErrorIs(t, f.confirmer.Confirm(ctx, "UNKNOWN"), inventory.ErrReservationNotFound)
+	require.ErrorIs(t, f.confirmer.Confirm(ctx, "UNKNOWN"), domain.ErrReservationNotFound)
 }
 
 func TestRelease_UnknownRefIsIdempotent(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	store := memory.NewStore()
 	work := memory.NewUnitOfWork(store, memory.NewStores())
@@ -167,6 +175,8 @@ func (f *flakyUoW) Within(ctx context.Context, fn func(ctx context.Context, r ap
 }
 
 func TestReserve_RetriesOnConflictThenSucceeds(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	store := memory.NewStore()
 	inner := memory.NewUnitOfWork(store, memory.NewStores())
@@ -189,20 +199,22 @@ func TestReserve_RetriesOnConflictThenSucceeds(t *testing.T) {
 }
 
 func TestReserve_GivesUpAfterMaxAttempts(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	store := memory.NewStore()
 	inner := memory.NewUnitOfWork(store, memory.NewStores())
 	log := testLogger()
 
 	// まず非フレーキーな UoW で在庫を用意する。
-	seed := application.NewReplenisher(uow.NewExecutor(uow.WithBaseBackoff(0)), inner, event.NewTyped[inventory.DomainEvent](log), log)
+	seed := application.NewReplenisher(uow.NewExecutor(uow.WithBaseBackoff(0)), inner, event.NewTyped[domain.DomainEvent](log), log)
 	_, err := seed.Replenish(ctx, application.ReplenishInput{SKU: "SKU-A", Quantity: 10})
 	require.NoError(t, err, "補充")
 
 	// 衝突を注入し続ける UoW で、試行回数 1 回（再試行なし）にすると衝突が表面化する。
 	flaky := &flakyUoW{inner: inner, failsLeft: 5}
 	exec := uow.NewExecutor(uow.WithMaxAttempts(1), uow.WithBaseBackoff(0))
-	reserver := application.NewReserver(exec, flaky, event.NewTyped[inventory.DomainEvent](log), log, time.Hour)
+	reserver := application.NewReserver(exec, flaky, event.NewTyped[domain.DomainEvent](log), log, time.Hour)
 
 	err = reserver.Reserve(ctx, application.ReserveInput{
 		Ref:   "ORDER-1",

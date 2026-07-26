@@ -25,14 +25,14 @@ import (
 	// ディレクトリ名 http とパッケージ名 httpapi が異なるため、明示的に別名を付ける
 	// （パッケージ名を httpapi にしているのは、取り込み側で標準ライブラリ net/http と
 	// 識別子が衝突しないようにするため）。
-	httpapi "github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/http"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/httpapi"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/internalhttp"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/openapi"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/openapiinternal"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/postgres"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/contexts/inventory/port"
 	"github.com/example/go-ddd-template/shared/correlation/corrhttp"
 	"github.com/example/go-ddd-template/shared/event"
@@ -152,11 +152,11 @@ func assembleModule(
 	exec := uow.NewExecutor()
 	// ドメインイベントの配信機構は共有モジュールの型付きディスパッチャを直接使う。
 	// 型引数にこのコンテキストのドメインイベント型を綴ることで、共有された 1 実装が
-	// application.EventDispatcher ポート（inventory.DomainEvent で宣言されている）を
+	// application.EventDispatcher ポート（domain.DomainEvent で宣言されている）を
 	// そのまま満たす — アダプタは要らない。あえて per-context の委譲コンストラクタを
 	// 置かないのは、「機構は共有・型はコンテキスト固有」という設計が呼び出し側から
 	// 見えている状態を保つためである。
-	dispatcher := event.NewTyped[inventory.DomainEvent](log)
+	dispatcher := event.NewTyped[domain.DomainEvent](log)
 
 	replenisher := application.NewReplenisher(exec, work, dispatcher, log)
 	reserver := application.NewReserver(exec, work, dispatcher, log, ttl)
@@ -227,7 +227,7 @@ func (m *Module) InternalHTTPHandler() http.Handler {
 
 // Reserve は予約参照 ref に対して items をまとめて予約するシームのエントリポイント。
 // 翻訳済み DTO port.SKUQty を受け取り、内部ユースケースへ委譲する（在庫不足なら
-// inventory.ErrInsufficientStock、在庫項目が無ければ inventory.ErrStockItemNotFound）。
+// domain.ErrInsufficientStock、在庫項目が無ければ domain.ErrStockItemNotFound）。
 //
 // 分散構成では在庫の内部 HTTP（POST /reservations）越しに同じ処理へ到達する。同一プロセス
 // 結線（cmd/dev の in-process ACL）ではこのメソッドを直接呼ぶ。

@@ -3,23 +3,238 @@
 このテンプレートで一貫して守る Go とドメイン駆動設計の規約をまとめます。
 新しいコンテキストやユースケースを足すときは、この規約に沿ってください。
 
+**テストの名前・日本語の書き方・コメントの規約は
+[docs/testing-conventions.md](docs/testing-conventions.md) にあります**（この文書はテストの
+道具立て — testify / gomock / カバレッジ床 — だけを「テスト」節で扱います）。
+
+各ルールの末尾の【 】は**出典**です。〔Go〕は Go の公式・準公式文書または標準ライブラリの実測に
+裏づけがあるもの、〔家〕はこのプロジェクトのハウスルールです。機械強制されるものは
+「→ `<ツール名>`」で強制手段を書いてあります。**強制手段のないルールは人間のレビュー観点**です。
+
 ## パッケージ / ファイルの構成
+
+### 基本
 
 - **1 ディレクトリ 1 パッケージ**。
 - パッケージ名は**短く・小文字・単数形**。冗長な繰り返し（stutter）を避けます。
-  例: `inventory.SKU` とし、`inventory.InventorySKU` とはしません。
-- **1 ファイル 1 主要型**を基本とし、ファイル名は型名の snake_case にします。
-  例: `StockItem` → `stock_item.go`、`SKU` → `sku.go`。
+  例: `inventory.Module` とし、`inventory.InventoryModule` とはしません。
+- **層のパッケージは層の名前で命名**します（B-8）。`internal/domain` は `package domain`、
+  `internal/application` は `package application` です。
 - **生成ファイルは隔離**します。ogen は `internal/adapter/inbound/openapi/` に、
   sqlc は `internal/adapter/outbound/postgres/sqlcgen/` に出力し、**手で編集しません**。
 
+### B-1 ファイル名
+
+snake_case にし、**主要型名に対応させます**。例: `StockItem` → `stock_item.go`。
+
+### B-2 基準は「1 ファイル = 1 つの読み単位（凝集）」
+
+**行数の下限は設けません。** 短いファイルそのものを禁止しません。
+
+【Go: 「1 ファイル 1 型」は Go の慣習ではない — `net/url/url.go` は 1309 行に公開型 6 個、
+`time/time.go` は 4 個、`net/http/server.go` は 9 個。かつ標準ライブラリの 4505 ファイルのうち
+**26.8%（1207 件）が 40 行未満**である（build tag 付き 673 / `doc.go`・`generate.go` 42 /
+生成物 36 / それ以外 456）】
+
+> **以前の版では「1 ファイル 1 主要型を基本とし」と書いていましたが、凝集ベースに改めました。**
+> 集約・エンティティは 1 型 1 ファイルを維持しますが、**相互に依存して常に一緒に読む小さな型**
+> （値オブジェクト群）は束ねます。
+
+### B-3 束ね方は次の 3 則で決める
+
+結果が入力から**一意に決まる**ようにしてあります。美意識ではなく規則が決めます。
+
+1. **型はそれが属する概念のファイルに置く** — **技術的な種類**（識別子・値オブジェクト）で
+   まとめません。`OrderID` は注文の一部なので `order.go` へ、`SKU` は明細が指す商品なので
+   `order_line.go` へ置きます
+2. **それ以外の小さな型は、それを最も使う型のファイルに同居させる** —
+   明細の数量は明細と、集約の状態機械は集約と同じファイルへ
+3. **40 行以上ある型は単独ファイルのままでよい** — 束ねる圧力は「無駄に小さいファイル」にだけかかる
+
+> **以前の版の則 1 は「識別子は族でまとめる（`identifiers.go` に集める）」でしたが、撤回しました。**
+> `identifiers.go` は「文字列を包む識別子型」という**技術的な種類**による容れ物であり、
+> B-4 が禁じる `value_objects.go` と同じ species だったからです。B-2 の基準は
+> 「1 ファイル = 1 つの読み単位（凝集）」であって「似ている型を集める」ではありません
+> — `OrderID` を読むのは `Order` を触っているときであって、`CustomerID` や
+> `ReservationRef` と読み比べるときではありません。再発は検査 4 の禁止語幹
+> （`identifiers` を追加済み）が機械的に止めます。
+
+この 3 則の帰結として、注文の `Quantity`（28 行）は `order_line.go` に束ねられ、
+在庫の `Quantity`（55 行）は `quantity.go` に残ります。**同じ規則に異なる入力を通した結果**です
+（どちらも `package domain` の型で、属する境界だけが違います。B-8）。
+
+### B-4 カタログ的なファイル名を禁止する
+
+`value_objects.go` / `types.go` / `models.go` / `utils.go` / `helpers.go` / `common.go` / `misc.go` /
+`identifiers.go` は使いません。ファイル名は中身の**概念を名指し**します。`*_test.go` 版も同じく禁止です。
+（`identifiers.go` は B-3 則 1 の撤回に伴って追加しました — 「文字列を包む識別子型」は
+**技術的な種類**であって概念ではなく、`value_objects.go` と同じ誤りです。）
+→ `scripts/convention-gate.sh`（検査 4。生成物は除外 — sqlc の `models.go` のように
+ツールが名前を決めるものは改名できないため）
+
+【家 — A-8 の同じ理由（意味のない容れ物を作らない）をファイル粒度に適用したもの】
+
+### B-5 特別なファイル名の役割
+
+| ファイル名 | 役割 |
+| --- | --- |
+| `doc.go` | package doc のみ |
+| `errors.go` | 番兵と検証規則 |
+| `generate.go` | `//go:generate` のみ |
+| `<subject>_test.go` | 通常のテスト |
+| `*_internal_test.go` | 内部テスト（`package <pkg>`） |
+| `export_test.go` | 内部シンボルを外部テストパッケージへ橋渡しする薄い別名だけ |
+| `*_integration_test.go` | `//go:build integration` |
+| `*_property_test.go` | 性質テスト |
+| `*_fuzz_test.go` | fuzz ターゲット |
+
+### B-6 ファイル内の並び順
+
+package doc → import → 定数 → 型 → コンストラクタ → 公開メソッド → 非公開メソッド → ヘルパー。【家】
+
+### B-7 上限の目安（機械強制しない）
+
+1 パッケージ 12 ファイル / 1 ファイル 400 行。超えたらサブパッケージ化かファイルの束ね直しを検討します。【家】
+
+> なお `scripts/convention-gate.sh` の検査 7 は「公開型 1 個だけを含む 40 行未満のファイルが
+> 同一パッケージに 3 つ以上」を **warn** で報告します。B-2（短いファイルを禁止しない）と矛盾しません
+> — 前者は「短いファイルの乱立」を人間の判断に委ねて警告するだけで、fail にはしません。
+
+> **ドメイン層にはこの逃げ道がありません。** B-8 がサブパッケージ化を禁じるので、
+> ドメインパッケージが膨らんだときの手は**ファイルの束ね直し**（B-3）だけです。
+> それでも 12 ファイルに収まらないなら、疑うべきはファイル分割ではなく**境界の引き方**です
+> — 1 つの境界づけられたコンテキストに 2 つのモデルが同居している可能性があります
+> （`docs/why-these-boundaries.md`）。
+
+### B-8 層のパッケージは層の名前で命名する
+
+パッケージ名は**中身ではなく層**で決めます。`internal/domain` は `package domain`、
+`internal/application` は `package application` です。`internal/domain/order`（`package order`）の
+ように中身で名づけると、同じ 4 層のうち application だけが層で・domain だけが中身で命名される
+**非対称**になります。
+
+**1 コンテキストにドメインパッケージは 1 つ**とし、サブパッケージには割りません。
+集約・値オブジェクト・ドメインイベントは 1 つのモデルとして相互に参照し合うので、割れば
+**相互 import**（Go では循環 import になり、そもそもコンパイルが通らない）か、
+それを避けるための不自然な型の押し出しかのどちらかを強いられます。**ひとつのモデルは
+ひとつのパッケージ**です。型が増えたら**ファイル**を足します（束ね方は B-3 が決めます）。
+→ `scripts/convention-gate.sh`（検査 9）
+
+呼び出し側にこの命名が現れることで、**依存の向きがコードを読むだけで見える**という副産物も
+あります。`domain.NewOrder(...)` / `domain.StockItem` の `domain.` は「外側から内側を呼んでいる」
+という印であり、逆向き（ドメインから `application.` や `httpapi.`）は depguard の
+`domain-purity` が禁じています。
+
+**名前の衝突も同時に消えます。** 従来は公開ファサード `contexts/inventory/inventory.go`
+（`package inventory`）とドメイン（`package inventory`）が同名で、ファサードの中に書かれた
+`inventory.StockItem` が「自分自身」ではなく「import したドメイン」を指す、という罠がありました。
+
+【家 — この 1 階層は子が常に 1 つだけの素通しディレクトリでした。他の階層
+（`adapter` 2 / `inbound` 2〜4 / `outbound` 2〜4）は実際に複数を束ねているので畳みません】
+
 ## 命名
 
+### Go 由来（強制）
+
+- **A-1** 変数名の長さは**スコープの長さに比例**させます。1〜3 行のスコープなら `i` `s` `o` でよく、
+  パッケージ横断なら説明的にします。【Go: Go Code Review Comments "Variable Names"】
+- **A-2** レシーバ名は 1〜2 文字で、**同じ型の全メソッドで一貫**させます。`this` / `self` は使いません。
+  【Go: Go Code Review Comments "Receiver Names"】→ `revive receiver-naming`
+- **A-3** getter に **`Get` を付けません**（`o.Status()`。`o.GetStatus()` とはしません）。
+  生成コード（ogen の `GetName()` 等）は例外です。
+  【Go: Effective Go「Getters」（「it's neither idiomatic nor necessary to put `Get` into the
+  getter's name」）+ Google Go Style Guide（「should not use a Get or get prefix」）】
+- **A-4** インタフェースは能力を表す **`-er`**（`StockReserver` / `EventPublisher`）。1 メソッドを優先します。
+  【Go: Effective Go "Interface names"】
+- **A-5** 予期される失敗は **`Err<Reason>`** センチネルにし、ラップは **`%w`** で行います。
+  【Go: 標準ライブラリ `io.EOF` / `os.ErrNotExist`、`errors.Is`】
+- **A-6** エラー文言は**大文字始まりにせず、句読点で終えません**。
+  【Go: Go Code Review Comments "Error Strings"】→ `stylecheck` ST1005
+  （**日本語の文言は誤検出されません** — 実測: 「在庫が不足しています。」「…は必須です」は無指摘、
+  英語の `"Stock is insufficient."` のみ指摘）
+- **A-7** **パッケージ名 = ディレクトリ名**。標準ライブラリと名前が衝突する場合は
+  **ディレクトリ名を変えます**（`http/` に `package httpapi` を置くのではなく `httpapi/` にします）。
+  **import 別名で回避しません**（→ I-8）。
+  【Go: Effective Go "Package names"、Go Blog "Package names"】→ `scripts/convention-gate.sh`（検査 5）
+- **A-8** `util` / `common` / `misc` / `helpers` のような**ゴミ箱パッケージを作りません**。
+  【Go: Go Blog "Package names"】
+- **A-9** 頭字語は**一貫した大小**にします（`URL` か `url`。`Url` にしません。`ServeHTTP` であって
+  `ServeHttp` ではありません）。【Go: Go Code Review Comments "Initialisms"】
+- **A-9b** **MixedCaps / mixedCaps を使い、下線で複数語をつなげません。** これは**定数にも及びます** —
+  非公開定数は `maxLength` であって `MaxLength` でも `MAX_LENGTH` でもありません（他言語の慣習を
+  破ってよい）。【Go: Effective Go「MixedCaps」、Go Code Review Comments "Mixed Caps"】
+  **テスト関数名は別規則** → [docs/testing-conventions.md](docs/testing-conventions.md) の C-2
+- **A-10** コンストラクタは **`New<Type>(...) (Type, error)`** の形にします。
+  検証を伴う値オブジェクトや集約は、不正値を弾いてから返します。【Go: 標準ライブラリの慣習】
 - 型・エクスポートされる識別子は **PascalCase**、非公開は **camelCase**。
-- **頭字語は全て大文字**にします。例: `OrderID`, `SKU`, `HTTP`, `URL`。
-  `OrderId` や `Sku` とはしません（ただし外部の生成コードの命名はそのツールに従います）。
-- コンストラクタは **`New<Type>(...) (Type, error)`** の形にします。
-  検証を伴う値オブジェクトや集約は、不正値を弾いてから返します。
+
+### ハウスルール（推奨・非強制）
+
+- **A-11** 述語（bool を返す関数・フィールド）は**真であることが読める名前**にします
+  （`IsZero` / `HasPrefix` / `CanCancel`）。**否定形の名前を避けます**（`notFound` ではなく `found`）。【家】
+- **A-12** スライスは複数形、map は **`<値>By<キー>`**（`eventsByName`）。【家】
+- **A-13** 変換関数は役割で使い分けます: **`Parse<T>`**（文字列 → 値、`error` を返す）/
+  **`To<T>`**（値 → 値、失敗しない）/ **`As<T>`**（ポインタ経由の取り出し）/
+  **`Must<T>`**（失敗時に panic。**テストと初期化のみ**）。
+  【Go: 標準ライブラリ `strconv.ParseInt` / `strings.ToUpper` / `errors.As` / `template.Must` に倣う】
+- **A-14** 略語はドメイン用語（`SKU` / `qty`）と Go 慣習（`ctx` / `err` / `req` / `res` / `cfg`）のみ
+  許可し、**独自の省略**（`inv` / `ordr` / `mgr`）は作りません。【家】
+- **A-15** 定訳を固定します: `ctx context.Context` / `err error` / `tx` / `repos`（UoW のリポジトリ束）/
+  テストの期待値と実測値は **`want` / `got`**。【家、`want`/`got` は Go: Go Wiki "TableDrivenTests"】
+
+## Go 由来の実装作法
+
+命名以外の Go 由来の作法です。**いずれも出典があります**が、**この節は機械強制していません**
+（I-2 のみ既に `errcheck` で強制されています）。人間のレビュー観点として読んでください。
+
+- **I-1 Indent Error Flow** — 正常経路を最小インデントに保ちます。エラーを先に処理して
+  `return` / `continue` し、`else` に正常経路を入れません。【Go: Go Code Review Comments "Indent Error Flow"】
+- **I-2 Handle Errors** — エラーを `_` で捨てません。検査し、処理し、返し、または
+  （真に例外的な場合のみ）panic します。【Go: 同 "Handle Errors"】→ `errcheck`
+- **I-3 In-Band Errors** — `-1` や `""` のような帯域内エラー値を返さず、`(value, ok)` または
+  `(value, error)` を返します。【Go: 同 "In-Band Errors"】
+- **I-4 空スライスの宣言** — `var s []T`（nil スライス）を既定にし、`[]T{}` は
+  「非 nil であること」に意味があるときだけ使います。【Go: 同 "Declaring Empty Slices"】
+- **I-5 Named Result Parameters / Naked Returns** — naked return を使うためだけに結果に名前を
+  付けません。naked return は短い関数に限ります。【Go: 同 "Named Result Parameters" / "Naked Returns"】
+- **I-6 インタフェースは使う側で定義する** — インタフェースは**その値を使うパッケージ**に置き、
+  実装側に「モックのために」置きません。関数は具体型を返します。【Go: 同 "Interfaces"】
+  **このテンプレートの「ポートは application 層に置き、アダプタが実装する」は、この Go の作法と
+  そのまま一致します**（DDD の依存性逆転と Go の慣習が同じ結論に着く点は覚えておく価値があります）。
+- **I-7 ゼロ値を有用にする** — 型のゼロ値がそのまま使える設計を優先します
+  （`bytes.Buffer` の「ゼロ値は使用可能な空のバッファ」、`sync.Mutex` にコンストラクタがないこと）。
+  【Go: Effective Go の "Data > Allocation with `new`" 節】
+  このテンプレートでは `Quantity{}` が数量 0 として機能している例がこれに当たります。
+- **I-8 import の別名は名前衝突の回避に限る** — それ以外の目的で import をリネームしません。
+  【Go: Go Code Review Comments "Imports"】**このルールが `http/` ではなく `httpapi/` という
+  ディレクトリ名を支持します**（別名で回避するのではなく、衝突しない名前を最初から与える）。
+- **I-9 doc コメントの網羅** — 公開されている全てのトップレベル名と、非自明な非公開の型・関数宣言に
+  doc コメントを付けます。【Go: 同 "Doc Comments"】
+- **I-10 レシーバ型** — 迷ったらポインタレシーバ。小さく不変な struct や基本型は値レシーバ。
+  【Go: 同 "Receiver Type"】
+- **I-11 Pass Values** — 「バイトを節約するため」だけの理由でポインタを渡しません。【Go: 同 "Pass Values"】
+- **I-12 panic しない** — 通常のエラー処理に panic を使わず、`error` と多値返却を使います。
+  【Go: 同 "Don't Panic"、Effective Go】（A-5 と対をなします）
+
+> **なぜ機械強制しないのか**: `revive` の `indent-error-flow` / `early-return` で I-1 の一部は
+> 強制できますが、**既存コードへの影響範囲が未計測**であり、影響を測らずに fail を増やすと
+> 是正作業が発散します。機械強制は次の改善候補として記録してあります。
+
+## 言語ポリシー
+
+- **F-1 日本語**: doc コメント・行コメント・エラー文言・ログメッセージ・`t.Run` 名・ドキュメント
+- **F-2 ASCII**: 識別子・パッケージ名・ファイル名・テスト関数名の修飾部・ログの属性キー・
+  イベント名（`ordering.order_placed`）・DB 識別子・contracts の記述子
+- **F-3** 日本語と英数の間に**半角スペース 1 つ**を入れます。
+  → `scripts/convention-gate.sh`（検査 6）
+
+  これは **JTF 日本語標準スタイルガイド 3.1.1（全角と半角の間に空白を入れない）とは意図的に
+  異なる**選択です。根拠: この `CONVENTIONS.md` を
+  `grep -o '[ぁ-んァ-ヶ一-龠] [A-Za-z0-9]'`（空白あり）と
+  `grep -o '[ぁ-んァ-ヶ一-龠][A-Za-z0-9]'`（空白なし）で数えると **178 箇所 / 0 箇所**でした。
+  **textlint 系ツールは既定で逆を指摘します**（実測: エディタの textlint 拡張が
+  `jtf-style/3.1.1` を severity Error で報告した）。明記しないと**ツール既定で 178 箇所が
+  一括反転されうる**ので、規約に固定して機械検査で守ります。【家】
 
 ## エラー
 
@@ -38,10 +253,10 @@
 
 | # | 経路 | 発火点 | 実装 |
 | --- | --- | --- | --- |
-| E1 | リクエストのデコード／契約検証 | ogen `ErrorHandler` | `internal/adapter/inbound/http/problem.go` |
+| E1 | リクエストのデコード／契約検証 | ogen `ErrorHandler` | `internal/adapter/inbound/httpapi/problem.go` |
 | E2 | ルーティング不一致（未定義パス） | ogen `NotFound` | 同上 |
 | E3 | メソッド不許可 | ogen `MethodNotAllowed` | 同上 |
-| E4 | ハンドラ戻り値のエラー | 生成された `NewError` | `internal/adapter/inbound/http/errmap.go` |
+| E4 | ハンドラ戻り値のエラー | 生成された `NewError` | `internal/adapter/inbound/httpapi/errmap.go` |
 
 E1〜E3 は **`Handler.ServerOptions()` を `NewServer` に渡すことで注入**します。渡し忘れると
 ogen の既定ハンドラが `{"error_message": "operation placeOrder: decode request: ..."}` を返し、
@@ -66,7 +281,7 @@ ogen の既定ハンドラが `{"error_message": "operation placeOrder: decode r
 | inventory（公開） | `getStock` | 400, 404, 422 |
 
 `getOrder` / `cancelOrder` の 422 は、パスパラメータ `id` がドメイン検証
-（`order.NewOrderID` → `ErrInvalidOrderID`）を通るため実際に返りうります。415（メディアタイプ
+（`domain.NewOrderID` → `ErrInvalidOrderID`）を通るため実際に返りうります。415（メディアタイプ
 非対応）と、経路レベルの 404（未定義パス）/ 405（メソッド不許可）は E1〜E3 のトランスポート層
 （`ServerOption` ハンドラ）が生成するもので、オペレーション単位では宣言できません（同じ
 `ProblemDetails` 形状は共有します）。
@@ -108,18 +323,18 @@ ACL はコード別分岐を必要としないので、明示コードは利益�
 | `service-unavailable` | 503 | 依存サービス不達（注文コンテキストのみ） |
 | `internal-error` | 500 | 予期しないエラー |
 
-台帳の実体は `shared/problem/types.go` です。`title` は種別と **1 対 1** で対応させ、
+台帳の実体は `shared/problem/type_uri.go` です。`title` は種別と **1 対 1** で対応させ、
 `title` から `type` を逆引きできる状態を保ちます（404 が 2 つ、409 が 2 つあるので、
 HTTP の理由句をそのまま使うと逆引きできなくなります）。
 
 **利用者による差し替え手順**: URI の名前空間は各コンテキストの
-`internal/adapter/inbound/http/problem.go`（内部 API は `internalhttp/problem.go`）にある
+`internal/adapter/inbound/httpapi/problem.go`（内部 API は `internalhttp/problem.go`）にある
 **`problemTypeBase` 定数 1 箇所**です。自分の名前空間へ書き換えてください。URI は識別子
 であり、解決可能な文書ページを公開する必要はありません。
 
 ### `detail` に何を書いてよいか
 
-`detail` は**経路ごとの定型文**です（`shared/problem/types.go` の `Detail*` 定数）。
+`detail` は**経路ごとの定型文**です（`shared/problem/type_uri.go` の `Detail*` 定数）。
 次のものを応答本文に含めてはいけません。
 
 - `err.Error()` の結果をそのまま載せること
@@ -205,7 +420,7 @@ CI が落ちます（規則 R-19）。
 対して `type` は `code` と違い OpenAPI の `enum` にしていません（素の `format: uri` のまま）。
 ogen v1.23.0 は `enum` + `format: uri` の組み合わせで壊れた Go（`url.URL` を基底にした型に
 文字列定数を代入し、JSON 生成も失敗）を出すためです。したがって `type` の機械可読な台帳は
-OpenAPI の `enum` ではなく `shared/problem/types.go`（サフィックス台帳）であり、
+OpenAPI の `enum` ではなく `shared/problem/type_uri.go`（サフィックス台帳）であり、
 `problemTypeBase` を書き換えても契約側の更新は不要です。
 
 ### 検証規則は `Rule` に 1 つだけ書く
@@ -215,7 +430,7 @@ OpenAPI の `enum` ではなく `shared/problem/types.go`（サフィックス�
 規則を 1 つ足すだけで 4 箇所を編集する羽目になります。
 
 ```go
-// internal/domain/order/errors.go
+// internal/domain/errors.go
 var (
     VQuantity      = Rule{Field: "quantity", Code: "invalid_quantity",       Err: ErrInvalidQuantity}
     VMoneyAmount   = Rule{Field: "amount",   Code: "invalid_money_amount",   Err: ErrInvalidMoney}
@@ -403,7 +618,7 @@ for i, l := range lines {
 
 - `event.go` が**型なしのコア**（`Event` / `Handler` / `Dispatcher` / `InProcess`）、`typed.go` が
   各コンテキストのドメインイベント型で使う**型付きファサード**（`Occurred` / `Sink[E]` /
-  `TypedHandler[E]` / `Typed[E]`）です。合成ルートは `event.NewTyped[order.DomainEvent](log)` の
+  `TypedHandler[E]` / `Typed[E]`）です。合成ルートは `event.NewTyped[domain.DomainEvent](log)` の
   ように型引数を綴って直接生成します。
 - **ドメイン層はこのパッケージを import しません**。各コンテキストは自分の `DomainEvent` を
   独自に定義し、それが `EventName() string` と `OccurredAt() time.Time` を持つことで
@@ -549,6 +764,11 @@ for i, l := range lines {
 
 ## テスト
 
+> **テストの名前・日本語の書き方・コメントの規約は
+> [docs/testing-conventions.md](docs/testing-conventions.md) にあります**（テスト関数名の 2 形、
+> `t.Run` の 8 語語彙、`t.Parallel()` の適用範囲、日本語コメントの書き方）。
+> この節は**道具立て**だけを扱います。
+
 - テストランナーは標準の `testing`。アサーションは **testify**（`require` は前提が崩れたら
   即中断する致命的検証、`assert` は独立した検証を続行）で書きます。
 - **ポート相互作用の検証には uber-go/mock（gomock）** を使います。application 層のポート
@@ -582,6 +802,96 @@ for i, l := range lines {
   グロブの誤りで **rule が黙って何も検査していない**状態を検出できません（ツリーに違反が
   無ければ green は自動的に通ります）。
 - 生成コード以外は原則コメント付きで、意図が読み取れるようにします。
+
+### 機械強制の一覧（fail / warn の線）
+
+`make lint`（golangci-lint）と `make conventions`（`scripts/convention-gate.sh`）の 2 つが
+規約を強制します。両方とも `make ci` に含まれ、CI も同じターゲットを呼びます。
+
+| # | 検査 | 実装 | 重大度 |
+| --- | --- | --- | --- |
+| 1 | 命名（下線・頭字語・レシーバ一貫性） | `revive`（var-naming / receiver-naming）**のみ** | **fail** |
+| 2 | エラー文言（大文字始まり・句読点終わり） | `stylecheck` ST1005 | **fail** |
+| 3 | doc コメントの句点 | `godot`（scope: declarations） | **fail** |
+| 4 | 外部テストパッケージ | `testpackage`（既定 skip-regexp が `export_test.go` と `*_internal_test.go` を除外） | **fail** |
+| 5 | ヘルパーの `t.Helper()` | `thelper` | **fail** |
+| 5b | testify の落とし穴（引数順 `(want, got)` の取り違え、`Error` と `ErrorIs` の混同など） | `testifylint` | **fail** |
+| 6 | `t.Parallel()`（domain・application のみ） | `paralleltest`（**パス限定**）+ `tparallel`（全体、誤用検出） | **fail** |
+| 7 | 層・seam の境界 | `depguard`（7 rule） | **fail** |
+| 8 | テスト関数名の主題の一意性（C-1b） | `scripts/convention-gate.sh` 検査 1 | **fail** |
+| 9 | `t.Run` の 8 語語彙 | `scripts/convention-gate.sh` 検査 2 | **fail** |
+| 10 | `t.Run` 名の `/` 不在 | `scripts/convention-gate.sh` 検査 3 | **fail** |
+| 11 | テーブル駆動の `name` フィールドの 8 語語彙と `/` 不在（D-6） | `scripts/convention-gate.sh` 検査 2' / 3' | **fail** |
+| 11b | `*_test.go` の複合リテラルを位置指定で書かない（D-6。#11 の**視界**を担保する） | `scripts/convention-gate.sh` 検査 8 | **fail** |
+| 12 | カタログ的ファイル名の不在（B-4） | `scripts/convention-gate.sh` 検査 4 | **fail** |
+| 13 | package 名 = ディレクトリ名（A-7） | `scripts/convention-gate.sh` 検査 5 | **fail** |
+| 13b | ドメインパッケージの単一性（B-8。#13 と対で「層の名前で 1 つ」を成す） | `scripts/convention-gate.sh` 検査 9 | **fail** |
+| 14 | 規約系 Markdown の半角スペース境界（F-3） | `scripts/convention-gate.sh` 検査 6 | **fail** |
+| 15 | ファイル凝集（公開型 1 個のみを含む 40 行未満のファイルが同一パッケージに 3 つ以上） | `scripts/convention-gate.sh` 検査 7 | **warn** |
+| 16 | CI 時間 | **計測して記録するだけ** | なし |
+
+**ST1003 は追加していません** — `revive` の `var-naming` と重複して二重報告になるためです
+（役割は 1 つの linter に寄せます）。
+
+凝集（#15）を warn に留めるのは、経験則であって機械的に 0 にできる指標ではないからです
+（標準ライブラリにも build tag 以外の 40 行未満が 456 件あります）。判断を人間に委ねます。
+
+CI 時間（#16）に**閾値は置きません**。根拠のない閾値は CI マシンの性能変動で偽陽性になるためです。
+
+### G-1 追加した rule は必ずカナリア検証する
+
+違反を注入して当該 rule が報告することを確認し、**注入した違反がその linter に到達したことまで
+確かめて**から revert します。別のエラー（import cycle・コンパイルエラー・先に走る linter）に
+飲まれると**偽陰性**になり、rule が正しいのか不発なのか区別できません。
+
+### G-2 warn 側も対で検証する
+
+凝集違反を注入したとき「**warn として報告される（正）**」と「**終了コードは 0 のまま fail しない（負）**」を
+**1 回の観測で同時に**満たすことを確認します。報告だけを見ると warn 規則が死んでいる場合と区別できず、
+終了コードだけを見ると warn のつもりが fail になっている場合と区別できません。
+
+同じ考え方を**除外ロジック**にも適用します。検査 6（F-3）は「本文の 1 件は報告され（正）、
+コードフェンス内の同じ文字列は報告されない（負）」を 1 回の観測で満たすことで、
+除外が広すぎ／狭すぎのどちらでもないことを示します。
+
+## 意図的な逸脱の記録
+
+規約が Go の一次資料と食い違う箇所は**隠さず、理由と緩和策を書きます**。書かないと、後から読んだ人
+（や AI）が「Go の作法に反している」と判断して勝手に戻してしまいます。
+
+### アサーション・ライブラリ（testify）を使う
+
+**Go の指針**: Go Wiki TestComments は「Avoid the use of 'assert' libraries to help your tests.」と
+明確に避けるよう勧めています。理由は (a) テストを早期に終了させ、何が正しかったかの情報を落とす
+(b) Go 自体を使う代わりにミニ言語を作る。代替として `cmp.Diff` を推奨しています。
+
+**このテンプレートの選択**: **testify を使います**（`require` / `assert`）。
+
+**理由と緩和策**:
+
+- Go の懸念 (a) には、**既存の使い分け規約がすでに答えています** — 「`require` は前提が崩れたら
+  即中断する致命的検証、`assert` は独立した検証を続行」。つまり「早期終了で情報が落ちる」ケースを
+  `require` に限定し、独立に検証できるものは `assert` で全件報告させる運用になっています
+- Go の懸念 (b) には、**`testifylint` を CI の fail 対象に入れる**ことで、ミニ言語の落とし穴
+  （引数順の取り違え、`Error` と `ErrorIs` の混同など）を機械的に塞ぎます
+- `cmp.Diff` は採りません（既存の約 50 テストファイルの書き換えは別の作業。将来の候補として記録）
+- **失敗メッセージの実質**（実測値と期待値の両方を示し、対象関数と入力を明示する）は Go の要求どおり
+  満たします → [docs/testing-conventions.md](docs/testing-conventions.md) の C-4c
+
+### 日本語と英数の間に半角スペースを入れる
+
+**Go とは無関係ですが同じ構図です**: JTF 日本語標準スタイルガイド 3.1.1 は「全角文字と半角文字の
+間にスペースを入れない」と定めており、textlint 系ツールは既定でそれを指摘します。
+このテンプレートは**入れます**（既存 178 箇所 / 逆 0 箇所の実測に基づく）→ F-3。
+`scripts/convention-gate.sh` の fail 対象にして、ツール既定による一括反転を止めます。
+
+### テスト関数名に下線を使う
+
+**逸脱ではありません**（一次資料に許可があります）。A-9b は下線を禁じますが、
+Google Go Style Guide が「Function names may include underscores in test files
+(e.g., `TestFunctionName_SubCase`)」と明記しており、標準ライブラリにも 151 件（uniq 144）の実例が
+あります。**したがってテスト関数名の下線は例外規定ではなく、Go が認めた別の規則です**
+（「例外」と書くと逸脱に見えてしまうため、この言い方を選んでいます）。
 
 ## 版管理（ツールのバージョン固定）
 

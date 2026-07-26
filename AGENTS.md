@@ -47,6 +47,19 @@
    イメージに焼き込みません。実行時に環境変数 / シークレットマネージャから注入します
    （`docker-compose.yml` の認証情報はすべて**デモ専用**であることを明記済み）。入力は
    境界（HTTP ハンドラ・契約）で検証します。
+9. **サブテスト名を 8 語の閉じた語彙で始める。** `t.Run` の名前とテーブル駆動の `name`
+   フィールドは `正常系` `異常系` `境界` `冪等` `並行` `契約` `回帰` `性質` のいずれか +
+   半角コロン + 半角スペースで始め、`/` を含めません（`go test -run` の階層区切りに
+   なるためです）。テーブル駆動のケース名は**必ず `name` フィールド**として持ちます
+   （位置指定の第 1 要素にしない — 機械検査から見えなくなります）。
+10. **規約は 2 文書に分かれている。** 識別子・ファイル・パッケージ・言語ポリシーは
+    [CONVENTIONS.md](CONVENTIONS.md)（「命名」＝ A 群、「パッケージ / ファイルの構成」＝ B 群、
+    「言語ポリシー」＝ F 群、「整形・静的解析」の「機械強制の一覧」＝ G 群）、テスト関数名・
+    サブテスト名・テストの日本語コメントは
+    [docs/testing-conventions.md](docs/testing-conventions.md)（C 群 / D 群 / E 群）にあります。
+    どちらも `make lint`（golangci-lint）と `make conventions`
+    （`scripts/convention-gate.sh`）が機械的に強制し、両方とも `make ci` に含まれます。
+    **規約を足したら強制手段も足す**（規約だけ書いて守られない状態を作らない）。
 
 ## どこに何を書くか
 
@@ -55,14 +68,14 @@
 
 | 関心事 | 置き場所 |
 | --- | --- |
-| 集約・値オブジェクト・不変条件・ドメインイベント・ドメインサービス | `internal/domain/<ctx>/`（在庫は `inventory`、注文は `order`）。集約ルートと不変条件の要約は同ディレクトリの `doc.go`（package コメントは `stylecheck` の ST1000 で必須化されている） |
+| 集約・値オブジェクト・不変条件・ドメインイベント・ドメインサービス | `internal/domain/`（`package domain`。1 コンテキストに 1 つで、サブパッケージへは割らない）。集約ルートと不変条件の要約は同ディレクトリの `doc.go`（package コメントは `stylecheck` の ST1000 で必須化されている） |
 | **その境界のユビキタス言語**（語 → 業務上の意味 → Go 型 → 定義ファイル） | `contexts/<ctx>/GLOSSARY.md`。ドメインに公開型を足したらここにも 1 行足す（`docs/glossary.md` は索引と、境界を跨いで同名の語の対比だけを持つ） |
 | **DDD パターン → 実装位置の索引**（「集約はどこ？ ACL は？」に答える表） | `docs/ddd-patterns.md`（「新しいものをどう足すか」は `docs/add-a-use-case.md`、境界を割った理由は `docs/why-these-boundaries.md`） |
 | ユースケース、ポート（interface）、サブスクライバ、Reaper | `internal/application/` |
 | ポートの実装（DB・インメモリ）＝出口アダプタ | `internal/adapter/outbound/`（`memory` / `postgres`）。構造化ログは `shared/logging`、no-op Publisher は `shared/outbox/logpub` |
-| 公開 HTTP ハンドラ・エラー変換＝入口アダプタ（相関 ID ミドルウェアは共有の `shared/correlation/corrhttp`） | `internal/adapter/inbound/http/`（パッケージ `httpapi`） |
-| ハンドラ戻り値のエラー → HTTP（E4） | `internal/adapter/inbound/http/errmap.go`（`NewError` / `classify`） |
-| デコード失敗・未定義パス・メソッド不許可（E1〜E3）と `type` URI・`code` → `reason` 表 | `internal/adapter/inbound/http/problem.go` |
+| 公開 HTTP ハンドラ・エラー変換＝入口アダプタ（相関 ID ミドルウェアは共有の `shared/correlation/corrhttp`） | `internal/adapter/inbound/httpapi/` |
+| ハンドラ戻り値のエラー → HTTP（E4） | `internal/adapter/inbound/httpapi/errmap.go`（`NewError` / `classify`） |
+| デコード失敗・未定義パス・メソッド不許可（E1〜E3）と `type` URI・`code` → `reason` 表 | `internal/adapter/inbound/httpapi/problem.go` |
 | ogen 生成の HTTP サーバ | `internal/adapter/inbound/openapi/`（在庫の内部 API は `openapiinternal/`） |
 | 依存の結線（合成ルート） | ファサード（`inventory.go` / `ordering.go`）と `cmd/<ctx>/` |
 | HTTP サーバの起動・停止（ライフサイクル機構） | `shared/serve`。`cmd/<ctx>/main.go` には配線（env 読取・`signal.NotifyContext`・`defer pool.Close()`・`Deps` 組立・mux + healthz）だけを残す |
@@ -70,6 +83,8 @@
 | DB スキーマ・クエリ | `db/schema.sql`, `db/queries.sql` |
 | 最小権限ロール/GRANT・本番参照データ・dev/test フィクスチャ・psqldef スコープ | `db/roles.sql`, `db/seed.sql`, `db/fixtures.sql`, `db/sqldef.yml` |
 | bring-up オーケストレーション（schema → roles → seed → fixtures） | `deploy/migrate.Dockerfile`, `deploy/apply.sh`, `docker-compose.yml` |
+| **テストの名前・サブテスト名・日本語コメントの規約**（C 群 / D 群 / E 群） | `docs/testing-conventions.md`（識別子・ファイル・言語ポリシーの規約は `CONVENTIONS.md`） |
+| **lint で表現できない規約の機械強制**（サブテスト名の 8 語語彙、package 名 = ディレクトリ名、規約系 Markdown の半角スペース境界など） | `scripts/convention-gate.sh`（`make conventions` で実行。`make ci` と CI の step にも入っている） |
 | 契約ガバナンスゲート（後方互換・カバレッジ） | `contracts/check-openapi-compat.sh`, `contracts/events/check-compat.sh`, `scripts/coverage-gate.sh` |
 | **腐敗防止層（ACL）ポート** `StockReserver` と番兵 `ErrReservationRejected` / `ErrReservationUnavailable`（注文） | `contexts/ordering/internal/application/acl.go` |
 | **ACL の HTTP 実装**（生成クライアントで在庫を予約・解放 + trace 伝播）（注文） | `contexts/ordering/internal/adapter/outbound/aclhttp/` |
@@ -99,8 +114,8 @@
 
 1. `contracts/inventory/openapi.yaml` を編集する。
 2. `cd contexts/inventory && go generate ./...` で ogen を再生成する。
-3. `internal/adapter/inbound/http/handler.go` の薄いハンドラを、生成された型に合わせて
-   更新する。エラーの HTTP 変換は `internal/adapter/inbound/http/errmap.go` の
+3. `internal/adapter/inbound/httpapi/handler.go` の薄いハンドラを、生成された型に合わせて
+   更新する。エラーの HTTP 変換は `internal/adapter/inbound/httpapi/errmap.go` の
    `NewError` を更新する。
 4. **新しいサーバを組み立てるなら `NewServer(h, h.ServerOptions()...)` と書く。**
    オプションを渡し忘れると ogen の既定エラーハンドラが使われ、内部文字列
@@ -122,7 +137,7 @@
 ドメインの検証規則を足すコストは **3 箇所の編集**である。規約の全体像は `CONVENTIONS.md` の
 「HTTP エラー応答（RFC 9457 / Problem Details）」にある。
 
-1. **ドメイン層** `internal/domain/<ctx>/errors.go` の `Rule` 一覧に 1 行足す。
+1. **ドメイン層** `internal/domain/errors.go` の `Rule` 一覧に 1 行足す。
 
    ```go
    VQuantity = Rule{Field: "quantity", Code: "invalid_quantity", Err: ErrInvalidQuantity}
@@ -132,11 +147,11 @@
    変えない**（`errors.Is` の判定単位であり既存の公開 API）。新しい番兵が要るなら、
    上の `var` ブロックにも 1 行足してから `Rule` から指す。
 
-2. **インターフェース層** `internal/adapter/inbound/http/problem.go` の `domainReasons` に
+2. **インターフェース層** `internal/adapter/inbound/httpapi/problem.go` の `domainReasons` に
    「規則 → 定型文」を 1 行足す。
 
    ```go
-   order.VQuantity.Code: "1 以上の値を指定してください",
+   domain.VQuantity.Code: "1 以上の値を指定してください",
    ```
 
    受信値も閾値も書かない（FR-2.3 / FR-2.4）。キーを `Rule` から引いているので、
@@ -270,7 +285,7 @@ if n < 1 {
   この rule に引っかかったら回避策を探すのではなく、**それは `shared/` に置くべきものではない**
   というシグナルとして扱う。
 - **`shared/event`**: `event.go` が型なしコア（`InProcess`）、`typed.go` が型付きファサード
-  （`Typed[E Occurred]`）。合成ルートは `event.NewTyped[order.DomainEvent](log)` のように型引数を
+  （`Typed[E Occurred]`）。合成ルートは `event.NewTyped[domain.DomainEvent](log)` のように型引数を
   綴って直接生成する。per-context の委譲コンストラクタは作らない（「機構は共有・型はコンテキスト
   固有」が呼び出し側から見えている状態を保つ）。ドメイン層は `shared/event` を import せず、
   `DomainEvent` が `EventName()` + `OccurredAt()` を持つことで `event.Occurred` を構造的に満たす。
@@ -318,6 +333,7 @@ make fmt              # gofmt + goimports で整形する
 make fmt-check        # 未整形が無いことを検証する
 make vet
 make lint             # golangci-lint（depguard の層 / seam 境界強制を含む）
+make conventions      # 規約ゲート（lint で表現できない規約。scripts/convention-gate.sh）
 make build            # 統合タグのコンパイル検証を含む
 make test
 make test-race

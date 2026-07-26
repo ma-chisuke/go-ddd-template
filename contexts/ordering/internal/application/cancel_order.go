@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 	"github.com/example/go-ddd-template/shared/correlation"
 	"github.com/example/go-ddd-template/shared/uow"
 )
@@ -27,10 +27,10 @@ func NewCancelOrder(exec uow.Executor, work UnitOfWork, log *slog.Logger) *Cance
 	return &CancelOrder{exec: exec, work: work, log: log}
 }
 
-// Handle は指定 ID の注文を取り消す。ID が不正なら order.ErrInvalidOrderID、存在しなければ
-// order.ErrOrderNotFound、Confirmed 以外なら order.ErrOrderNotConfirmed を返す。
+// Handle は指定 ID の注文を取り消す。ID が不正なら domain.ErrInvalidOrderID、存在しなければ
+// domain.ErrOrderNotFound、Confirmed 以外なら domain.ErrOrderNotConfirmed を返す。
 func (uc *CancelOrder) Handle(ctx context.Context, idStr string) error {
-	orderID, err := order.NewOrderID(idStr)
+	orderID, err := domain.NewOrderID(idStr)
 	if err != nil {
 		return locate("", err)
 	}

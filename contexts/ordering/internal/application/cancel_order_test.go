@@ -9,7 +9,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 )
 
 // これらは本物のインメモリアダプタで取消・照会の通し挙動（同一 tx の原子性・version 増分）を
@@ -27,6 +27,8 @@ func placeOne(t *testing.T, f memFixture) string {
 }
 
 func TestCancelOrder_EnqueuesOrderCancelledSameTx(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	f := newMemFixture(t)
 	id := placeOne(t, f)
@@ -51,19 +53,23 @@ func TestCancelOrder_EnqueuesOrderCancelledSameTx(t *testing.T) {
 }
 
 func TestCancelOrder_NotConfirmed(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	f := newMemFixture(t)
 	id := placeOne(t, f)
 
 	require.NoError(t, f.cancel.Handle(ctx, id), "1 回目の取消に失敗")
 	// 取消済みの注文を再度取り消すと ErrOrderNotConfirmed。
-	require.ErrorIs(t, f.cancel.Handle(ctx, id), order.ErrOrderNotConfirmed)
+	require.ErrorIs(t, f.cancel.Handle(ctx, id), domain.ErrOrderNotConfirmed)
 }
 
 func TestGetOrder_NotFound(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	f := newMemFixture(t)
 
 	_, err := f.get.Handle(ctx, "UNKNOWN-ORDER")
-	require.ErrorIs(t, err, order.ErrOrderNotFound)
+	require.ErrorIs(t, err, domain.ErrOrderNotFound)
 }

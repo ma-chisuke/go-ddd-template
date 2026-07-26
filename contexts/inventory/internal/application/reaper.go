@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
@@ -49,7 +49,7 @@ func NewReaper(exec uow.Executor, work UnitOfWork, dispatch EventDispatcher, clo
 func (r *Reaper) Sweep(ctx context.Context) error {
 	now := r.clock.Now()
 
-	var events []inventory.DomainEvent
+	var events []domain.DomainEvent
 	err := uow.Run(ctx, r.exec, r.work, func(ctx context.Context, repos Repos) error {
 		events = nil // 再試行での重複を避けるため試行ごとにリセット
 		expired, err := repos.Stock().LoadExpiredPending(ctx, now, r.batch)

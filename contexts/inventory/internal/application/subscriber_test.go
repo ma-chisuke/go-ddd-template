@@ -10,7 +10,7 @@ import (
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/event"
 	"github.com/example/go-ddd-template/shared/outbox"
 	"github.com/example/go-ddd-template/shared/uow"
@@ -30,6 +30,8 @@ func newRouterFixture(t *testing.T) (reserveFixture, *outbox.Router) {
 }
 
 func TestRouter_ConfirmAndCancelFlow(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	f, router := newRouterFixture(t)
 
@@ -66,6 +68,8 @@ func TestRouter_ConfirmAndCancelFlow(t *testing.T) {
 }
 
 func TestRouter_UnknownTypeReturnsErrNoRoute(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	_, router := newRouterFixture(t)
 	err := router.Deliver(ctx, outbox.Message{ID: "x", Type: "unknown.type"})
@@ -73,12 +77,14 @@ func TestRouter_UnknownTypeReturnsErrNoRoute(t *testing.T) {
 }
 
 func TestOnConfirmReservation_BenignNoopWhenNotFound(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	store := memory.NewStore()
 	work := memory.NewUnitOfWork(store, memory.NewStores())
 	log := testLogger()
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
-	confirmer := application.NewConfirmer(exec, work, event.NewTyped[inventory.DomainEvent](log), log)
+	confirmer := application.NewConfirmer(exec, work, event.NewTyped[domain.DomainEvent](log), log)
 
 	// 有効な予約が無い ref への確定要求は、良性の no-op（エラーにしない）。
 	consumer := application.OnConfirmReservation(confirmer, log)

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"unicode"
 
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 )
 
 // このファイルは「フィールド識別情報を 3 層で段階的に組み立てる」の第 2 段を担う。
@@ -59,9 +59,9 @@ const linesField = "Lines"
 // 現状の唯一の例外は予約参照で、ドメインは reservationRef と名乗るが入力 DTO 上の名前は
 // Ref（ReserveInput.Ref、およびパスパラメータ ref）だからである。
 //
-// **したがって、ドメインに検証規則を 1 つ足しても通常はこの表を触らなくてよい。**
+// **したがって、ドメインに検証規則を 1 つ足しても通常はこの表を触らなくてよい**。
 var dtoPaths = map[string]string{
-	inventory.VReservationRef.Field: "Ref",
+	domain.VReservationRef.Field: "Ref",
 }
 
 // locate はドメインの FieldViolation に、入力 DTO 上の位置 at を前置して
@@ -81,7 +81,7 @@ func locate(at string, err error) error {
 		return err
 	}
 
-	var v *inventory.FieldViolation
+	var v *domain.FieldViolation
 	if !errors.As(err, &v) {
 		return err
 	}

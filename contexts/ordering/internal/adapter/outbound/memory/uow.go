@@ -6,7 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 	"github.com/example/go-ddd-template/shared/outbox"
 	"github.com/example/go-ddd-template/shared/uow"
 )
@@ -132,14 +132,14 @@ type txStore struct {
 // コンパイル時にポートを満たしていることを確認する。
 var _ application.OrderStore = (*txStore)(nil)
 
-func (s *txStore) Load(_ context.Context, id order.OrderID) (*order.Order, error) {
+func (s *txStore) Load(_ context.Context, id domain.OrderID) (*domain.Order, error) {
 	return s.tx.store.load(id)
 }
 
 // Save は集約の版を確定ストアと突き合わせて検証し、集約のバージョンを同期（MarkPersisted）
 // したうえで、確定ストアへ書き込む行を staging に積む。実際の書き込みはコミット時に行う。
 // 版が食い違えば uow.ErrConcurrencyConflict を返し、確定ストアは変更しない。
-func (s *txStore) Save(_ context.Context, o *order.Order) error {
+func (s *txStore) Save(_ context.Context, o *domain.Order) error {
 	s.tx.store.mu.Lock()
 	defer s.tx.store.mu.Unlock()
 
@@ -192,11 +192,11 @@ type readStore struct {
 
 var _ application.OrderStore = (*readStore)(nil)
 
-func (s *readStore) Load(_ context.Context, id order.OrderID) (*order.Order, error) {
+func (s *readStore) Load(_ context.Context, id domain.OrderID) (*domain.Order, error) {
 	return s.store.load(id)
 }
 
 // Save は読み取り専用アダプタでは使用しない。誤用を早期に検知するためエラーを返す。
-func (s *readStore) Save(_ context.Context, _ *order.Order) error {
+func (s *readStore) Save(_ context.Context, _ *domain.Order) error {
 	return fmt.Errorf("readStore は読み取り専用です: 書き込みは UnitOfWork.Within を使ってください")
 }

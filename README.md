@@ -152,7 +152,7 @@ make test
 依存の向き:  inbound ──▶ application ◀── outbound、  application ──▶ domain
 ```
 
-- **domain（`internal/domain/inventory`）** — 純粋なドメイン層。`context.Context`・
+- **domain（`internal/domain`）** — 純粋なドメイン層。`context.Context`・
   リポジトリ・永続化・IO・フレームワーク・アダプタのいずれにも依存しません。不変条件は
   集約自身が守ります。この純粋性は静的解析（depguard）でも機械的に強制しています。
 - **application（`internal/application`）** — ユースケースとポート（`StockStore` など）。
@@ -220,6 +220,9 @@ make test
 ### ドキュメント
 
 - [CONVENTIONS.md](CONVENTIONS.md) — Go / SQL / DDD の規約（命名・層分離・`UnitOfWork[R]` など）。
+- [docs/testing-conventions.md](docs/testing-conventions.md) — テストの規約（テスト関数名の 2 形、
+  サブテスト名の 8 語語彙、`t.Parallel()` の適用範囲、テストの日本語コメント）。
+  どちらの文書も `make lint` と `make conventions` が機械的に強制します。
 - [AGENTS.md](AGENTS.md) / [CLAUDE.md](CLAUDE.md) — AI エージェント向けガイド（機械可読契約への案内・禁止事項）。
 - [docs/why-these-boundaries.md](docs/why-these-boundaries.md) — なぜ在庫と受注の 2 つに割ったのか（導出過程と却下した代替案）。
 - [docs/ddd-patterns.md](docs/ddd-patterns.md) — DDD パターン → このリポジトリでの実装位置の索引。
@@ -280,7 +283,7 @@ make test
         ├── port/                … 公開の翻訳済み DTO（ReserveLine）と ACL の番兵（ErrReservationRejected など）
         ├── db/ · sqlc.yaml      … schema.sql / queries.sql（orders / order_lines / outbox / events）/ roles.sql / seed.sql / fixtures.sql / sqldef.yml
         └── internal/
-            ├── domain/order/    … 純粋なドメイン（Order / OrderLine / VO / イベント）
+            ├── domain/          … 純粋なドメイン（Order / OrderLine / VO / イベント）
             ├── application/     … ユースケース（PlaceOrder / GetOrder / CancelOrder）/ ポート / ACL ポート
             └── adapter/
                 ├── inbound/{http, openapi}     … 公開 API の薄いハンドラ + ogen 生成サーバ

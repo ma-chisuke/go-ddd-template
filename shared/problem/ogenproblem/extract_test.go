@@ -38,7 +38,7 @@ import (
 func TestOgenCharacteristics_RequiredMissingBecomesValidateError(t *testing.T) {
 	p := newProber(t)
 
-	t.Run("トップ階層の必須欠落は *validate.Error になり、兄弟をすべて列挙する", func(t *testing.T) {
+	t.Run("契約: トップ階層の必須欠落は *validate.Error になり兄弟をすべて列挙する", func(t *testing.T) {
 		err := p.send(t, `{}`)
 
 		var ve *validate.Error
@@ -48,12 +48,12 @@ func TestOgenCharacteristics_RequiredMissingBecomesValidateError(t *testing.T) {
 		names := make([]string, 0, len(ve.Fields))
 		for _, f := range ve.Fields {
 			names = append(names, f.Name)
-			assert.ErrorIs(t, f.Error, validate.ErrFieldRequired, "葉は ErrFieldRequired")
+			require.ErrorIs(t, f.Error, validate.ErrFieldRequired, "葉は ErrFieldRequired")
 		}
 		assert.ElementsMatch(t, []string{"name", "lines", "nested"}, names)
 	})
 
-	t.Run("入れ子の必須欠落はラップ列（prefix）と *validate.Error の両方が値を返す", func(t *testing.T) {
+	t.Run("契約: 入れ子の必須欠落はラップ列と *validate.Error の両方が値を返す", func(t *testing.T) {
 		err := p.send(t, `{"name":"Alpha","lines":[{"sku":"AB","quantity":1}],"nested":{}}`)
 
 		// ラップ列は "nested" までしか降りない。
@@ -72,7 +72,7 @@ func TestOgenCharacteristics_RequiredMissingBecomesValidateError(t *testing.T) {
 func TestOgenCharacteristics_DecodeFailuresAreNotStructured(t *testing.T) {
 	p := newProber(t)
 
-	t.Run("型不一致は *validate.Error に「ならない」", func(t *testing.T) {
+	t.Run("契約: 型不一致は *validate.Error にならない", func(t *testing.T) {
 		err := p.send(t, `{"name":"Alpha","lines":[{"sku":"AB","quantity":"x"}],"nested":{"inner":"ok"}}`)
 
 		var ve *validate.Error
@@ -81,7 +81,7 @@ func TestOgenCharacteristics_DecodeFailuresAreNotStructured(t *testing.T) {
 		assert.Contains(t, err.Error(), `decode field "quantity"`)
 	})
 
-	t.Run("不正 JSON は構造化もラップ列も持たない", func(t *testing.T) {
+	t.Run("契約: 不正 JSON は構造化もラップ列も持たない", func(t *testing.T) {
 		err := p.send(t, `{`)
 
 		var ve *validate.Error
@@ -95,7 +95,7 @@ func TestOgenCharacteristics_DecodeFailuresAreNotStructured(t *testing.T) {
 func TestOgenCharacteristics_ValidatePathNestsAndIndexesArrays(t *testing.T) {
 	p := newProber(t)
 
-	t.Run("配列要素は Name が \"[0]\" の FieldError で包まれ、中身が入れ子になる", func(t *testing.T) {
+	t.Run("契約: 配列要素は Name が \"[0]\" の FieldError で包まれ中身が入れ子になる", func(t *testing.T) {
 		err := p.send(t, `{"name":"Alpha","lines":[{"sku":"A","quantity":1}],"nested":{"inner":"ok"}}`)
 
 		var ve *validate.Error
@@ -113,13 +113,13 @@ func TestOgenCharacteristics_ValidatePathNestsAndIndexesArrays(t *testing.T) {
 		assert.Equal(t, "sku", leaf.Fields[0].Name)
 	})
 
-	t.Run("Validate() 経路にはラップ列が無い", func(t *testing.T) {
+	t.Run("契約: Validate() 経路にはラップ列が無い", func(t *testing.T) {
 		err := p.send(t, `{"name":"Ab","lines":[{"sku":"AB","quantity":1}],"nested":{"inner":"ok"}}`)
 		assert.NotContains(t, err.Error(), `decode field "`,
 			"Decode() を通過してから検証で落ちるため、ラップ列は積まれない")
 	})
 
-	t.Run("複数要素の同時違反は打ち切られずに全件入る", func(t *testing.T) {
+	t.Run("契約: 複数要素の同時違反は打ち切られずに全件入る", func(t *testing.T) {
 		err := p.send(t, `{"name":"Alpha","lines":[{"sku":"A","quantity":1},{"sku":"B","quantity":1}],"nested":{"inner":"ok"}}`)
 
 		var ve *validate.Error
@@ -149,23 +149,23 @@ func TestOgenCharacteristics_LeafErrorTypes(t *testing.T) {
 		return cur.Fields[0].Error
 	}
 
-	t.Run("minLength / minItems はどちらも *validate.MinLengthError", func(t *testing.T) {
+	t.Run("契約: minLength と minItems はどちらも *validate.MinLengthError", func(t *testing.T) {
 		var minLen *validate.MinLengthError
 
 		strErr := leafOf(t, p.send(t, `{"name":"Ab","lines":[{"sku":"AB","quantity":1}],"nested":{"inner":"ok"}}`), 0)
-		assert.ErrorAs(t, strErr, &minLen, "文字列の minLength")
+		require.ErrorAs(t, strErr, &minLen, "文字列の minLength")
 
 		arrErr := leafOf(t, p.send(t, `{"name":"Alpha","lines":[],"nested":{"inner":"ok"}}`), 0)
 		assert.ErrorAs(t, arrErr, &minLen, "配列の minItems も同じ型（ゆえに code も同じ）")
 	})
 
-	t.Run("maxLength は *validate.MaxLengthError", func(t *testing.T) {
+	t.Run("契約: maxLength は *validate.MaxLengthError", func(t *testing.T) {
 		err := leafOf(t, p.send(t, `{"name":"ABCDEFGHIJK","lines":[{"sku":"AB","quantity":1}],"nested":{"inner":"ok"}}`), 0)
 		var maxLen *validate.MaxLengthError
 		assert.ErrorAs(t, err, &maxLen)
 	})
 
-	t.Run("pattern は *validate.NoRegexMatchError", func(t *testing.T) {
+	t.Run("契約: pattern は *validate.NoRegexMatchError", func(t *testing.T) {
 		err := leafOf(t, p.send(t, `{"name":"abcd","lines":[{"sku":"AB","quantity":1}],"nested":{"inner":"ok"}}`), 0)
 		var noMatch *validate.NoRegexMatchError
 		assert.ErrorAs(t, err, &noMatch)
@@ -174,14 +174,14 @@ func TestOgenCharacteristics_LeafErrorTypes(t *testing.T) {
 	// 負の仮定。ogen v1.23.0 では uniqueItems / enum の違反は専用の型にならず、
 	// 受信値を含む素のエラーになる。だから CodeInvalid へ落として文言ごと捨てる。
 	// 専用型になったら（＝ここが落ちたら）語彙を細かくできる。
-	t.Run("uniqueItems は *validate.DuplicateItemsError に「ならない」", func(t *testing.T) {
+	t.Run("契約: uniqueItems は *validate.DuplicateItemsError にならない", func(t *testing.T) {
 		err := leafOf(t, p.send(t, `{"name":"Alpha","tags":["a","a"],"lines":[{"sku":"AB","quantity":1}],"nested":{"inner":"ok"}}`), 0)
 		var dup *validate.DuplicateItemsError
 		assert.False(t, errors.As(err, &dup), "専用型ではない（受信値を含む素のエラー）")
 		assert.Contains(t, err.Error(), "duplicate", "受信値を含むので文言は外へ出せない")
 	})
 
-	t.Run("enum 違反は専用の型にならない", func(t *testing.T) {
+	t.Run("契約: enum 違反は専用の型にならない", func(t *testing.T) {
 		err := leafOf(t, p.send(t, `{"name":"Alpha","kind":"gamma","lines":[{"sku":"AB","quantity":1}],"nested":{"inner":"ok"}}`), 0)
 		assert.Contains(t, err.Error(), "gamma", "受信値をそのまま含むので文言は外へ出せない")
 	})
@@ -190,10 +190,10 @@ func TestOgenCharacteristics_LeafErrorTypes(t *testing.T) {
 func TestOgenCharacteristics_ParamAndBodyErrors(t *testing.T) {
 	p := newProber(t)
 
-	t.Run("パラメータの解釈失敗は *ogenerrors.DecodeParamError で名前を持つ", func(t *testing.T) {
+	t.Run("契約: パラメータの解釈失敗は *ogenerrors.DecodeParamError で名前を持つ", func(t *testing.T) {
 		for _, tc := range []struct{ name, query string }{
-			{"型不一致", "?attempt=xyz"},
-			{"欠落", ""},
+			{name: "契約: 型不一致でも名前を持つ", query: "?attempt=xyz"},
+			{name: "契約: 欠落でも名前を持つ", query: ""},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				err := p.sendWith(t, tc.query, "application/json", validBody)
@@ -204,12 +204,12 @@ func TestOgenCharacteristics_ParamAndBodyErrors(t *testing.T) {
 		}
 	})
 
-	t.Run("空ボディは validate.ErrBodyRequired", func(t *testing.T) {
+	t.Run("契約: 空ボディは validate.ErrBodyRequired", func(t *testing.T) {
 		err := p.sendWith(t, "?attempt=1", "application/json", "")
 		assert.ErrorIs(t, err, validate.ErrBodyRequired)
 	})
 
-	t.Run("Content-Type 不正は *validate.InvalidContentTypeError", func(t *testing.T) {
+	t.Run("契約: Content-Type 不正は *validate.InvalidContentTypeError", func(t *testing.T) {
 		err := p.sendWith(t, "?attempt=1", "text/plain", validBody)
 		var ct *validate.InvalidContentTypeError
 		assert.ErrorAs(t, err, &ct)
@@ -220,7 +220,9 @@ func TestOgenCharacteristics_ParamAndBodyErrors(t *testing.T) {
 // (B) 振る舞いテスト: 抽出結果そのもの
 // ---------------------------------------------------------------------------
 
-func TestExtractParams(t *testing.T) {
+// TestExtractParams_BuildsParamPaths は Validate() 経路と Decode() 経路の両方について
+// invalid-params の name（フィールドパス）と code の組み立てを網羅する。
+func TestExtractParams_BuildsParamPaths(t *testing.T) {
 	p := newProber(t)
 
 	cases := []struct {
@@ -229,7 +231,7 @@ func TestExtractParams(t *testing.T) {
 		want []problem.Param
 	}{
 		{
-			name: "必須欠落（トップ階層。兄弟を全件列挙する）",
+			name: "境界: トップ階層の必須欠落は兄弟を全件列挙する",
 			body: `{}`,
 			want: []problem.Param{
 				{Name: "name", Code: problem.CodeRequired},
@@ -238,62 +240,62 @@ func TestExtractParams(t *testing.T) {
 			},
 		},
 		{
-			name: "必須欠落（入れ子）: ラップ列 + 構造化の合成",
+			name: "境界: 入れ子の必須欠落はラップ列と構造化を合成する",
 			body: `{"name":"Alpha","lines":[{"sku":"AB","quantity":1}],"nested":{}}`,
 			want: []problem.Param{{Name: "nested.inner", Code: problem.CodeRequired}},
 		},
 		{
-			name: "必須欠落（配列要素）: Decode() 経路なので添字は付かない（規則 R-9）",
+			name: "境界: 配列要素の必須欠落は Decode() 経路なので添字が付かない（規則 R-9）",
 			body: `{"name":"Alpha","lines":[{"sku":"AB"}],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{{Name: "lines.quantity", Code: problem.CodeRequired}},
 		},
 		{
-			name: "型不一致: ラップ列だけからパスを組む",
+			name: "異常系: 型不一致はラップ列だけからパスを組む",
 			body: `{"name":"Alpha","lines":[{"sku":"AB","quantity":"x"}],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{{Name: "lines.quantity", Code: problem.CodeType}},
 		},
 		{
-			name: "不正 JSON: 特定できないので nil（invalid-params ごと省略）",
+			name: "異常系: 不正 JSON は特定できないので nil を返す（invalid-params ごと省略）",
 			body: `{`,
 			want: nil,
 		},
 		{
-			name: "Validate() 経路: minLength",
+			name: "境界: Validate() 経路の minLength は name を min_length で返す",
 			body: `{"name":"Ab","lines":[{"sku":"AB","quantity":1}],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{{Name: "name", Code: problem.CodeMinLength}},
 		},
 		{
-			name: "Validate() 経路: maxLength",
+			name: "境界: Validate() 経路の maxLength は name を max_length で返す",
 			body: `{"name":"ABCDEFGHIJK","lines":[{"sku":"AB","quantity":1}],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{{Name: "name", Code: problem.CodeMaxLength}},
 		},
 		{
-			name: "Validate() 経路: pattern",
+			name: "異常系: Validate() 経路の pattern は name を pattern で返す",
 			body: `{"name":"abcd","lines":[{"sku":"AB","quantity":1}],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{{Name: "name", Code: problem.CodePattern}},
 		},
 		{
-			name: "Validate() 経路: minItems（配列長も MinLengthError なので code は min_length）",
+			name: "境界: Validate() 経路の minItems は lines を min_length で返す（配列長も MinLengthError）",
 			body: `{"name":"Alpha","lines":[],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{{Name: "lines", Code: problem.CodeMinLength}},
 		},
 		{
-			name: "Validate() 経路: 配列要素に添字が付く（再帰降下の中核）",
+			name: "境界: Validate() 経路は配列要素に添字を付ける（再帰降下の中核）",
 			body: `{"name":"Alpha","lines":[{"sku":"A","quantity":1}],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{{Name: "lines[0].sku", Code: problem.CodeMinLength}},
 		},
 		{
-			name: "Validate() 経路: 添字は要素の位置を正しく指す（常に [0] ではない）",
+			name: "境界: Validate() 経路の添字は要素の位置を指し常に [0] ではない",
 			body: `{"name":"Alpha","lines":[{"sku":"AB","quantity":1},{"sku":"A","quantity":1}],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{{Name: "lines[1].sku", Code: problem.CodeMinLength}},
 		},
 		{
-			name: "Validate() 経路: 3 段の入れ子（配列 → オブジェクト → 葉）",
+			name: "境界: Validate() 経路は 3 段の入れ子（配列 → オブジェクト → 葉）までパスを組む",
 			body: `{"name":"Alpha","lines":[{"sku":"AB","quantity":1,"price":{"amount":1,"currency":"JP"}}],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{{Name: "lines[0].price.currency", Code: problem.CodeMinLength}},
 		},
 		{
-			name: "Validate() 経路: 複数要素の同時違反を全件列挙する",
+			name: "境界: Validate() 経路は複数要素の同時違反を全件列挙する",
 			body: `{"name":"Alpha","lines":[{"sku":"A","quantity":1},{"sku":"B","quantity":1}],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{
 				{Name: "lines[0].sku", Code: problem.CodeMinLength},
@@ -301,12 +303,12 @@ func TestExtractParams(t *testing.T) {
 			},
 		},
 		{
-			name: "Validate() 経路: 入れ子オブジェクト",
+			name: "境界: Validate() 経路は入れ子オブジェクトのパスを組む",
 			body: `{"name":"Alpha","lines":[{"sku":"AB","quantity":1}],"nested":{"inner":"x"}}`,
 			want: []problem.Param{{Name: "nested.inner", Code: problem.CodeMinLength}},
 		},
 		{
-			name: "語彙に無い制約（enum / uniqueItems）は汎用 code へ落とす",
+			name: "異常系: 語彙に無い制約（enum・uniqueItems）は汎用 code へ落とす",
 			body: `{"name":"Alpha","kind":"gamma","lines":[{"sku":"AB","quantity":1}],"nested":{"inner":"ok"}}`,
 			want: []problem.Param{{Name: "kind", Code: problem.CodeInvalid}},
 		},
@@ -323,26 +325,26 @@ func TestExtractParams(t *testing.T) {
 func TestExtractParams_ParamsAndBody(t *testing.T) {
 	p := newProber(t)
 
-	t.Run("パラメータの解釈失敗", func(t *testing.T) {
+	t.Run("異常系: パラメータの解釈失敗は attempt を invalid_param として返す", func(t *testing.T) {
 		got := ogenproblem.ExtractParams(p.sendWith(t, "?attempt=xyz", "application/json", validBody))
 		assert.Equal(t, []problem.Param{{Name: "attempt", Code: problem.CodeInvalidParam}}, got)
 	})
 
-	t.Run("空ボディ", func(t *testing.T) {
+	t.Run("境界: 空ボディは body を body_required として返す", func(t *testing.T) {
 		got := ogenproblem.ExtractParams(p.sendWith(t, "?attempt=1", "application/json", ""))
 		assert.Equal(t, []problem.Param{{Name: ogenproblem.BodyParamName, Code: problem.CodeBodyRequired}}, got)
 	})
 
-	t.Run("Content-Type 不正はフィールドに帰着しないので nil", func(t *testing.T) {
+	t.Run("異常系: Content-Type 不正はフィールドに帰着しないので nil を返す", func(t *testing.T) {
 		got := ogenproblem.ExtractParams(p.sendWith(t, "?attempt=1", "text/plain", validBody))
 		assert.Nil(t, got)
 	})
 
-	t.Run("nil は nil", func(t *testing.T) {
+	t.Run("境界: nil は nil を返す", func(t *testing.T) {
 		assert.Nil(t, ogenproblem.ExtractParams(nil))
 	})
 
-	t.Run("ogen と無関係のエラーは nil（誤ったパスを組まない）", func(t *testing.T) {
+	t.Run("異常系: ogen と無関係のエラーは nil を返し誤ったパスを組まない", func(t *testing.T) {
 		assert.Nil(t, ogenproblem.ExtractParams(errors.New("なにか別のエラー")))
 	})
 }

@@ -11,7 +11,7 @@ import (
 
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 	"github.com/example/go-ddd-template/contexts/ordering/port"
 )
 
@@ -21,6 +21,8 @@ import (
 // （Save/Enqueue のルーティング）だけを見るテストは [port_interaction_test.go] にある。
 
 func TestPlaceOrder_Happy(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	f := newMemFixture(t)
 
@@ -64,6 +66,8 @@ func TestPlaceOrder_Happy(t *testing.T) {
 // 恒久イベントログへの記録の 3 者がひとつのトランザクションで確定することを、
 // ロールバック時とコミット時の両方で確認する（FR-4 / R-2 の不変条件）。
 func TestPlaceOrder_EventLogWrittenInSameTx(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 
 	// (a) tx の手前で失敗するケース: 集約も配送キューもイベントログも空のまま。
@@ -94,6 +98,8 @@ func TestPlaceOrder_EventLogWrittenInSameTx(t *testing.T) {
 }
 
 func TestPlaceOrder_InsufficientStockRejected(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	f := newMemFixture(t)
 	// 予約が業務的に拒否される（在庫不足＝在庫側 409 の翻訳）。補償解放は呼ばれない
@@ -110,6 +116,8 @@ func TestPlaceOrder_InsufficientStockRejected(t *testing.T) {
 }
 
 func TestPlaceOrder_ReserveUnavailable(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	f := newMemFixture(t)
 	// aclhttp が不達（timeout / 5xx）を翻訳したときの形（両番兵に一致）を再現する。
@@ -124,16 +132,20 @@ func TestPlaceOrder_ReserveUnavailable(t *testing.T) {
 }
 
 func TestPlaceOrder_EmptyLinesRejected(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	f := newMemFixture(t)
 	// ドメイン検証で失敗するため、在庫予約は呼ばれない。reserver に EXPECT を置かないので、
 	// もし Reserve が呼ばれれば gomock がテストを失敗させる。
 
 	_, err := f.place.Handle(ctx, application.PlaceOrderInput{CustomerID: "CUST-1"})
-	require.ErrorIs(t, err, order.ErrEmptyOrder)
+	require.ErrorIs(t, err, domain.ErrEmptyOrder)
 }
 
 func TestPlaceOrder_RetriesOnConflictReserveOnce(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	store := memory.NewStore()
 	stores := memory.NewStores()

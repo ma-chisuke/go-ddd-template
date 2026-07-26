@@ -17,10 +17,32 @@ linters:
     - misspell
     - depguard
     - stylecheck
+    # 以下は規約（CONVENTIONS.md の A / E / G 群、docs/testing-conventions.md の C 群）を
+    # 機械強制するために足したもの。**追加した rule は必ずカナリア検証する**（G-1）——
+    # 「rule が在る + lint が green」だけでは、設定の綴り間違いで rule が黙って何も
+    # 検査していない状態を検出できない（ツリーに違反が無ければ green は自動的に通る）。
+    - revive        # A-2 receiver-naming / A-9b var-naming
+    - godot         # E-1 doc コメントの句点（日本語の「。」を認識する）
+    - testpackage   # C-4 外部テストパッケージ（既定 skip-regexp が export/internal_test.go を除外）
+    - thelper       # C-3 ヘルパーの t.Helper()
+    - paralleltest  # C-5 t.Parallel()（下の exclude-rules でパス限定する）
+    - tparallel     # C-5 t.Parallel() の誤用検出（こちらは全体に効かせる）
+    - testifylint   # C-4c testify の落とし穴（expected-actual の引数順など）
 
 linters-settings:
   goimports:
     local-prefixes: github.com/example/go-ddd-template
+  revive:
+    # var-naming と receiver-naming の 2 つだけを有効化する。revive の既定セット全体を
+    # 入れると、この規約の範囲を超える指摘（exported コメントの体裁など）が大量に出る。
+    # rules を明示すると revive はそのリストだけを走らせる。
+    rules:
+      - name: var-naming    # A-9b MixedCaps（下線で語をつなげない）。テスト関数名は報告しない
+      - name: receiver-naming # A-2 同じ型の全メソッドでレシーバ名を一貫させる
+  godot:
+    # 宣言（トップレベルの型・関数・変数）の doc コメントだけを対象にする。
+    # 行コメントまで対象にすると、why を書いた説明コメントに句点を強制することになる。
+    scope: declarations
   stylecheck:
     # ST1000: 非 main パッケージは package コメントを持つこと。
     #
@@ -33,14 +55,19 @@ linters-settings:
     # 弾いてしまう。ST1000 は main パッケージを対象外にするため、既存の正しい doc を
     # 壊さずに「ドメインパッケージだけが無言」という欠落だけを塞げる。
     #
-    # checks を ST1000 に限定するのは意図的である。stylecheck の他のチェック
-    # （ST1003 命名・ST1005 エラー文字列など）を同時に有効化すると、package コメントの
-    # 補完という関心とは無関係な大量の指摘が出る。必要になったときに 1 つずつ足す。
+    # ST1005: エラー文言は大文字始まりにせず句読点で終えない（A-6）。
+    #
+    # **ST1003（命名）は追加しない。** revive の var-naming と重複して二重報告になるため、
+    # 命名の役割は revive 1 つに寄せる。
+    #
+    # ST1005 は**日本語のエラー文言を誤検出しない**（実測: 「在庫が不足しています。」
+    # 「…は必須です」は無指摘で、英語の "Stock is insufficient." のみ指摘）。
+    # F-1 が日本語のエラー文言を定めているので、この性質は必須の前提である。
     #
     # 生成コード（ogen / sqlc / mockgen の出力）の除外リストはここに書かない。
     # いずれも `Code generated ... DO NOT EDIT.` ヘッダを持ち、golangci-lint の既定の
     # 自動生成除外が効く（明示リストは二重管理になり、新しい生成物への追随を忘れる）。
-    checks: ["ST1000"]
+    checks: ["ST1000", "ST1005"]
   depguard:
     # depguard で層の依存方向を機械的に守る。依存は常に内側（domain）へ向き、
     # 外側（adapter）が内側を知ってよいが、内側は外側を知らない。
@@ -156,6 +183,16 @@ issues:
   # stylecheck の checks で有効化した ST1000 の範囲に閉じる。
   include:
     - EXC0011
+  # 報告の打ち切りを外す。
+  #
+  # golangci-lint の既定は max-same-issues: 3 / max-issues-per-linter: 50 で、
+  # **同じ文言の指摘は 4 件目から黙って捨てられる**。実測: thelper の同一指摘が 5 件あるのに
+  # 3 件しか出ず、その 3 件を直したあとに残り 2 件が現れた。green / red の判定自体は変わらない
+  # （1 件でも残れば非 0 終了）が、「あと何件あるのか」を数えて是正の計画を立てる用途では
+  # 嘘の数を返す。カナリア検証（注入した違反が当該 linter に到達したかを確かめる手順）でも
+  # 打ち切りは害になる。教材としても「出ている件数がすべて」である方が正しい。
+  max-same-issues: 0
+  max-issues-per-linter: 0
   # 生成ファイルは検査しない（明示的な保険）。
   exclude-rules:
     - path: (oas_.*_gen\.go|sqlcgen/.*\.go)
@@ -166,3 +203,21 @@ issues:
         - govet
         - gofmt
         - goimports
+    # paralleltest のパス限定（C-5）。
+    #
+    # t.Parallel() を必須にするのは internal/domain と internal/application の
+    # 「外部依存を持たない純粋テスト」だけである。アダプタ・統合テスト・fuzz ターゲットは
+    # 対象外にする（fuzzing 中は T.Parallel が無効であり、DB や httptest を掴むテストを
+    # 並列化しても速くならず、共有資源の競合を招くだけである）。
+    #
+    # linters.enable では全体に有効化し、ここで「domain と application 以外」を除外する。
+    # 除外の書き方が二重否定になるのは golangci-lint v1 の exclude-rules に
+    # 「このパスだけに限定する」という肯定形が無いためで、path の否定表現を使っている。
+    #
+    # この限定が実際に効いていることは**対で**カナリア検証する（G-1 / G-2）——
+    # domain のテストから t.Parallel() を削ると報告され、アダプタ層で削っても
+    # 報告されないことを 1 回の観測で同時に確かめる。片側だけでは
+    # 「パス限定が効いている」のか「そもそも rule が不発」なのか区別できない。
+    - path-except: internal/(domain|application)/
+      linters:
+        - paralleltest

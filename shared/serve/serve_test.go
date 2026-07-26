@@ -1,14 +1,8 @@
-package serve
+package serve_test
 
-// このテストはあえて内部テストパッケージ（package serve）に置いている。
-// 必須ケースのうち 3 つが、公開 API だけでは決定的に再現・観測できないためである。
-//
-//   - シャットダウン猶予切れ（「途中失敗でも残りを続行」と戻り値の firstShutdownErr 分岐）は
-//     既定の 15 秒を待たずに再現する必要があり、猶予を引数で受ける内部の run を呼ぶ。
-//   - ReadHeaderTimeout の適用は、ランナーが組む *http.Server をそのまま見る必要があり、
-//     newHTTPServers を呼ぶ。
-//
-// 残りのケースは公開 API（Run）越しに黒箱として検証している。
+// このテストは外部テストパッケージ（package serve_test）に置いている。公開 API だけで
+// 検証できないケースは、同じディレクトリの export_test.go が内部シンボルへ薄い橋を
+// 張っているのでそれを使う（理由は export_test.go の冒頭に書いてある）。
 
 import (
 	"context"
@@ -23,6 +17,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/example/go-ddd-template/shared/serve"
 )
 
 // --- テストヘルパー -------------------------------------------------------------
@@ -138,14 +134,14 @@ func waitRun(t *testing.T, done <-chan error) error {
 // 待ち受け開始を確認してからリクエストを 1 本投げ、ハンドラへ入ったことを確認したうえで
 // ctx をキャンセルする。こうすると Shutdown は処理中のコネクションを待たねばならず、
 // 極小の猶予（50ms）では待ちきれずに context.DeadlineExceeded を返す。
-func runWithStuckShutdown(t *testing.T, extra ...Server) error {
+func runWithStuckShutdown(t *testing.T, extra ...serve.Server) error {
 	t.Helper()
 
 	release := make(chan struct{})
 	entered := make(chan struct{})
 	var once sync.Once
 	stuckAddr := freeAddr(t)
-	stuck := Server{Name: "詰まり", Addr: stuckAddr, Handler: http.HandlerFunc(
+	stuck := serve.Server{Name: "詰まり", Addr: stuckAddr, Handler: http.HandlerFunc(
 		func(w http.ResponseWriter, _ *http.Request) {
 			once.Do(func() { close(entered) })
 			<-release
@@ -157,7 +153,7 @@ func runWithStuckShutdown(t *testing.T, extra ...Server) error {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- run(ctx, discardLogger(), 50*time.Millisecond, append([]Server{stuck}, extra...)...)
+		done <- serve.RunWithShutdownTimeout(ctx, discardLogger(), 50*time.Millisecond, append([]serve.Server{stuck}, extra...)...)
 	}()
 
 	waitServing(t, stuckAddr)
@@ -191,11 +187,11 @@ func runWithStuckShutdown(t *testing.T, extra ...Server) error {
 
 func TestRun_NoServersIsWiringError(t *testing.T) {
 	done := make(chan error, 1)
-	go func() { done <- Run(context.Background(), discardLogger()) }()
+	go func() { done <- serve.Run(context.Background(), discardLogger()) }()
 
 	select {
 	case err := <-done:
-		require.ErrorIs(t, err, ErrNoServers, "サーバ 0 本の呼び出しは結線の誤りとして失敗すべき")
+		require.ErrorIs(t, err, serve.ErrNoServers, "サーバ 0 本の呼び出しは結線の誤りとして失敗すべき")
 	case <-time.After(2 * time.Second):
 		t.Fatal("サーバ 0 本では待たずに戻るべきだが Run がブロックした")
 	}
@@ -206,13 +202,13 @@ func TestRun_NoServersIsWiringError(t *testing.T) {
 func TestRun_IsServerCountAgnostic(t *testing.T) {
 	// ordering は 1 本（公開）、inventory は 2 本（公開 + 内部）。同じ経路を通ることを確認する。
 	for _, count := range []int{1, 2} {
-		t.Run(fmt.Sprintf("%d本", count), func(t *testing.T) {
-			specs := make([]Server, 0, count)
+		t.Run(fmt.Sprintf("正常系: サーバ %d 本でもグレースフルに停止する", count), func(t *testing.T) {
+			specs := make([]serve.Server, 0, count)
 			addrs := make([]string, 0, count)
 			for i := range count {
 				addr := freeAddr(t)
 				addrs = append(addrs, addr)
-				specs = append(specs, Server{
+				specs = append(specs, serve.Server{
 					Name:    fmt.Sprintf("サーバ%d", i+1),
 					Addr:    addr,
 					Handler: okHandler(),
@@ -223,7 +219,7 @@ func TestRun_IsServerCountAgnostic(t *testing.T) {
 			defer cancel()
 
 			done := make(chan error, 1)
-			go func() { done <- Run(ctx, discardLogger(), specs...) }()
+			go func() { done <- serve.Run(ctx, discardLogger(), specs...) }()
 
 			// 全サーバの待ち受けが立ち、実際にリクエストを処理できる。
 			for _, addr := range addrs {
@@ -261,9 +257,9 @@ func TestRun_ServerErrorAlsoShutsDownSiblings(t *testing.T) {
 	// ctx はキャンセルしない。停止の契機はサーバのエラーだけである。
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(context.Background(), discardLogger(),
-			Server{Name: "競合A", Addr: addr, Handler: okHandler()},
-			Server{Name: "競合B", Addr: addr, Handler: okHandler()},
+		done <- serve.Run(context.Background(), discardLogger(),
+			serve.Server{Name: "競合A", Addr: addr, Handler: okHandler()},
+			serve.Server{Name: "競合B", Addr: addr, Handler: okHandler()},
 		)
 	}()
 
@@ -291,7 +287,7 @@ func TestRun_ShutdownFailureDoesNotSkipRemainingServers(t *testing.T) {
 	healthyAddr := freeAddr(t)
 
 	// 1 本目の Shutdown が猶予切れで失敗する状況を作る。2 本目は健全。
-	err := runWithStuckShutdown(t, Server{Name: "健全", Addr: healthyAddr, Handler: okHandler()})
+	err := runWithStuckShutdown(t, serve.Server{Name: "健全", Addr: healthyAddr, Handler: okHandler()})
 
 	// PRESENT: 1 本目の失敗が戻り値として現れる。
 	require.ErrorIs(t, err, context.DeadlineExceeded, "1 本目の Shutdown は猶予切れで失敗すべき")
@@ -305,31 +301,31 @@ func TestRun_ShutdownFailureDoesNotSkipRemainingServers(t *testing.T) {
 // --- ケース 5: 戻り値の優先順位（3 分岐）------------------------------------------
 
 func TestRun_ReturnValuePrecedence(t *testing.T) {
-	t.Run("サーバエラーがあればそれを返す", func(t *testing.T) {
+	t.Run("異常系: サーバエラーがあればそれを返す", func(t *testing.T) {
 		busyAddr := occupiedAddr(t)
 		done := make(chan error, 1)
 		go func() {
-			done <- Run(context.Background(), discardLogger(),
-				Server{Name: "失敗", Addr: busyAddr, Handler: okHandler()})
+			done <- serve.Run(context.Background(), discardLogger(),
+				serve.Server{Name: "失敗", Addr: busyAddr, Handler: okHandler()})
 		}()
 		err := waitRun(t, done)
 		require.Error(t, err, "サーバエラーは返るべき")
 		assert.Contains(t, err.Error(), busyAddr, "返るのは bind 失敗そのもの")
 	})
 
-	t.Run("サーバエラーが無ければ最初のshutdownエラーを返す", func(t *testing.T) {
+	t.Run("異常系: サーバエラーが無ければ最初の shutdown エラーを返す", func(t *testing.T) {
 		err := runWithStuckShutdown(t)
 		require.ErrorIs(t, err, context.DeadlineExceeded, "shutdown の猶予切れが返るべき")
 	})
 
-	t.Run("どちらも無ければnilを返す", func(t *testing.T) {
+	t.Run("正常系: どちらも無ければ nil を返す", func(t *testing.T) {
 		addr := freeAddr(t)
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
 		done := make(chan error, 1)
 		go func() {
-			done <- Run(ctx, discardLogger(), Server{Name: "公開", Addr: addr, Handler: okHandler()})
+			done <- serve.Run(ctx, discardLogger(), serve.Server{Name: "公開", Addr: addr, Handler: okHandler()})
 		}()
 		waitServing(t, addr)
 		cancel()
@@ -340,23 +336,23 @@ func TestRun_ReturnValuePrecedence(t *testing.T) {
 // --- ケース 6: 既定値の集約（ReadHeaderTimeout）------------------------------------
 
 func TestNewHTTPServers_AppliesDefaultTimeouts(t *testing.T) {
-	specs := []Server{
+	specs := []serve.Server{
 		{Name: "公開", Addr: ":8080", Handler: okHandler()},
 		{Name: "内部", Addr: ":8081", Handler: okHandler()},
 	}
 
-	srvs := newHTTPServers(specs)
+	srvs := serve.NewHTTPServers(specs)
 
 	require.Len(t, srvs, len(specs), "仕様の本数だけ *http.Server を組むべき")
 	for i, srv := range srvs {
 		assert.Equal(t, specs[i].Addr, srv.Addr, "%d 本目の Addr", i+1)
 		assert.NotNil(t, srv.Handler, "%d 本目の Handler", i+1)
 		// 素通りすると Slowloris 対策が静かに失われるため、既定値の適用を明示的に見る。
-		assert.Equal(t, DefaultReadHeaderTimeout, srv.ReadHeaderTimeout,
+		assert.Equal(t, serve.DefaultReadHeaderTimeout, srv.ReadHeaderTimeout,
 			"%d 本目に ReadHeaderTimeout の既定値が入るべき", i+1)
 	}
 
 	// 既定値そのものを固定する（I-7: 抽出で「切りの良い数字」へ動かさない）。
-	assert.Equal(t, 10*time.Second, DefaultReadHeaderTimeout, "ヘッダ読み取り猶予は 10 秒")
-	assert.Equal(t, 15*time.Second, DefaultShutdownTimeout, "シャットダウン猶予は 15 秒")
+	assert.Equal(t, 10*time.Second, serve.DefaultReadHeaderTimeout, "ヘッダ読み取り猶予は 10 秒")
+	assert.Equal(t, 15*time.Second, serve.DefaultShutdownTimeout, "シャットダウン猶予は 15 秒")
 }

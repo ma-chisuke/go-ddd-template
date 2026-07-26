@@ -5,7 +5,7 @@
 // 公開シーム（inventory.Module.Reserve など）の引数型を名指しできるように公開する一方、
 // ユースケースやポートのインターフェース自体は internal/application に留める。
 //
-// 内部のドメイン型（inventory.SKU / inventory.Quantity など）はここには現れない。それらは
+// 内部のドメイン型（domain.SKU / domain.Quantity など）はここには現れない。それらは
 // 境界でこの翻訳済み DTO へ変換される（コンテキスト間で Go の共有ドメイン型を渡さないため）。
 // 注文コンテキストの ordering/port.ReserveLine と対称の位置づけである。
 package port

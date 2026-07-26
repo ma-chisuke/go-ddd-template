@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -33,8 +34,11 @@ import (
 
 // server は比較対象の 1 サーバ。
 type server struct {
-	name string
-	ts   *httptest.Server
+	// label はサーバの表示名。アサーションメッセージとサブテスト名の組み立てに使う。
+	// 「ケース名」ではないので name という名前にはしない — name はテーブル駆動のケース名に
+	// 予約されている（docs/testing-conventions.md D-6）。
+	label string
+	ts    *httptest.Server
 	// postPath は「JSON ボディを受け取る POST エンドポイント」。E1 の比較に使う。
 	postPath string
 }
@@ -47,9 +51,9 @@ func newParityServers(t *testing.T) []server {
 	require.NoError(t, err, "ハーネスの構築")
 
 	servers := []server{
-		{name: "ordering 公開", ts: httptest.NewServer(h.orderingHandler()), postPath: "/orders"},
-		{name: "inventory 公開", ts: httptest.NewServer(h.inventoryHandler()), postPath: "/stock/WIDGET-001/replenish"},
-		{name: "inventory 内部", ts: httptest.NewServer(h.inventoryInternalHandler()), postPath: "/reservations"},
+		{label: "ordering 公開", ts: httptest.NewServer(h.orderingHandler()), postPath: "/orders"},
+		{label: "inventory 公開", ts: httptest.NewServer(h.inventoryHandler()), postPath: "/stock/WIDGET-001/replenish"},
+		{label: "inventory 内部", ts: httptest.NewServer(h.inventoryInternalHandler()), postPath: "/reservations"},
 	}
 	for _, s := range servers {
 		t.Cleanup(s.ts.Close)
@@ -139,40 +143,45 @@ func TestProblemParity_AcrossThreeServers(t *testing.T) {
 		wantParams bool
 	}{
 		{
-			name: "未定義パス（E2 / 404）",
+			name: "契約: 未定義パス（E2・404）は 3 サーバで同じ形になる",
 			send: func(t *testing.T, s server) *http.Response {
+				t.Helper()
 				return request(t, s, http.MethodGet, "/definitely-not-a-route", "", "")
 			},
 			wantTypeSuffix: problem.TypeNotFound,
 			wantStatus:     http.StatusNotFound,
 		},
 		{
-			name: "許可外メソッド（E3 / 405）",
+			name: "契約: 許可外メソッド（E3・405）は 3 サーバで同じ形になる",
 			send: func(t *testing.T, s server) *http.Response {
+				t.Helper()
 				return request(t, s, http.MethodDelete, s.postPath, "", "")
 			},
 			wantTypeSuffix: problem.TypeMethodNotAllowed,
 			wantStatus:     http.StatusMethodNotAllowed,
 		},
 		{
-			name: "サポート外 Content-Type（E1 / 415）",
+			name: "契約: サポート外 Content-Type（E1・415）は 3 サーバで同じ形になる",
 			send: func(t *testing.T, s server) *http.Response {
+				t.Helper()
 				return request(t, s, http.MethodPost, s.postPath, "text/plain", `{}`)
 			},
 			wantTypeSuffix: problem.TypeUnsupportedMediaType,
 			wantStatus:     http.StatusUnsupportedMediaType,
 		},
 		{
-			name: "不正 JSON（E1 / 400・フィールド特定不能）",
+			name: "契約: 不正 JSON（E1・400・フィールド特定不能）は 3 サーバで同じ形になる",
 			send: func(t *testing.T, s server) *http.Response {
+				t.Helper()
 				return request(t, s, http.MethodPost, s.postPath, "application/json", `{"x":`)
 			},
 			wantTypeSuffix: problem.TypeValidationError,
 			wantStatus:     http.StatusBadRequest,
 		},
 		{
-			name: "必須欠落（E1 / 400・フィールド特定可能）",
+			name: "契約: 必須欠落（E1・400・フィールド特定可能）は 3 サーバで同じ形になる",
 			send: func(t *testing.T, s server) *http.Response {
+				t.Helper()
 				return request(t, s, http.MethodPost, s.postPath, "application/json", `{}`)
 			},
 			wantTypeSuffix: problem.TypeValidationError,
@@ -185,39 +194,39 @@ func TestProblemParity_AcrossThreeServers(t *testing.T) {
 		t.Run(kind.name, func(t *testing.T) {
 			shapes := make(map[string]shape, len(servers))
 			for _, s := range servers {
-				shapes[s.name] = readShape(t, kind.send(t, s))
+				shapes[s.label] = readShape(t, kind.send(t, s))
 			}
 
 			var reference *shape
 			var referenceName string
 			for _, s := range servers {
-				got := shapes[s.name]
+				got := shapes[s.label]
 
-				assert.Equal(t, kind.wantStatus, got.Status, "%s: status", s.name)
-				assert.Equal(t, "application/problem+json", got.ContentType, "%s: Content-Type", s.name)
+				assert.Equal(t, kind.wantStatus, got.Status, "%s: status", s.label)
+				assert.Equal(t, "application/problem+json", got.ContentType, "%s: Content-Type", s.label)
 				// type は名前空間 + サフィックス。名前空間はコンテキストごとの定数だが、
 				// テンプレート既定では 3 つとも同じ値である。
 				assert.True(t, strings.HasSuffix(got.Type, "/"+kind.wantTypeSuffix),
-					"%s: type が %q で終わること: %s", s.name, kind.wantTypeSuffix, got.Type)
+					"%s: type が %q で終わること: %s", s.label, kind.wantTypeSuffix, got.Type)
 
 				if kind.wantParams {
 					assert.Equal(t, []string{"code", "name", "reason"}, got.ParamKeys,
-						"%s: invalid-params の要素構造", s.name)
+						"%s: invalid-params の要素構造", s.label)
 				} else {
 					assert.NotContains(t, got.Keys, "invalid-params",
-						"%s: 特定できないときは invalid-params ごと省略する（規則 R-14）", s.name)
+						"%s: 特定できないときは invalid-params ごと省略する（規則 R-14）", s.label)
 				}
 
 				if reference == nil {
 					r := got
-					reference, referenceName = &r, s.name
+					reference, referenceName = &r, s.label
 					continue
 				}
-				assert.Equal(t, reference.Type, got.Type, "%s と %s で type が一致しない", referenceName, s.name)
-				assert.Equal(t, reference.Title, got.Title, "%s と %s で title が一致しない", referenceName, s.name)
-				assert.Equal(t, reference.Detail, got.Detail, "%s と %s で detail が一致しない", referenceName, s.name)
-				assert.Equal(t, reference.Keys, got.Keys, "%s と %s で本文のキー集合が一致しない", referenceName, s.name)
-				assert.Equal(t, reference.ParamKeys, got.ParamKeys, "%s と %s で invalid-params の構造が一致しない", referenceName, s.name)
+				assert.Equal(t, reference.Type, got.Type, "%s と %s で type が一致しない", referenceName, s.label)
+				assert.Equal(t, reference.Title, got.Title, "%s と %s で title が一致しない", referenceName, s.label)
+				assert.Equal(t, reference.Detail, got.Detail, "%s と %s で detail が一致しない", referenceName, s.label)
+				assert.Equal(t, reference.Keys, got.Keys, "%s と %s で本文のキー集合が一致しない", referenceName, s.label)
+				assert.Equal(t, reference.ParamKeys, got.ParamKeys, "%s と %s で invalid-params の構造が一致しない", referenceName, s.label)
 			}
 		})
 	}
@@ -233,7 +242,7 @@ func TestProblemParity_NoOgenLeak(t *testing.T) {
 	}
 
 	for _, s := range servers {
-		t.Run(s.name, func(t *testing.T) {
+		t.Run(fmt.Sprintf("契約: %s は ogen 由来の文言を出さない", s.label), func(t *testing.T) {
 			for _, resp := range []*http.Response{
 				request(t, s, http.MethodPost, s.postPath, "application/json", `{"x":`),
 				request(t, s, http.MethodPost, s.postPath, "application/json", `{}`),

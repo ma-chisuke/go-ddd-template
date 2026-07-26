@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 
 	application "github.com/example/go-ddd-template/contexts/ordering/internal/application"
-	order "github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	domain "github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 	port "github.com/example/go-ddd-template/contexts/ordering/port"
 	outbox "github.com/example/go-ddd-template/shared/outbox"
 	gomock "go.uber.org/mock/gomock"
@@ -145,10 +145,10 @@ func (m *MockOrderStore) EXPECT() *MockOrderStoreMockRecorder {
 }
 
 // Load mocks base method.
-func (m *MockOrderStore) Load(ctx context.Context, id order.OrderID) (*order.Order, error) {
+func (m *MockOrderStore) Load(ctx context.Context, id domain.OrderID) (*domain.Order, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Load", ctx, id)
-	ret0, _ := ret[0].(*order.Order)
+	ret0, _ := ret[0].(*domain.Order)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -166,25 +166,25 @@ type MockOrderStoreLoadCall struct {
 }
 
 // Return rewrite *gomock.Call.Return
-func (c *MockOrderStoreLoadCall) Return(arg0 *order.Order, arg1 error) *MockOrderStoreLoadCall {
+func (c *MockOrderStoreLoadCall) Return(arg0 *domain.Order, arg1 error) *MockOrderStoreLoadCall {
 	c.Call = c.Call.Return(arg0, arg1)
 	return c
 }
 
 // Do rewrite *gomock.Call.Do
-func (c *MockOrderStoreLoadCall) Do(f func(context.Context, order.OrderID) (*order.Order, error)) *MockOrderStoreLoadCall {
+func (c *MockOrderStoreLoadCall) Do(f func(context.Context, domain.OrderID) (*domain.Order, error)) *MockOrderStoreLoadCall {
 	c.Call = c.Call.Do(f)
 	return c
 }
 
 // DoAndReturn rewrite *gomock.Call.DoAndReturn
-func (c *MockOrderStoreLoadCall) DoAndReturn(f func(context.Context, order.OrderID) (*order.Order, error)) *MockOrderStoreLoadCall {
+func (c *MockOrderStoreLoadCall) DoAndReturn(f func(context.Context, domain.OrderID) (*domain.Order, error)) *MockOrderStoreLoadCall {
 	c.Call = c.Call.DoAndReturn(f)
 	return c
 }
 
 // Save mocks base method.
-func (m *MockOrderStore) Save(ctx context.Context, o *order.Order) error {
+func (m *MockOrderStore) Save(ctx context.Context, o *domain.Order) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Save", ctx, o)
 	ret0, _ := ret[0].(error)
@@ -210,13 +210,13 @@ func (c *MockOrderStoreSaveCall) Return(arg0 error) *MockOrderStoreSaveCall {
 }
 
 // Do rewrite *gomock.Call.Do
-func (c *MockOrderStoreSaveCall) Do(f func(context.Context, *order.Order) error) *MockOrderStoreSaveCall {
+func (c *MockOrderStoreSaveCall) Do(f func(context.Context, *domain.Order) error) *MockOrderStoreSaveCall {
 	c.Call = c.Call.Do(f)
 	return c
 }
 
 // DoAndReturn rewrite *gomock.Call.DoAndReturn
-func (c *MockOrderStoreSaveCall) DoAndReturn(f func(context.Context, *order.Order) error) *MockOrderStoreSaveCall {
+func (c *MockOrderStoreSaveCall) DoAndReturn(f func(context.Context, *domain.Order) error) *MockOrderStoreSaveCall {
 	c.Call = c.Call.DoAndReturn(f)
 	return c
 }
@@ -308,7 +308,7 @@ func (m *MockEventDispatcher) EXPECT() *MockEventDispatcherMockRecorder {
 }
 
 // Dispatch mocks base method.
-func (m *MockEventDispatcher) Dispatch(ctx context.Context, events ...order.DomainEvent) {
+func (m *MockEventDispatcher) Dispatch(ctx context.Context, events ...domain.DomainEvent) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx}
 	for _, a := range events {
@@ -337,13 +337,13 @@ func (c *MockEventDispatcherDispatchCall) Return() *MockEventDispatcherDispatchC
 }
 
 // Do rewrite *gomock.Call.Do
-func (c *MockEventDispatcherDispatchCall) Do(f func(context.Context, ...order.DomainEvent)) *MockEventDispatcherDispatchCall {
+func (c *MockEventDispatcherDispatchCall) Do(f func(context.Context, ...domain.DomainEvent)) *MockEventDispatcherDispatchCall {
 	c.Call = c.Call.Do(f)
 	return c
 }
 
 // DoAndReturn rewrite *gomock.Call.DoAndReturn
-func (c *MockEventDispatcherDispatchCall) DoAndReturn(f func(context.Context, ...order.DomainEvent)) *MockEventDispatcherDispatchCall {
+func (c *MockEventDispatcherDispatchCall) DoAndReturn(f func(context.Context, ...domain.DomainEvent)) *MockEventDispatcherDispatchCall {
 	c.Call = c.Call.DoAndReturn(f)
 	return c
 }

@@ -27,12 +27,12 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	httpapi "github.com/example/go-ddd-template/contexts/ordering/internal/adapter/inbound/http"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/inbound/httpapi"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/inbound/openapi"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/postgres"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 	"github.com/example/go-ddd-template/shared/correlation/corrhttp"
 	"github.com/example/go-ddd-template/shared/event"
 	sharedlog "github.com/example/go-ddd-template/shared/logging"
@@ -153,11 +153,11 @@ func build(
 	exec := uow.NewExecutor()
 	// ドメインイベントの配信機構は共有モジュールの型付きディスパッチャを直接使う。
 	// 型引数にこのコンテキストのドメインイベント型を綴ることで、共有された 1 実装が
-	// application.EventDispatcher ポート（order.DomainEvent で宣言されている）を
+	// application.EventDispatcher ポート（domain.DomainEvent で宣言されている）を
 	// そのまま満たす — アダプタは要らない。あえて per-context の委譲コンストラクタを
 	// 置かないのは、「機構は共有・型はコンテキスト固有」という設計が呼び出し側から
 	// 見えている状態を保つためである。
-	dispatcher := event.NewTyped[order.DomainEvent](log)
+	dispatcher := event.NewTyped[domain.DomainEvent](log)
 
 	place := application.NewPlaceOrder(exec, work, reserver, dispatcher, log)
 	cancel := application.NewCancelOrder(exec, work, log)

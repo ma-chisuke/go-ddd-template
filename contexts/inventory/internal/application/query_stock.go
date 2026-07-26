@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 )
 
 // QueryStockInput は在庫照会ユースケースの入力。
@@ -28,9 +28,9 @@ func NewStockViewer(read StockStore, log *slog.Logger) *StockViewer {
 }
 
 // QueryStock は指定 SKU の在庫状態を返す。存在しない場合は
-// inventory.ErrStockItemNotFound をそのまま伝播する。
+// domain.ErrStockItemNotFound をそのまま伝播する。
 func (v *StockViewer) QueryStock(ctx context.Context, in QueryStockInput) (StockResult, error) {
-	sku, err := inventory.NewSKU(in.SKU)
+	sku, err := domain.NewSKU(in.SKU)
 	if err != nil {
 		return StockResult{}, locate("", err)
 	}

@@ -7,13 +7,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 )
 
 // locate の安全性は、ユースケース経由のテスト（validation_path_test.go）では踏めない
 // 分岐を持つ。ここでは非公開関数を直接呼び、その分岐を明示的に固定する。
 
 func TestLocate_PassesThroughNonDomainErrors(t *testing.T) {
+	t.Parallel()
+
 	sentinel := errors.New("リポジトリの失敗")
 
 	got := locate("Lines[0]", sentinel)
@@ -24,7 +26,9 @@ func TestLocate_PassesThroughNonDomainErrors(t *testing.T) {
 }
 
 func TestLocate_DoesNotDoubleWrap(t *testing.T) {
-	_, err := inventory.NewSKU("")
+	t.Parallel()
+
+	_, err := domain.NewSKU("")
 	first := locate("Lines[0]", err)
 	require.IsType(t, &ValidationError{}, first)
 
@@ -39,7 +43,9 @@ func TestLocate_DoesNotDoubleWrap(t *testing.T) {
 // 上書き表 dtoPaths に無いフィールドは、機械的な変換（先頭 1 文字を大文字にする）で
 // パス断片にする。**ドメインに Rule を 1 行足すだけでこの層は動く**ことを示す。
 func TestLocate_UnknownFieldUsesMechanicalConversion(t *testing.T) {
-	newRule := inventory.Rule{Field: "somethingNew", Code: "something_new", Err: inventory.ErrInvalidSKU}
+	t.Parallel()
+
+	newRule := domain.Rule{Field: "somethingNew", Code: "something_new", Err: domain.ErrInvalidSKU}
 
 	var ve *ValidationError
 	require.ErrorAs(t, locate("", newRule.Violated("新しい規則に違反しました")), &ve)
@@ -49,7 +55,9 @@ func TestLocate_UnknownFieldUsesMechanicalConversion(t *testing.T) {
 
 // 上書き表に載っているフィールド（予約参照）は DTO 上の名前へ写る。
 func TestLocate_OverriddenFieldUsesTable(t *testing.T) {
-	_, err := inventory.NewReservationRef("")
+	t.Parallel()
+
+	_, err := domain.NewReservationRef("")
 
 	var ve *ValidationError
 	require.ErrorAs(t, locate("", err), &ve)
@@ -59,7 +67,9 @@ func TestLocate_OverriddenFieldUsesTable(t *testing.T) {
 // ドメインが位置を運んできたら（Rule.ViolatedAt）、呼び出し側が渡した前置より明細の
 // パスが優先される。これが ReservationService.Allocate（走査が集約側にある）の経路である。
 func TestLocate_DomainIndexOverridesPrefix(t *testing.T) {
-	err := inventory.VQuantity.ViolatedAt(2, "予約数量は 1 以上でなければなりません")
+	t.Parallel()
+
+	err := domain.VQuantity.ViolatedAt(2, "予約数量は 1 以上でなければなりません")
 
 	var ve *ValidationError
 	// 前置は空（Allocate の呼び出し側はトップ階層として呼ぶ）。
@@ -68,15 +78,19 @@ func TestLocate_DomainIndexOverridesPrefix(t *testing.T) {
 }
 
 func TestLocate_NilInput(t *testing.T) {
-	assert.Nil(t, locate("", nil), "nil は nil のまま")
+	t.Parallel()
+
+	assert.NoError(t, locate("", nil), "nil は nil のまま")
 }
 
 // ValidationError.Error() が包んだ文言をそのまま返すこと。
 // ログ出力（NewError の WarnContext / ErrorContext）がこの文言に依存している。
 func TestValidationError_ErrorPassesThroughWrappedMessage(t *testing.T) {
-	_, err := inventory.NewQuantity(-1)
+	t.Parallel()
+
+	_, err := domain.NewQuantity(-1)
 	located := locate("", err)
 
 	assert.Equal(t, err.Error(), located.Error(), "元の文言を変えない")
-	assert.ErrorIs(t, located, inventory.ErrInvalidQuantity, "番兵まで Unwrap が繋がる")
+	assert.ErrorIs(t, located, domain.ErrInvalidQuantity, "番兵まで Unwrap が繋がる")
 }

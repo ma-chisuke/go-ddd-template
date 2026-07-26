@@ -1,4 +1,4 @@
-// Package client はコード生成の指示だけを持つ薄いパッケージ。リポジトリのルートで
+// Package inventory はコード生成の指示だけを持つ薄いパッケージ。リポジトリのルートで
 //
 //	cd clients/inventory && go generate ./...
 //
@@ -8,6 +8,6 @@
 // 検証する。
 //
 // パスはこのファイルのあるディレクトリ（モジュールルート）からの相対。
-package client
+package inventory
 
 //go:generate go tool ogen --config ../../contracts/inventory/client.ogen.yaml --target invclient --package invclient --clean ../../contracts/inventory/internal.openapi.yaml

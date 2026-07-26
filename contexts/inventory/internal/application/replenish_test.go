@@ -11,7 +11,7 @@ import (
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/event"
 	"github.com/example/go-ddd-template/shared/uow"
 )
@@ -26,7 +26,7 @@ func testLogger() *slog.Logger {
 type fixture struct {
 	replenisher *application.Replenisher
 	viewer      *application.StockViewer
-	captured    *[]inventory.DomainEvent
+	captured    *[]domain.DomainEvent
 }
 
 func newFixture(t *testing.T) fixture {
@@ -37,9 +37,9 @@ func newFixture(t *testing.T) fixture {
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 	log := testLogger()
 
-	captured := &[]inventory.DomainEvent{}
+	captured := &[]domain.DomainEvent{}
 	// 実際の InProcessDispatcher を使い、購読ハンドラで配信イベントを記録する。
-	dispatcher := event.NewTyped[inventory.DomainEvent](log, func(_ context.Context, e inventory.DomainEvent) {
+	dispatcher := event.NewTyped[domain.DomainEvent](log, func(_ context.Context, e domain.DomainEvent) {
 		*captured = append(*captured, e)
 	})
 
@@ -51,6 +51,8 @@ func newFixture(t *testing.T) fixture {
 }
 
 func TestReplenishThenQuery(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	f := newFixture(t)
 
@@ -63,7 +65,7 @@ func TestReplenishThenQuery(t *testing.T) {
 
 	// 保存成功後にイベントが 1 件配信されている。
 	require.Len(t, *f.captured, 1, "配信イベント数")
-	assert.IsType(t, inventory.StockReplenished{}, (*f.captured)[0])
+	assert.IsType(t, domain.StockReplenished{}, (*f.captured)[0])
 
 	// 2) 照会すると補充結果が読める。
 	view, err := f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "WIDGET-001"})
@@ -80,33 +82,56 @@ func TestReplenishThenQuery(t *testing.T) {
 }
 
 func TestQueryStock_NotFound(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	f := newFixture(t)
 
 	_, err := f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "MISSING"})
-	require.ErrorIs(t, err, inventory.ErrStockItemNotFound)
+	require.ErrorIs(t, err, domain.ErrStockItemNotFound)
 }
 
 func TestReplenish_ValidationErrors(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
-	f := newFixture(t)
 
 	tests := []struct {
 		name  string
 		input application.ReplenishInput
 		want  error
 	}{
-		{"空 SKU", application.ReplenishInput{SKU: "", Quantity: 1}, inventory.ErrInvalidSKU},
-		{"負の数量", application.ReplenishInput{SKU: "X", Quantity: -1}, inventory.ErrInvalidQuantity},
-		{"数量 0", application.ReplenishInput{SKU: "X", Quantity: 0}, inventory.ErrInvalidQuantity},
+		{
+			name:  "境界: 空の SKU は ErrInvalidSKU",
+			input: application.ReplenishInput{SKU: "", Quantity: 1},
+			want:  domain.ErrInvalidSKU,
+		},
+		{
+			name:  "境界: 負の数量は ErrInvalidQuantity",
+			input: application.ReplenishInput{SKU: "X", Quantity: -1},
+			want:  domain.ErrInvalidQuantity,
+		},
+		{
+			name:  "境界: 数量 0 は ErrInvalidQuantity",
+			input: application.ReplenishInput{SKU: "X", Quantity: 0},
+			want:  domain.ErrInvalidQuantity,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// フィクスチャはサブテストの内側で組む（C-5）。ループの外で 1 度だけ組むと
+			// 並列サブテストが captured を共有し、どのケースが配信したのかを分離できない。
+			f := newFixture(t)
+
 			_, err := f.replenisher.Replenish(ctx, tc.input)
 			require.ErrorIs(t, err, tc.want)
+
+			// 入力検証で失敗したときはイベントを配信しない。
+			// この検証をループの外に置くと、並列サブテストが動く前に評価されて空振りする
+			// （t.Parallel() を呼んだサブテストは親関数が返るまで実行されない）。
+			assert.Empty(t, *f.captured, "検証失敗時にイベントは配信されない")
 		})
 	}
-
-	// 入力検証で失敗したときはイベントを配信しない。
-	assert.Empty(t, *f.captured, "検証失敗時にイベントは配信されない")
 }

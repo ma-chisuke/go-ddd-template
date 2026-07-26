@@ -10,21 +10,23 @@ import (
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/event"
 	"github.com/example/go-ddd-template/shared/testutil"
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
 func TestReaper_ReleasesOnlyExpiredPending(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	store := memory.NewStore()
 	work := memory.NewUnitOfWork(store, memory.NewStores())
 	log := testLogger()
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 
-	captured := &[]inventory.DomainEvent{}
-	dispatcher := event.NewTyped[inventory.DomainEvent](log, func(_ context.Context, e inventory.DomainEvent) {
+	captured := &[]domain.DomainEvent{}
+	dispatcher := event.NewTyped[domain.DomainEvent](log, func(_ context.Context, e domain.DomainEvent) {
 		*captured = append(*captured, e)
 	})
 
@@ -63,12 +65,14 @@ func TestReaper_ReleasesOnlyExpiredPending(t *testing.T) {
 }
 
 func TestReaper_SweepNoopWhenClockBeforeExpiry(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	store := memory.NewStore()
 	work := memory.NewUnitOfWork(store, memory.NewStores())
 	log := testLogger()
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
-	dispatcher := event.NewTyped[inventory.DomainEvent](log)
+	dispatcher := event.NewTyped[domain.DomainEvent](log)
 
 	replenisher := application.NewReplenisher(exec, work, dispatcher, log)
 	reserver := application.NewReserver(exec, work, dispatcher, log, time.Hour)

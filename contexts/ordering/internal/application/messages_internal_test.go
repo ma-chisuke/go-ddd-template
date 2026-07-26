@@ -8,20 +8,24 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 )
 
 // これはパッケージ内部（application）テスト。非公開のメッセージ組み立て関数を直接検証する。
 
 func TestToOutboxMessage_OrderPlacedHasNoRoute(t *testing.T) {
-	e := order.OrderPlaced{OrderID: "ORDER-1", ReservationRef: "RES-1", At: time.Now().UTC()}
+	t.Parallel()
+
+	e := domain.OrderPlaced{OrderID: "ORDER-1", ReservationRef: "RES-1", At: time.Now().UTC()}
 	_, ok, err := toOutboxMessage(e, "trace-1")
 	require.NoError(t, err)
 	assert.False(t, ok, "OrderPlaced はクロスコンテキストの送出経路を持たないはず")
 }
 
 func TestToOutboxMessage_OrderCancelled(t *testing.T) {
-	e := order.OrderCancelled{OrderID: "ORDER-1", ReservationRef: "RES-1", At: time.Now().UTC()}
+	t.Parallel()
+
+	e := domain.OrderCancelled{OrderID: "ORDER-1", ReservationRef: "RES-1", At: time.Now().UTC()}
 	m, ok, err := toOutboxMessage(e, "trace-1")
 	require.NoError(t, err)
 	require.True(t, ok, "OrderCancelled は送出経路を持つべき")
@@ -39,7 +43,9 @@ func TestToOutboxMessage_OrderCancelled(t *testing.T) {
 }
 
 func TestConfirmReservationMessage(t *testing.T) {
-	ref, err := order.NewReservationRef("REF-1")
+	t.Parallel()
+
+	ref, err := domain.NewReservationRef("REF-1")
 	require.NoError(t, err)
 
 	m, err := confirmReservationMessage(ref, "trace-1")

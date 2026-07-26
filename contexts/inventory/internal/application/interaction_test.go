@@ -10,7 +10,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/mock"
 	"github.com/example/go-ddd-template/shared/uow"
 )
@@ -38,25 +38,25 @@ func noRetryExec() uow.Executor {
 }
 
 // mustSKU はテスト用に SKU を生成する。
-func mustSKU(t *testing.T, s string) inventory.SKU {
+func mustSKU(t *testing.T, s string) domain.SKU {
 	t.Helper()
-	sku, err := inventory.NewSKU(s)
+	sku, err := domain.NewSKU(s)
 	require.NoError(t, err, "SKU の生成")
 	return sku
 }
 
 // mustRef はテスト用に ReservationRef を生成する。
-func mustRef(t *testing.T, s string) inventory.ReservationRef {
+func mustRef(t *testing.T, s string) domain.ReservationRef {
 	t.Helper()
-	ref, err := inventory.NewReservationRef(s)
+	ref, err := domain.NewReservationRef(s)
 	require.NoError(t, err, "ReservationRef の生成")
 	return ref
 }
 
 // seededItem は available=n の在庫項目を作る（新規作成 → 補充 → 補充イベントは破棄）。
-func seededItem(t *testing.T, sku string, n int) *inventory.StockItem {
+func seededItem(t *testing.T, sku string, n int) *domain.StockItem {
 	t.Helper()
-	item, err := inventory.NewStockItem("id-"+sku, mustSKU(t, sku))
+	item, err := domain.NewStockItem("id-"+sku, mustSKU(t, sku))
 	require.NoError(t, err, "NewStockItem")
 	require.NoError(t, item.Replenish(mustQuantity(t, n)), "Replenish")
 	_ = item.PullEvents() // 補充イベントは以降のテストに無関係なので捨てる
@@ -64,16 +64,16 @@ func seededItem(t *testing.T, sku string, n int) *inventory.StockItem {
 }
 
 // mustQuantity はテスト用に Quantity を生成する。
-func mustQuantity(t *testing.T, n int) inventory.Quantity {
+func mustQuantity(t *testing.T, n int) domain.Quantity {
 	t.Helper()
-	q, err := inventory.NewQuantity(n)
+	q, err := domain.NewQuantity(n)
 	require.NoError(t, err, "Quantity の生成")
 	return q
 }
 
 // reservedItem は ref で数量 qty を pending 予約した在庫項目を作る（Confirm / Release 用）。
 // ttl 経過後に期限切れになるよう expiresAt が入る。
-func reservedItem(t *testing.T, sku string, available, qty int, ref string, ttl time.Duration) *inventory.StockItem {
+func reservedItem(t *testing.T, sku string, available, qty int, ref string, ttl time.Duration) *domain.StockItem {
 	t.Helper()
 	item := seededItem(t, sku, available)
 	require.NoError(t, item.Reserve(mustRef(t, ref), mustQuantity(t, qty), ttl), "Reserve")
@@ -82,6 +82,8 @@ func reservedItem(t *testing.T, sku string, available, qty int, ref string, ttl 
 }
 
 func TestReplenish_NewSKU_LoadsThenSavesAndDispatches(t *testing.T) {
+	t.Parallel()
+
 	ctrl := gomock.NewController(t)
 	ctx := context.Background()
 
@@ -94,19 +96,19 @@ func TestReplenish_NewSKU_LoadsThenSavesAndDispatches(t *testing.T) {
 	// 未登録 SKU の補充: Load は NotFound → 新規作成 → Save で永続化（版 1 を反映）。
 	stock.EXPECT().
 		Load(gomock.Any(), gomock.Eq(mustSKU(t, "WIDGET-001"))).
-		Return(nil, inventory.ErrStockItemNotFound)
+		Return(nil, domain.ErrStockItemNotFound)
 	stock.EXPECT().
 		Save(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, items ...*inventory.StockItem) error {
+		DoAndReturn(func(_ context.Context, items ...*domain.StockItem) error {
 			require.Len(t, items, 1, "Save は 1 集約で呼ばれる")
 			items[0].MarkPersisted(1) // 実アダプタが行う版反映を模す
 			return nil
 		})
 
-	var dispatched []inventory.DomainEvent
+	var dispatched []domain.DomainEvent
 	dispatch.EXPECT().
 		Dispatch(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, events ...inventory.DomainEvent) {
+		DoAndReturn(func(_ context.Context, events ...domain.DomainEvent) {
 			dispatched = append(dispatched, events...)
 		})
 
@@ -118,10 +120,12 @@ func TestReplenish_NewSKU_LoadsThenSavesAndDispatches(t *testing.T) {
 	assert.Equal(t, 0, res.Reserved)
 	assert.Equal(t, 1, res.Version)
 	require.Len(t, dispatched, 1, "補充成功でイベントが 1 件配信される")
-	assert.IsType(t, inventory.StockReplenished{}, dispatched[0])
+	assert.IsType(t, domain.StockReplenished{}, dispatched[0])
 }
 
 func TestReplenish_DoesNotWriteToOutbox(t *testing.T) {
+	t.Parallel()
+
 	ctrl := gomock.NewController(t)
 	ctx := context.Background()
 
@@ -136,7 +140,7 @@ func TestReplenish_DoesNotWriteToOutbox(t *testing.T) {
 	repos.EXPECT().Stock().Return(stock).AnyTimes()
 	repos.EXPECT().Outbox().Return(publisher).AnyTimes()
 
-	stock.EXPECT().Load(gomock.Any(), gomock.Any()).Return(nil, inventory.ErrStockItemNotFound)
+	stock.EXPECT().Load(gomock.Any(), gomock.Any()).Return(nil, domain.ErrStockItemNotFound)
 	stock.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
 	dispatch.EXPECT().Dispatch(gomock.Any(), gomock.Any())
 
@@ -147,6 +151,8 @@ func TestReplenish_DoesNotWriteToOutbox(t *testing.T) {
 }
 
 func TestReserve_LoadsManyThenSaves(t *testing.T) {
+	t.Parallel()
+
 	ctrl := gomock.NewController(t)
 	ctx := context.Background()
 
@@ -156,23 +162,23 @@ func TestReserve_LoadsManyThenSaves(t *testing.T) {
 
 	repos.EXPECT().Stock().Return(stock).AnyTimes()
 
-	want := []inventory.SKU{mustSKU(t, "SKU-A")}
+	want := []domain.SKU{mustSKU(t, "SKU-A")}
 	stock.EXPECT().
 		LoadMany(gomock.Any(), gomock.Eq(want)).
-		Return([]*inventory.StockItem{seededItem(t, "SKU-A", 10)}, nil)
+		Return([]*domain.StockItem{seededItem(t, "SKU-A", 10)}, nil)
 	stock.EXPECT().
 		Save(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, items ...*inventory.StockItem) error {
+		DoAndReturn(func(_ context.Context, items ...*domain.StockItem) error {
 			require.Len(t, items, 1)
 			assert.Equal(t, 6, items[0].Available().Int(), "予約後 available = 10 - 4")
 			assert.Equal(t, 4, items[0].Reserved().Int())
 			return nil
 		})
 
-	var dispatched []inventory.DomainEvent
+	var dispatched []domain.DomainEvent
 	dispatch.EXPECT().
 		Dispatch(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, events ...inventory.DomainEvent) {
+		DoAndReturn(func(_ context.Context, events ...domain.DomainEvent) {
 			dispatched = append(dispatched, events...)
 		})
 
@@ -187,6 +193,8 @@ func TestReserve_LoadsManyThenSaves(t *testing.T) {
 }
 
 func TestConfirm_LoadsByReservationThenSaves(t *testing.T) {
+	t.Parallel()
+
 	ctrl := gomock.NewController(t)
 	ctx := context.Background()
 
@@ -199,13 +207,13 @@ func TestConfirm_LoadsByReservationThenSaves(t *testing.T) {
 	ref := mustRef(t, "ORDER-1")
 	stock.EXPECT().
 		LoadByReservation(gomock.Any(), gomock.Eq(ref)).
-		Return([]*inventory.StockItem{reservedItem(t, "SKU-A", 10, 4, "ORDER-1", time.Hour)}, nil)
+		Return([]*domain.StockItem{reservedItem(t, "SKU-A", 10, 4, "ORDER-1", time.Hour)}, nil)
 	stock.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
 
-	var dispatched []inventory.DomainEvent
+	var dispatched []domain.DomainEvent
 	dispatch.EXPECT().
 		Dispatch(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, events ...inventory.DomainEvent) {
+		DoAndReturn(func(_ context.Context, events ...domain.DomainEvent) {
 			dispatched = append(dispatched, events...)
 		})
 
@@ -216,6 +224,8 @@ func TestConfirm_LoadsByReservationThenSaves(t *testing.T) {
 }
 
 func TestConfirm_NoReservation_ReturnsNotFound(t *testing.T) {
+	t.Parallel()
+
 	ctrl := gomock.NewController(t)
 	ctx := context.Background()
 
@@ -232,10 +242,12 @@ func TestConfirm_NoReservation_ReturnsNotFound(t *testing.T) {
 
 	c := application.NewConfirmer(noRetryExec(), directUoW{repos}, dispatch, testLogger())
 	err := c.Confirm(ctx, "UNKNOWN")
-	require.ErrorIs(t, err, inventory.ErrReservationNotFound)
+	require.ErrorIs(t, err, domain.ErrReservationNotFound)
 }
 
 func TestRelease_LoadsByReservationThenSaves(t *testing.T) {
+	t.Parallel()
+
 	ctrl := gomock.NewController(t)
 	ctx := context.Background()
 
@@ -248,20 +260,20 @@ func TestRelease_LoadsByReservationThenSaves(t *testing.T) {
 	ref := mustRef(t, "ORDER-1")
 	stock.EXPECT().
 		LoadByReservation(gomock.Any(), gomock.Eq(ref)).
-		Return([]*inventory.StockItem{reservedItem(t, "SKU-A", 10, 4, "ORDER-1", time.Hour)}, nil)
+		Return([]*domain.StockItem{reservedItem(t, "SKU-A", 10, 4, "ORDER-1", time.Hour)}, nil)
 	stock.EXPECT().
 		Save(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, items ...*inventory.StockItem) error {
+		DoAndReturn(func(_ context.Context, items ...*domain.StockItem) error {
 			require.Len(t, items, 1)
 			assert.Equal(t, 10, items[0].Available().Int(), "解放後は available へ戻る")
 			assert.Equal(t, 0, items[0].Reserved().Int())
 			return nil
 		})
 
-	var dispatched []inventory.DomainEvent
+	var dispatched []domain.DomainEvent
 	dispatch.EXPECT().
 		Dispatch(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, events ...inventory.DomainEvent) {
+		DoAndReturn(func(_ context.Context, events ...domain.DomainEvent) {
 			dispatched = append(dispatched, events...)
 		})
 
@@ -272,6 +284,8 @@ func TestRelease_LoadsByReservationThenSaves(t *testing.T) {
 }
 
 func TestQueryStock_ReadsViaStockStore(t *testing.T) {
+	t.Parallel()
+
 	ctrl := gomock.NewController(t)
 	ctx := context.Background()
 
@@ -290,6 +304,8 @@ func TestQueryStock_ReadsViaStockStore(t *testing.T) {
 }
 
 func TestReaper_UsesClockThenLoadsExpiredAndSaves(t *testing.T) {
+	t.Parallel()
+
 	ctrl := gomock.NewController(t)
 	ctx := context.Background()
 
@@ -308,13 +324,13 @@ func TestReaper_UsesClockThenLoadsExpiredAndSaves(t *testing.T) {
 	expired := reservedItem(t, "SKU-A", 100, 10, "PENDING", time.Hour)
 	stock.EXPECT().
 		LoadExpiredPending(gomock.Any(), gomock.Eq(now), gomock.Eq(100)).
-		Return([]*inventory.StockItem{expired}, nil)
+		Return([]*domain.StockItem{expired}, nil)
 	stock.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
 
-	var dispatched []inventory.DomainEvent
+	var dispatched []domain.DomainEvent
 	dispatch.EXPECT().
 		Dispatch(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, events ...inventory.DomainEvent) {
+		DoAndReturn(func(_ context.Context, events ...domain.DomainEvent) {
 			dispatched = append(dispatched, events...)
 		})
 

@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
@@ -31,7 +31,7 @@ type Reserver struct {
 	work     UnitOfWork
 	dispatch EventDispatcher
 	log      *slog.Logger
-	service  inventory.ReservationService
+	service  domain.ReservationService
 	ttl      time.Duration
 }
 
@@ -47,7 +47,7 @@ func NewReserver(exec uow.Executor, work UnitOfWork, dispatch EventDispatcher, l
 // ドメインイベントは外側の変数に退避し、作業単位が成功（uow.Run が nil を返す）した
 // あとにのみ配信する。これにより「保存に失敗したのにイベントだけ配信される」ことを防ぐ。
 func (r *Reserver) Reserve(ctx context.Context, in ReserveInput) error {
-	ref, err := inventory.NewReservationRef(in.Ref)
+	ref, err := domain.NewReservationRef(in.Ref)
 	if err != nil {
 		return locate("", err)
 	}
@@ -56,7 +56,7 @@ func (r *Reserver) Reserve(ctx context.Context, in ReserveInput) error {
 		return err // toReservationLines が既に位置を解決している
 	}
 
-	var events []inventory.DomainEvent
+	var events []domain.DomainEvent
 	err = uow.Run(ctx, r.exec, r.work, func(ctx context.Context, repos Repos) error {
 		stocks, err := repos.Stock().LoadMany(ctx, skus)
 		if err != nil {
@@ -88,20 +88,20 @@ func (r *Reserver) Reserve(ctx context.Context, in ReserveInput) error {
 // この走査は値オブジェクトの検証（SKU 非空・数量非負）だけを行う。数量が 0 かどうかは
 // ここでは弾けない（在庫の Quantity は 0 を許容する）ため、ReservationService.Allocate が
 // 集約側で弾く。したがって「Lines[i] の位置」はこの走査と Allocate の 2 経路から来る。
-func toReservationLines(in []ReserveLine) ([]inventory.ReservationLine, []inventory.SKU, error) {
-	lines := make([]inventory.ReservationLine, 0, len(in))
-	skus := make([]inventory.SKU, 0, len(in))
+func toReservationLines(in []ReserveLine) ([]domain.ReservationLine, []domain.SKU, error) {
+	lines := make([]domain.ReservationLine, 0, len(in))
+	skus := make([]domain.SKU, 0, len(in))
 	for i, l := range in {
 		at := linePath(i)
-		sku, err := inventory.NewSKU(l.SKU)
+		sku, err := domain.NewSKU(l.SKU)
 		if err != nil {
 			return nil, nil, locate(at, err)
 		}
-		qty, err := inventory.NewQuantity(l.Quantity)
+		qty, err := domain.NewQuantity(l.Quantity)
 		if err != nil {
 			return nil, nil, locate(at, err)
 		}
-		lines = append(lines, inventory.ReservationLine{SKU: sku, Quantity: qty})
+		lines = append(lines, domain.ReservationLine{SKU: sku, Quantity: qty})
 		skus = append(skus, sku)
 	}
 	return lines, skus, nil

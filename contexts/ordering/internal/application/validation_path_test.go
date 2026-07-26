@@ -12,7 +12,7 @@ import (
 
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 	"github.com/example/go-ddd-template/contexts/ordering/port"
 	"github.com/example/go-ddd-template/shared/uow"
 )
@@ -39,6 +39,8 @@ func requireSingle(t *testing.T, err error) application.FieldViolation {
 }
 
 func TestValidationPath_PlaceOrder(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 
 	cases := []struct {
@@ -49,51 +51,53 @@ func TestValidationPath_PlaceOrder(t *testing.T) {
 		wantErr  error
 	}{
 		{
-			name:     "顧客 ID が空",
+			name:     "境界: 顧客 ID が空なら CustomerId を指す",
 			in:       application.PlaceOrderInput{CustomerID: "  ", Lines: []application.PlaceOrderLine{{SKU: "SKU-A", Quantity: 1, UnitPriceAmount: 100, Currency: "JPY"}}},
 			wantPath: "CustomerId",
-			wantCode: order.VCustomerID.Code,
-			wantErr:  order.ErrInvalidCustomerID,
+			wantCode: domain.VCustomerID.Code,
+			wantErr:  domain.ErrInvalidCustomerID,
 		},
 		{
-			name:     "明細が空（集約規則）",
+			name:     "境界: 明細が空なら Lines を指す（集約規則）",
 			in:       application.PlaceOrderInput{CustomerID: "CUST-1"},
 			wantPath: "Lines",
-			wantCode: order.VEmptyOrder.Code,
-			wantErr:  order.ErrEmptyOrder,
+			wantCode: domain.VEmptyOrder.Code,
+			wantErr:  domain.ErrEmptyOrder,
 		},
 		{
-			name:     "1 行目の SKU が空",
+			name:     "境界: 1 行目の SKU が空なら Lines[0].Sku を指す",
 			in:       application.PlaceOrderInput{CustomerID: "CUST-1", Lines: []application.PlaceOrderLine{{SKU: " ", Quantity: 1, UnitPriceAmount: 100, Currency: "JPY"}}},
 			wantPath: "Lines[0].Sku",
-			wantCode: order.VSKU.Code,
-			wantErr:  order.ErrInvalidSKU,
+			wantCode: domain.VSKU.Code,
+			wantErr:  domain.ErrInvalidSKU,
 		},
 		{
-			name:     "1 行目の数量が 0",
+			name:     "境界: 1 行目の数量が 0 なら Lines[0].Quantity を指す",
 			in:       application.PlaceOrderInput{CustomerID: "CUST-1", Lines: []application.PlaceOrderLine{{SKU: "SKU-A", Quantity: 0, UnitPriceAmount: 100, Currency: "JPY"}}},
 			wantPath: "Lines[0].Quantity",
-			wantCode: order.VQuantity.Code,
-			wantErr:  order.ErrInvalidQuantity,
+			wantCode: domain.VQuantity.Code,
+			wantErr:  domain.ErrInvalidQuantity,
 		},
 		{
-			name:     "1 行目の金額が負（amount）",
+			name:     "境界: 1 行目の金額が負なら Lines[0].UnitPrice.Amount を指す",
 			in:       application.PlaceOrderInput{CustomerID: "CUST-1", Lines: []application.PlaceOrderLine{{SKU: "SKU-A", Quantity: 1, UnitPriceAmount: -1, Currency: "JPY"}}},
 			wantPath: "Lines[0].UnitPrice.Amount",
-			wantCode: order.VMoneyAmount.Code,
-			wantErr:  order.ErrInvalidMoney,
+			wantCode: domain.VMoneyAmount.Code,
+			wantErr:  domain.ErrInvalidMoney,
 		},
 		{
-			name:     "1 行目の通貨が空（currency）",
+			name:     "境界: 1 行目の通貨が空なら Lines[0].UnitPrice.Currency を指す",
 			in:       application.PlaceOrderInput{CustomerID: "CUST-1", Lines: []application.PlaceOrderLine{{SKU: "SKU-A", Quantity: 1, UnitPriceAmount: 100, Currency: ""}}},
 			wantPath: "Lines[0].UnitPrice.Currency",
-			wantCode: order.VMoneyCurrency.Code,
-			wantErr:  order.ErrInvalidMoney,
+			wantCode: domain.VMoneyCurrency.Code,
+			wantErr:  domain.ErrInvalidMoney,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			// reserver に EXPECT を置かない = 検証で弾かれるので在庫予約は呼ばれない。
 			f := newMemFixture(t)
 			_, err := f.place.Handle(ctx, tc.in)
@@ -109,13 +113,17 @@ func TestValidationPath_PlaceOrder(t *testing.T) {
 // 添字が「たまたま 0」で通ってしまわないよう、壊す行を動かして検証する。
 // 実装が for _, l := range に戻れば（＝位置を落とせば）このテストが落ちる。
 func TestValidationPath_PlaceOrderReportsTheBrokenLine(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	ok := func(sku string) application.PlaceOrderLine {
 		return application.PlaceOrderLine{SKU: sku, Quantity: 1, UnitPriceAmount: 100, Currency: "JPY"}
 	}
 
 	for _, broken := range []int{0, 1, 2} {
-		t.Run(fmt.Sprintf("壊れているのは %d 行目", broken), func(t *testing.T) {
+		t.Run(fmt.Sprintf("境界: 壊れているのが %d 行目でも同じ添字を指す", broken), func(t *testing.T) {
+			t.Parallel()
+
 			lines := []application.PlaceOrderLine{ok("SKU-A"), ok("SKU-B"), ok("SKU-C")}
 			lines[broken].Quantity = 0
 
@@ -125,28 +133,34 @@ func TestValidationPath_PlaceOrderReportsTheBrokenLine(t *testing.T) {
 			v := requireSingle(t, err)
 			assert.Equal(t, application.FieldViolation{
 				Path: fmt.Sprintf("Lines[%d].Quantity", broken),
-				Code: order.VQuantity.Code,
+				Code: domain.VQuantity.Code,
 			}, v)
 		})
 	}
 }
 
 func TestValidationPath_CancelAndGetOrder(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 
-	t.Run("CancelOrder", func(t *testing.T) {
+	t.Run("境界: CancelOrder は空白のみの ID を OrderId として指す", func(t *testing.T) {
+		t.Parallel()
+
 		f := newMemFixture(t)
 		err := f.cancel.Handle(ctx, "   ")
-		require.ErrorIs(t, err, order.ErrInvalidOrderID)
+		require.ErrorIs(t, err, domain.ErrInvalidOrderID)
 		v := requireSingle(t, err)
 		assert.Equal(t, "OrderId", v.Path)
-		assert.Equal(t, order.VOrderID.Code, v.Code)
+		assert.Equal(t, domain.VOrderID.Code, v.Code)
 	})
 
-	t.Run("GetOrder", func(t *testing.T) {
+	t.Run("境界: GetOrder は空白のみの ID を OrderId として指す", func(t *testing.T) {
+		t.Parallel()
+
 		f := newMemFixture(t)
 		_, err := f.get.Handle(ctx, "   ")
-		require.ErrorIs(t, err, order.ErrInvalidOrderID)
+		require.ErrorIs(t, err, domain.ErrInvalidOrderID)
 		v := requireSingle(t, err)
 		assert.Equal(t, "OrderId", v.Path)
 	})
@@ -156,17 +170,23 @@ func TestValidationPath_CancelAndGetOrder(t *testing.T) {
 // ここが壊れると、リポジトリ障害や版衝突に対してリクエスターへ「あなたの入力が悪い」と
 // 嘘をつくことになる。
 func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	var ve *application.ValidationError
 
-	t.Run("存在しない注文の取消（404 系）", func(t *testing.T) {
+	t.Run("異常系: 存在しない注文の取消は 404 系になる", func(t *testing.T) {
+		t.Parallel()
+
 		f := newMemFixture(t)
 		err := f.cancel.Handle(ctx, "MISSING")
-		require.ErrorIs(t, err, order.ErrOrderNotFound)
+		require.ErrorIs(t, err, domain.ErrOrderNotFound)
 		assert.False(t, errors.As(err, &ve), "リポジトリ由来のエラーは検証エラーに化けない")
 	})
 
-	t.Run("在庫予約の拒否（409 系）", func(t *testing.T) {
+	t.Run("異常系: 在庫予約の拒否は 409 系になる", func(t *testing.T) {
+		t.Parallel()
+
 		f := newMemFixture(t)
 		f.reserver.EXPECT().
 			Reserve(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -177,7 +197,9 @@ func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
 		assert.False(t, errors.As(err, &ve), "ACL 由来のエラーは検証エラーに化けない")
 	})
 
-	t.Run("版衝突が再試行上限を超える（409 系）", func(t *testing.T) {
+	t.Run("並行: 版衝突が再試行上限を超えると 409 系になる", func(t *testing.T) {
+		t.Parallel()
+
 		store := memory.NewStore()
 		stores := memory.NewStores()
 		// 再試行上限（既定 3）を超える回数だけ衝突を注入し、UoW を必ず失敗させる。

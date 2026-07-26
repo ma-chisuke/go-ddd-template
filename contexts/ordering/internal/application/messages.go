@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 	"github.com/example/go-ddd-template/shared/id"
 	"github.com/example/go-ddd-template/shared/outbox"
 )
@@ -38,7 +38,7 @@ type reservationRefPayload struct {
 // これは **アプリケーション層が構築してアウトボックスへ直接書く「コマンド」** であり、
 // ドメインが raise したイベントを collect → dispatch する経路（PullEvents）は通らない。
 // 注文が durable になれば、このコマンドは at-least-once で必ず在庫側へ届く。
-func confirmReservationMessage(ref order.ReservationRef, traceID string) (outbox.Message, error) {
+func confirmReservationMessage(ref domain.ReservationRef, traceID string) (outbox.Message, error) {
 	payload, err := json.Marshal(reservationRefPayload{ReservationRef: ref.String()})
 	if err != nil {
 		return outbox.Message{}, fmt.Errorf("予約確定コマンドの組み立てに失敗しました: %w", err)
@@ -58,9 +58,9 @@ func confirmReservationMessage(ref order.ReservationRef, traceID string) (outbox
 //
 // これにより「ドメインが append したイベント（OrderCancelled）を PullEvents で collect し、
 // 機構経由でアウトボックスへ積む」経路が保たれる（手組みメッセージの近道は取らない）。
-func toOutboxMessage(e order.DomainEvent, traceID string) (outbox.Message, bool, error) {
+func toOutboxMessage(e domain.DomainEvent, traceID string) (outbox.Message, bool, error) {
 	switch ev := e.(type) {
-	case order.OrderCancelled:
+	case domain.OrderCancelled:
 		payload, err := json.Marshal(reservationRefPayload{
 			ReservationRef: ev.ReservationRef,
 			OrderID:        ev.OrderID,

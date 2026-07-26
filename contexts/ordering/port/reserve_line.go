@@ -5,7 +5,7 @@
 // 腐敗防止層（ACL）ポートの引数型を名指しできるように公開する一方、ポートのインターフェース
 // 自体（StockReserver）は internal/application に留める。
 //
-// 内部のドメイン型（order.SKU / order.Quantity など）はここには現れない。それらは境界で
+// 内部のドメイン型（domain.SKU / domain.Quantity など）はここには現れない。それらは境界で
 // この翻訳済み DTO へ変換される（コンテキスト間で Go の共有ドメイン型を渡さないため）。
 package port
 

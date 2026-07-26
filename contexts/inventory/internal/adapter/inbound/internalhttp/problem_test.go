@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/openapiinternal"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/problem"
 )
 
@@ -109,7 +109,7 @@ func reserveLine(sku string, qty int) string {
 func TestProblem_E1_ContractValidation(t *testing.T) {
 	ts := newInternalServer(t)
 
-	t.Run("必須欠落: 兄弟フィールドを全件列挙する", func(t *testing.T) {
+	t.Run("境界: 必須欠落は兄弟フィールドを全件列挙する", func(t *testing.T) {
 		pb := readProblem(t, post(t, ts.Client(), ts.URL+"/reservations", `{}`),
 			http.StatusBadRequest, problem.TypeValidationError)
 
@@ -121,7 +121,7 @@ func TestProblem_E1_ContractValidation(t *testing.T) {
 		assert.ElementsMatch(t, []string{"ref", "lines"}, names)
 	})
 
-	t.Run("型不一致（明細の中。添字は付かない — 規則 R-9）", func(t *testing.T) {
+	t.Run("異常系: 明細の中の型不一致は添字を付けない（規則 R-9）", func(t *testing.T) {
 		pb := readProblem(t, post(t, ts.Client(), ts.URL+"/reservations",
 			reserveBody("ORDER-1", `{"sku":"WIDGET-001","quantity":"three"}`)),
 			http.StatusBadRequest, problem.TypeValidationError)
@@ -131,14 +131,14 @@ func TestProblem_E1_ContractValidation(t *testing.T) {
 		assert.Equal(t, problem.CodeType, pb.InvalidParams[0].Code)
 	})
 
-	t.Run("不正 JSON は invalid-params をキーごと省略する（規則 R-14）", func(t *testing.T) {
+	t.Run("異常系: 不正 JSON は invalid-params をキーごと省略する（規則 R-14）", func(t *testing.T) {
 		pb := readProblem(t, post(t, ts.Client(), ts.URL+"/reservations", `{"ref":`),
 			http.StatusBadRequest, problem.TypeValidationError)
 		assert.Empty(t, pb.InvalidParams)
 		assert.NotContains(t, pb.raw, "invalid-params")
 	})
 
-	t.Run("Content-Type 不正は 415", func(t *testing.T) {
+	t.Run("異常系: Content-Type 不正は 415", func(t *testing.T) {
 		pb := readProblem(t, send(t, ts, http.MethodPost, "/reservations", "text/plain",
 			reserveBody("ORDER-1", reserveLine("WIDGET-001", 1))),
 			http.StatusUnsupportedMediaType, problem.TypeUnsupportedMediaType)
@@ -163,14 +163,14 @@ func TestProblem_E2_NotFoundIsProblemJSON(t *testing.T) {
 func TestProblem_E3_MethodNotAllowed(t *testing.T) {
 	ts := newInternalServer(t)
 
-	t.Run("405 は problem+json で Allow ヘッダを維持する", func(t *testing.T) {
+	t.Run("異常系: 405 は problem+json で Allow ヘッダを維持する", func(t *testing.T) {
 		resp := send(t, ts, http.MethodGet, "/reservations", "", "")
 		allow := resp.Header.Get("Allow")
 		readProblem(t, resp, http.StatusMethodNotAllowed, problem.TypeMethodNotAllowed)
 		assert.Contains(t, allow, http.MethodPost, "Allow は本文書き出し前に設定される")
 	})
 
-	t.Run("OPTIONS は 405 にしない（CORS プリフライトを壊さない）", func(t *testing.T) {
+	t.Run("正常系: OPTIONS は 405 にせず CORS プリフライトを壊さない", func(t *testing.T) {
 		resp := send(t, ts, http.MethodOptions, "/reservations", "", "")
 		require.NoError(t, resp.Body.Close())
 		assert.Equal(t, http.StatusNoContent, resp.StatusCode)
@@ -192,27 +192,27 @@ func TestProblem_E4_DomainValidation(t *testing.T) {
 		wantCode string
 	}{
 		{
-			name: "予約参照が空", path: "/reservations",
+			name: "境界: 予約参照が空なら ref を指す", path: "/reservations",
 			body:     reserveBody("  ", reserveLine("WIDGET-001", 1)),
-			wantName: "ref", wantCode: inventory.VReservationRef.Code,
+			wantName: "ref", wantCode: domain.VReservationRef.Code,
 		},
 		{
-			name: "明細の SKU が空（アプリ層のループが位置を付ける）", path: "/reservations",
+			name: "境界: 明細の SKU が空なら lines[0].sku を指す（アプリ層のループが位置を付ける）", path: "/reservations",
 			body:     reserveBody("ORDER-1", reserveLine("  ", 1)),
-			wantName: "lines[0].sku", wantCode: inventory.VSKU.Code,
+			wantName: "lines[0].sku", wantCode: domain.VSKU.Code,
 		},
 		{
-			name: "明細の数量が負（値オブジェクトで弾かれる）", path: "/reservations",
+			name: "境界: 明細の数量が負なら lines[0].quantity を指す（値オブジェクトで弾かれる）", path: "/reservations",
 			body:     reserveBody("ORDER-1", reserveLine("WIDGET-001", -1)),
-			wantName: "lines[0].quantity", wantCode: inventory.VQuantity.Code,
+			wantName: "lines[0].quantity", wantCode: domain.VQuantity.Code,
 		},
 		{
-			name: "確定の参照が空（パスパラメータ）", path: "/reservations/%20/confirm",
-			wantName: "ref", wantCode: inventory.VReservationRef.Code,
+			name: "境界: 確定のパスパラメータが空なら ref を指す", path: "/reservations/%20/confirm",
+			wantName: "ref", wantCode: domain.VReservationRef.Code,
 		},
 		{
-			name: "解放の参照が空（パスパラメータ）", path: "/reservations/%20/release",
-			wantName: "ref", wantCode: inventory.VReservationRef.Code,
+			name: "境界: 解放のパスパラメータが空なら ref を指す", path: "/reservations/%20/release",
+			wantName: "ref", wantCode: domain.VReservationRef.Code,
 		},
 	}
 
@@ -236,7 +236,7 @@ func TestProblem_E4_ZeroQuantityCarriesLineIndexFromDomain(t *testing.T) {
 	ts := newInternalServer(t)
 
 	for _, broken := range []int{0, 1, 2} {
-		t.Run(fmt.Sprintf("%d 行目が 0", broken), func(t *testing.T) {
+		t.Run(fmt.Sprintf("境界: %d 行目が 0 なら同じ添字の quantity を指す", broken), func(t *testing.T) {
 			lines := []string{
 				reserveLine("WIDGET-001", 1),
 				reserveLine("WIDGET-001", 1),
@@ -249,7 +249,7 @@ func TestProblem_E4_ZeroQuantityCarriesLineIndexFromDomain(t *testing.T) {
 
 			require.Len(t, pb.InvalidParams, 1)
 			assert.Equal(t, fmt.Sprintf("lines[%d].quantity", broken), pb.InvalidParams[0].Name)
-			assert.Equal(t, inventory.VQuantity.Code, pb.InvalidParams[0].Code)
+			assert.Equal(t, domain.VQuantity.Code, pb.InvalidParams[0].Code)
 		})
 	}
 }
@@ -260,7 +260,7 @@ func TestProblem_E4_ZeroQuantityCarriesLineIndexFromDomain(t *testing.T) {
 func TestProblem_E4_TypeMigrationAndNoEcho(t *testing.T) {
 	ts := newInternalServer(t)
 
-	t.Run("404（予約が無い）は resource-not-found で参照をエコーしない", func(t *testing.T) {
+	t.Run("契約: 予約が無い 404 は resource-not-found で参照をエコーしない", func(t *testing.T) {
 		pb := readProblem(t, post(t, ts.Client(), ts.URL+"/reservations/SECRET-REF/confirm", ""),
 			http.StatusNotFound, problem.TypeResourceNotFound)
 
@@ -269,7 +269,7 @@ func TestProblem_E4_TypeMigrationAndNoEcho(t *testing.T) {
 		assert.NotContains(t, pb.raw, "SECRET-REF", "受信値をエコーバックしない（FR-2.4）")
 	})
 
-	t.Run("404（在庫項目が無い）は SKU をエコーしない", func(t *testing.T) {
+	t.Run("異常系: 在庫項目が無い 404 は SKU をエコーしない", func(t *testing.T) {
 		pb := readProblem(t, post(t, ts.Client(), ts.URL+"/reservations",
 			reserveBody("ORDER-1", reserveLine("SECRET-SKU", 1))),
 			http.StatusNotFound, problem.TypeResourceNotFound)
@@ -277,7 +277,7 @@ func TestProblem_E4_TypeMigrationAndNoEcho(t *testing.T) {
 		assert.NotContains(t, pb.raw, "SECRET-SKU", "受信値をエコーバックしない（FR-2.4）")
 	})
 
-	t.Run("409（在庫不足）は conflict で数量・在庫数をエコーしない", func(t *testing.T) {
+	t.Run("契約: 在庫不足の 409 は conflict で数量・在庫数をエコーしない", func(t *testing.T) {
 		pb := readProblem(t, post(t, ts.Client(), ts.URL+"/reservations",
 			reserveBody("ORDER-1", reserveLine("WIDGET-001", 999))),
 			http.StatusConflict, problem.TypeConflict)
@@ -288,7 +288,7 @@ func TestProblem_E4_TypeMigrationAndNoEcho(t *testing.T) {
 		assert.NotContains(t, pb.raw, "WIDGET-001", "SKU を漏らさない")
 	})
 
-	t.Run("422（未登録のメッセージ種別）は invalid-input", func(t *testing.T) {
+	t.Run("契約: 未登録のメッセージ種別の 422 は invalid-input", func(t *testing.T) {
 		pb := readProblem(t, post(t, ts.Client(), ts.URL+"/events", `{"id":"m-1","type":"unknown.type","payload":"{}"}`),
 			http.StatusUnprocessableEntity, problem.TypeInvalidInput)
 		assert.Empty(t, pb.InvalidParams, "配送ルート未登録はフィールドに帰着しない")
@@ -299,10 +299,10 @@ func TestProblem_E4_TypeMigrationAndNoEcho(t *testing.T) {
 // 載せうる code 語彙のすべてが、契約（internal.openapi.yaml）の InvalidParam.code enum に
 // 含まれることを網羅的に検証する。列挙元は語彙の唯一の情報源そのもの——契約検証語彙
 // （shared/problem の Code*）と、在庫コンテキストが所有するドメイン検証語彙
-// （inventory.Rule の Code）——である。
+// （domain.Rule の Code）——である。
 //
 // readProblem 内の Validate はテストが実際に踏んだ経路の code しか検証できない。この網羅
-// テストは経路に依存せず、語彙 → enum の対応を直接固定する。新しい inventory.Rule を足したのに
+// テストは経路に依存せず、語彙 → enum の対応を直接固定する。新しい domain.Rule を足したのに
 // 契約の enum へ足し忘れれば、その code の生成型 Validate が invalid value を返し CI が落ちる
 // （規則 R-19）。
 func TestProblem_InvalidParamCodeEnumCoversVocabulary(t *testing.T) {
@@ -312,9 +312,9 @@ func TestProblem_InvalidParamCodeEnumCoversVocabulary(t *testing.T) {
 		problem.CodePattern, problem.CodeUniqueItems, problem.CodeInvalidParam,
 		problem.CodeBodyRequired, problem.CodeInvalid,
 	}
-	// ドメイン検証語彙（422 / invalid-input）。在庫コンテキストの inventory.Rule が唯一の情報源。
+	// ドメイン検証語彙（422 / invalid-input）。在庫コンテキストの domain.Rule が唯一の情報源。
 	domainCodes := []string{
-		inventory.VSKU.Code, inventory.VQuantity.Code, inventory.VReservationRef.Code,
+		domain.VSKU.Code, domain.VQuantity.Code, domain.VReservationRef.Code,
 	}
 
 	for _, code := range append(contractCodes, domainCodes...) {

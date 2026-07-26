@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 	"github.com/example/go-ddd-template/contexts/ordering/port"
 	"github.com/example/go-ddd-template/shared/correlation"
 	"github.com/example/go-ddd-template/shared/id"
@@ -50,33 +50,33 @@ func NewPlaceOrder(exec uow.Executor, work UnitOfWork, reserver StockReserver, d
 // エラー:
 //   - 明細が空 / 数量・金額が不正 → ドメインのセンチネル（ErrEmptyOrder など）。
 //   - 在庫予約の拒否 / 在庫サービス不達 → ErrReservationRejected / ErrReservationUnavailable。
-func (uc *PlaceOrder) Handle(ctx context.Context, in PlaceOrderInput) (order.OrderID, error) {
-	customer, err := order.NewCustomerID(in.CustomerID)
+func (uc *PlaceOrder) Handle(ctx context.Context, in PlaceOrderInput) (domain.OrderID, error) {
+	customer, err := domain.NewCustomerID(in.CustomerID)
 	if err != nil {
-		return order.OrderID{}, locate("", err)
+		return domain.OrderID{}, locate("", err)
 	}
 	lines, reserveLines, err := toOrderLines(in.Lines)
 	if err != nil {
-		return order.OrderID{}, err
+		return domain.OrderID{}, err
 	}
 
 	// 採番はアプリケーション層が行う。ここで失敗したらリクエスターの入力ではなく
 	// サーバ側の問題なので、locate で「入力検証エラー」に見せかけてはならない。
-	orderID, err := order.NewOrderID(id.New())
+	orderID, err := domain.NewOrderID(id.New())
 	if err != nil {
-		return order.OrderID{}, err
+		return domain.OrderID{}, err
 	}
 	// 集約の不変条件（明細は 1 行以上）。lines に帰着するので入力のトップ階層に位置づける。
-	o, err := order.NewOrder(orderID, customer, lines)
+	o, err := domain.NewOrder(orderID, customer, lines)
 	if err != nil {
-		return order.OrderID{}, locate("", err)
+		return domain.OrderID{}, locate("", err)
 	}
 	ref := o.ReservationRef()
 
 	// フェーズ 1: 在庫を同期予約する。ACL はトランザクションの外で呼ぶ（Repos に含めない）。
 	// 予約が拒否・不達なら、注文を作らずに失敗を即時ユーザーへ返す。
 	if err := uc.reserver.Reserve(ctx, ref.String(), reserveLines); err != nil {
-		return order.OrderID{}, err
+		return domain.OrderID{}, err
 	}
 
 	traceID := correlation.FromContextOrEmpty(ctx)
@@ -84,7 +84,7 @@ func (uc *PlaceOrder) Handle(ctx context.Context, in PlaceOrderInput) (order.Ord
 	if err != nil {
 		// メッセージ組み立ての失敗は予約成立後なので、補償解放を試みてから返す。
 		uc.releaseCompensating(ctx, ref)
-		return order.OrderID{}, err
+		return domain.OrderID{}, err
 	}
 
 	// フェーズ 2: 同一 UoW で注文を Confirmed 保存し、ConfirmReservation コマンドを Enqueue する。
@@ -97,7 +97,7 @@ func (uc *PlaceOrder) Handle(ctx context.Context, in PlaceOrderInput) (order.Ord
 	if err != nil {
 		// 保存失敗時は best-effort な補償解放を試みる（在庫側の pending TTL が backstop）。
 		uc.releaseCompensating(ctx, ref)
-		return order.OrderID{}, err
+		return domain.OrderID{}, err
 	}
 
 	// コミット後にプロセス内イベント（OrderPlaced）を配信する。
@@ -111,7 +111,7 @@ func (uc *PlaceOrder) Handle(ctx context.Context, in PlaceOrderInput) (order.Ord
 
 // releaseCompensating は保存失敗時の補償解放を best-effort で試みる。
 // 失敗しても在庫側の pending TTL が孤児 pending を回収するため、ここではログに留める。
-func (uc *PlaceOrder) releaseCompensating(ctx context.Context, ref order.ReservationRef) {
+func (uc *PlaceOrder) releaseCompensating(ctx context.Context, ref domain.ReservationRef) {
 	if err := uc.reserver.Release(ctx, ref.String()); err != nil {
 		uc.log.WarnContext(ctx, "補償解放に失敗しました（在庫側の pending TTL が backstop）",
 			slog.String("ref", ref.String()),
@@ -127,24 +127,24 @@ func (uc *PlaceOrder) releaseCompensating(ctx context.Context, ref order.Reserva
 // ここだけである。ドメインは「quantity が不正」までしか言えないので、この走査が
 // 「Lines[2] の quantity」まで解決する（FR-4.5）。添字を落とすと、5 行の注文で
 // どの行を直せばよいかリクエスターに伝わらない。
-func toOrderLines(in []PlaceOrderLine) ([]order.OrderLine, []port.ReserveLine, error) {
-	lines := make([]order.OrderLine, 0, len(in))
+func toOrderLines(in []PlaceOrderLine) ([]domain.OrderLine, []port.ReserveLine, error) {
+	lines := make([]domain.OrderLine, 0, len(in))
 	reserveLines := make([]port.ReserveLine, 0, len(in))
 	for i, l := range in {
 		at := linePath(i)
-		sku, err := order.NewSKU(l.SKU)
+		sku, err := domain.NewSKU(l.SKU)
 		if err != nil {
 			return nil, nil, locate(at, err)
 		}
-		qty, err := order.NewQuantity(l.Quantity)
+		qty, err := domain.NewQuantity(l.Quantity)
 		if err != nil {
 			return nil, nil, locate(at, err)
 		}
-		price, err := order.NewMoney(l.UnitPriceAmount, l.Currency)
+		price, err := domain.NewMoney(l.UnitPriceAmount, l.Currency)
 		if err != nil {
 			return nil, nil, locate(at, err)
 		}
-		lines = append(lines, order.NewOrderLine(sku, qty, price))
+		lines = append(lines, domain.NewOrderLine(sku, qty, price))
 		reserveLines = append(reserveLines, port.ReserveLine{SKU: sku.String(), Qty: qty.Int()})
 	}
 	return lines, reserveLines, nil
