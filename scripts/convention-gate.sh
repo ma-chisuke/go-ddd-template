@@ -40,7 +40,9 @@ SCAN_DIRS=(shared clients contexts cmd)
 #   Fuzz / Benchmark / Example は C-1 の 2 形の制約を受けない。
 
 # 検査 4（カタログ的ファイル名）の禁止語幹。<語幹>.go と <語幹>_test.go の両方を禁じる。
-CATALOG_STEMS=(value_objects types models utils helpers common misc)
+# identifiers は B-3 則 1（識別子は族でまとめる）の撤回に伴って追加した。「文字列を包む識別子型」は
+# 技術的な種類であって概念ではなく、value_objects と同じ species だからである。
+CATALOG_STEMS=(value_objects types models utils helpers common misc identifiers)
 
 # 検査 6（F-3）の対象となる規約系 Markdown。
 DOC_TARGETS=(CONVENTIONS.md docs/testing-conventions.md AGENTS.md CLAUDE.md README.md)

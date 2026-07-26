@@ -1,7 +1,17 @@
+// 在庫項目の集約ルートと、それを識別する SKU。
+//
+// 束ね方の根拠は CONVENTIONS.md の B-3 則 1（型はそれが属する概念のファイルに置く）である。
+// SKU がここに在るのは「文字列を包む識別子」という技術的な種類のためではなく、在庫項目が
+// 何の在庫かを名指す構成要素だからである（StockItem は SKU ごとに 1 つ存在する）。
+//
+// 値オブジェクトは境界づけられたコンテキストごとに独立して所有する。他コンテキストの
+// 同名の型とは別の型であり、安易に共有しない。必要ならコンテキスト境界で明示的に翻訳する。
+
 package inventory
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -275,4 +285,28 @@ func (s *StockItem) hasReservation(ref ReservationRef) bool {
 // recordEvent はドメインイベントを内部に蓄積する。
 func (s *StockItem) recordEvent(e DomainEvent) {
 	s.events = append(s.events, e)
+}
+
+// SKU（Stock Keeping Unit）は在庫を識別する値オブジェクト。
+// 不変であり、生成後は値を変更できない。空文字は許容しない。
+//
+// 値オブジェクトは境界づけられたコンテキストごとに独立して所有する。
+// 他コンテキストと安易に共有せず、必要ならコンテキスト境界で明示的に翻訳する。
+type SKU struct {
+	value string
+}
+
+// NewSKU は SKU を検証して生成する。前後の空白を取り除いた結果が空なら
+// ErrInvalidSKU を包んだ FieldViolation を返す。
+func NewSKU(s string) (SKU, error) {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return SKU{}, VSKU.Violated("SKU は空にできません")
+	}
+	return SKU{value: trimmed}, nil
+}
+
+// String は SKU の文字列表現を返す。
+func (s SKU) String() string {
+	return s.value
 }

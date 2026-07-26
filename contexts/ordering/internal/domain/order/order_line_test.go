@@ -9,6 +9,25 @@ import (
 	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
 )
 
+func TestNewSKU(t *testing.T) {
+	t.Parallel()
+
+	t.Run("正常系: 空白を取り除いた値で生成できる", func(t *testing.T) {
+		t.Parallel()
+
+		sku, err := order.NewSKU("  WIDGET-001  ")
+		require.NoError(t, err)
+		assert.Equal(t, "WIDGET-001", sku.String())
+	})
+
+	t.Run("異常系: 空文字は ErrInvalidSKU", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := order.NewSKU("   ")
+		require.ErrorIs(t, err, order.ErrInvalidSKU)
+	})
+}
+
 func TestNewQuantity(t *testing.T) {
 	t.Parallel()
 
