@@ -86,14 +86,15 @@
 | **テストの名前・サブテスト名・日本語コメントの規約**（C 群 / D 群 / E 群） | `docs/testing-conventions.md`（識別子・ファイル・言語ポリシーの規約は `CONVENTIONS.md`） |
 | **lint で表現できない規約の機械強制**（サブテスト名の 8 語語彙、package 名 = ディレクトリ名、規約系 Markdown の半角スペース境界など） | `scripts/convention-gate.sh`（`make conventions` で実行。`make ci` と CI の step にも入っている） |
 | 契約ガバナンスゲート（後方互換・カバレッジ） | `contracts/check-openapi-compat.sh`, `contracts/events/check-compat.sh`, `scripts/coverage-gate.sh` |
-| **腐敗防止層（ACL）ポート** `StockReserver` と番兵 `ErrReservationRejected` / `ErrReservationUnavailable`（注文） | `contexts/ordering/internal/application/acl.go` |
+| **腐敗防止層（ACL）ポート** `StockReserver`（注文） | `contexts/ordering/internal/application/ports.go`（全 outbound ポートの唯一の置き場。B-5） |
+| **ACL の番兵** `ErrReservationRejected` / `ErrReservationUnavailable`（注文） | `contexts/ordering/internal/application/errors.go` |
 | **ACL の HTTP 実装**（生成クライアントで在庫を予約・解放 + trace 伝播）（注文） | `contexts/ordering/internal/adapter/outbound/aclhttp/` |
 | **アウトボックス送信トランスポート**（在庫の `/events` へ HTTP push）（注文） | `contexts/ordering/internal/adapter/outbound/eventhttp/` |
 | **公開の翻訳済み DTO**（境界を跨ぐ型） | `contexts/<ctx>/port/` |
 | 公開 HTTP 契約 / 在庫の内部 HTTP 契約（= ACL サーフェス） | `contracts/inventory/{openapi,internal.openapi}.yaml`, `contracts/ordering/openapi.yaml` |
 | **クロスコンテキストのメッセージ契約**（コマンド / イベント） | `contracts/events/*.schema.json` |
 | **共有の生成クライアント**（消費側が import・手編集しない） | `clients/inventory/invclient/` |
-| コンテキスト横断の汎用機構（純インフラ） | `shared/`（`uow`〔+`pgxuow`〕 / `event` / `serve` / `outbox`〔+`memory`,+`logpub`〕 / `id` / `correlation`〔+`corrhttp`〕 / `logging` / `problem`〔+`ogenproblem`〕 / `worker` / `testutil`） |
+| コンテキスト横断の汎用機構（純インフラ） | `shared/`（`uow`〔+`pgxuow`〕 / `event` / `serve` / `outbox`〔+`memory`,+`logpub`〕 / `id` / `correlation`〔+`corrhttp`〕 / `logging` / `problem`〔+`ogenproblem`〕 / `worker` / `clock`） |
 
 ## よくある作業のレシピ
 
@@ -266,13 +267,13 @@ if n < 1 {
   「キューに積んだがログに無い」状態が型として起こり得ない）。events を検証したい構成ルート／
   テストは `stores.Events()`、配送キューは `stores.Queued()` を読む（`application.Repos` に
   読み取り面は増やさない）。送信中継へは配送キュービュー `stores.Outbox()` を渡す。
-- 時刻に依存する処理（TTL / Reaper）は、実時間を直接呼ばず `application.Clock` を注入して
-  テスト可能にする（`shared/testutil` の擬似時計を使う）。
+- 時刻に依存する処理（TTL / Reaper）は、実時間を直接呼ばず `application.Clock` ポートを注入して
+  テスト可能にする（本番は `shared/clock` の `clock.System`、テストは手で進める `clock.NewManual`）。
 
 ## `shared/`（共有インフラ）を扱うときの要点
 
 - **置いてよいのはドメイン非依存かつ外部依存ゼロの建材だけ**（`id` / `correlation` / `uow` /
-  `outbox` / `logging` / `worker` / `event` / `serve` / `problem` / `testutil`）。ドメイン値
+  `outbox` / `logging` / `worker` / `event` / `serve` / `problem` / `clock`）。ドメイン値
   オブジェクト（`SKU` / `Quantity` / `Money`）や DB ドライバ・HTTP フレームワーク・特定
   コンテキストの型は `shared/` に置かない。判断は上から順に 4 つ:
   ① ドメイン語彙を名前にも構造にも含まないか →
@@ -290,8 +291,10 @@ if n < 1 {
   固有」が呼び出し側から見えている状態を保つ）。ドメイン層は `shared/event` を import せず、
   `DomainEvent` が `EventName()` + `OccurredAt()` を持つことで `event.Occurred` を構造的に満たす。
   `Dispatch` はエラーを返さない（永続化成功後の後処理という契約 — 署名を変えない）。
-  `contexts/*/internal/application/dispatcher.go` の `EventDispatcher` ポートは**消さない**
-  （mockgen の生成元であり、ポートはコンテキストのドメイン型で宣言されるべきものだから）。
+  `EventDispatcher` ポート宣言そのものは**消さない**（mockgen の生成元であり、ポートは
+  コンテキストのドメイン型で宣言されるべきものだから）。置き場所は他の outbound ポートと同じ
+  `contexts/*/internal/application/ports.go`。かつては専用ファイルに単独で置かれていたが、
+  そこへ集約された — 移ったのは置き場所であって、ポートが消えたわけではない。
 - **`shared/serve`**: `serve.Run(ctx, log, servers ...serve.Server)` が HTTP サーバ群の起動・
   停止待ち・全サーバのグレースフルシャットダウンを担う（本数非依存）。サーバを足すときは
   `serve.Server{Name: …, Addr: …, Handler: …}` を 1 つ増やすだけでよく、`*http.Server` の

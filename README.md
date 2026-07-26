@@ -84,7 +84,8 @@ make test
 - **プロセス内イベント配信**（`shared/event`）: 型なしコア `InProcess` と、コンテキストの
   ドメインイベント型で使う generic な型付きファサード `Typed[E]`。ドメイン層は `shared/event` を
   import せず、`shared/event` もコンテキストを import しない — 双方向に import が無いまま、
-  Go の構造的型付けだけで型が噛み合う。決定的テスト用の擬似時計は `shared/testutil`。
+  Go の構造的型付けだけで型が噛み合う。時刻の供給は `shared/clock`（実時計 `clock.System` と、
+  決定的テスト用に手で進める `clock.NewManual`）。
 - **HTTP サーバ群のランナー**（`shared/serve`）: 起動・停止待ち・全サーバのグレースフル
   シャットダウンをサーバ本数に依存せず担う（注文は公開 1 本、在庫は公開 + 内部の 2 本）。
   シグナル受信・資源解放・ヘルスチェックは意図的に持たず、各 `main.go` に残す。
@@ -128,7 +129,8 @@ make test
 - **adapter/outbound（出口）** — 中から外へ「書き出す」側。アプリケーションが定義した
   ポートを実装し、DB・メモリ・ログといった外部資源へアクセスします。
 - **application** — ユースケースと**ポート（Go の interface）**を置く層。ポートは
-  ここに定義し、実装は adapter/outbound に委ねます（依存性逆転）。
+  この層の `ports.go` にまとめて定義し、実装は adapter/outbound に委ねます（依存性逆転）。
+  `ports.go` を開けば、そのコンテキストが外部に要求している依存が一望できます。
 - **domain** — 純粋なドメイン。外側を一切知りません。
 
 依存の向きは**常に内側**へ向きます。外側は内側を知ってよいが、内側は外側を知りません。
@@ -266,7 +268,7 @@ make test
 ├── clients/                    … 共有の生成クライアント（消費側が import・コミット・手編集しない）
 │   └── inventory/              … 在庫の内部 API から生成した Go クライアント（invclient）
 ├── cmd/dev/                    … Docker 不要の開発ハーネス（両コンテキストを 1 プロセスで結線）
-├── shared/                     … ドメイン非依存の共有モジュール（uow / event / serve / outbox / id / correlation / problem / testutil）
+├── shared/                     … ドメイン非依存の共有モジュール（uow / event / serve / outbox / id / correlation / problem / clock）
 └── contexts/
     ├── inventory/              … 「在庫」境界づけられたコンテキスト（1 モジュール）
     │   ├── GLOSSARY.md          … この境界のユビキタス言語（コンテキストと一緒にコピーされる）

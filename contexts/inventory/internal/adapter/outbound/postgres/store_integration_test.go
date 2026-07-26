@@ -25,9 +25,9 @@ import (
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/postgres"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
+	"github.com/example/go-ddd-template/shared/clock"
 	"github.com/example/go-ddd-template/shared/event"
 	"github.com/example/go-ddd-template/shared/outbox"
-	"github.com/example/go-ddd-template/shared/testutil"
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
@@ -97,7 +97,7 @@ func newPgFixture(t *testing.T, pool *pgxpool.Pool, _ application.Clock) pgFixtu
 func TestPostgres_ReplenishThenQuery(t *testing.T) {
 	ctx := context.Background()
 	pool := setupPool(t)
-	f := newPgFixture(t, pool, application.SystemClock{})
+	f := newPgFixture(t, pool, clock.System{})
 
 	res, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: "PGX-1", Quantity: 7})
 	require.NoError(t, err, "Replenish")
@@ -116,7 +116,7 @@ func TestPostgres_ReplenishThenQuery(t *testing.T) {
 func TestPostgres_ReserveConfirmRelease(t *testing.T) {
 	ctx := context.Background()
 	pool := setupPool(t)
-	f := newPgFixture(t, pool, application.SystemClock{})
+	f := newPgFixture(t, pool, clock.System{})
 
 	for _, sku := range []string{"PGX-A", "PGX-B"} {
 		_, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: sku, Quantity: 10})
@@ -153,7 +153,7 @@ func TestPostgres_ReaperReleasesExpiredPending(t *testing.T) {
 	ctx := context.Background()
 	pool := setupPool(t)
 	// 擬似時計を実時刻より十分未来に置き、TTL 1 時間の pending を確実に期限切れにする。
-	clock := testutil.NewClock(time.Now().Add(2 * time.Hour))
+	clock := clock.NewManual(time.Now().Add(2 * time.Hour))
 	f := newPgFixture(t, pool, clock)
 	log := testLogger()
 
@@ -264,7 +264,7 @@ func TestPostgres_EventLogRollsBackWithAggregate(t *testing.T) {
 func TestPostgres_ConcurrencyConflict(t *testing.T) {
 	ctx := context.Background()
 	pool := setupPool(t)
-	f := newPgFixture(t, pool, application.SystemClock{})
+	f := newPgFixture(t, pool, clock.System{})
 	read := postgres.NewReadStockStore(pool)
 
 	_, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: "PGX-CONFLICT", Quantity: 5})

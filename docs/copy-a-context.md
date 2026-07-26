@@ -16,7 +16,7 @@
 2. **そのコンテキストの契約** — `contracts/inventory/`（`openapi.yaml`、内部 API を使うなら
    `internal.openapi.yaml` と ogen 設定、`*.baseline.*`）。
 3. **共有モジュール** — `shared/`（`uow` / `event` / `serve` / `outbox` / `id` / `correlation` /
-   `logging` / `problem` / `worker` / `testutil`）。ドメイン非依存の機構で、どのコンテキストも
+   `logging` / `problem` / `worker` / `clock`）。ドメイン非依存の機構で、どのコンテキストも
    依存します。**`shared/` はまるごと持ち出す**のが最も手数の少ない方法です（切り出したコンテキストが
    使わないパッケージが混じっていても、Go のビルドやバイナリサイズには影響しません）。
 

@@ -4,7 +4,7 @@
 # 再現できる。規約の本文は CONVENTIONS.md と docs/testing-conventions.md にあり、
 # ここは「その文言のうち機械化できるもの」だけを実装する。
 #
-# 検査は 11 個（fail 10 個 + warn 1 個）。fail は終了コード 1、warn は報告のみで終了コード 0 のまま:
+# 検査は 13 個（fail 12 個 + warn 1 個）。fail は終了コード 1、warn は報告のみで終了コード 0 のまま:
 #   1  テスト関数名の主題の一意性（C-1b）                    fail
 #   2  t.Run の 8 語語彙（D-1 / D-2）                        fail
 #   2' テーブル駆動の name フィールドの 8 語語彙（D-6）        fail
@@ -16,6 +16,12 @@
 #   7  ファイル凝集（40 行未満の単型ファイルの乱立）           warn
 #   8  位置指定の複合リテラルの不在（D-6）                     fail
 #   9  ドメインパッケージの単一性（B-8）                       fail
+#  10  ポート宣言は ports.go にのみ置く（B-5 の (b) 全数性）    fail
+#  11  ports.go はポート宣言だけを含む（B-5 の (a) 純度）       fail
+#
+# 検査 10 / 11 は B-5 の `ports.go` 行が定める**双方向の約束**を、片側ずつ機械化したものである。
+# 10 だけなら ports.go に何を混ぜてもよくなり、11 だけなら ports.go の外にポートを置ける。
+# 対で初めて「開けばポートしか無い／ポートは全部ここにある」が成り立つ。
 #
 # 検査 8 は検査 2' / 3' の**盲点をふさぐためだけに在る**。検査 2' は `name:` に続く文字列
 # リテラルを拾うので、`{"空 SKU", …}` のように位置で並べたケースは構造体に name フィールドが
@@ -408,6 +414,72 @@ check_file_cohesion() {
   done
 }
 
+# --- 検査 10: ポート宣言は ports.go にのみ置く（B-5 の (b) 全数性） -----------
+#
+# 対象は contexts/*/internal/application/ の非テストファイルのうち ports.go 以外。
+# shared/・アダプタ層・ドメイン層・cmd/ は対象外である（shared/outbox.Publisher の
+# ような共有機構の interface は「あるコンテキストの outbound ポート」ではなく、その
+# パッケージの主要型そのものだから）。
+#
+# go/parser を使わないのは、既存の検査 1〜9 が例外なく grep + find で書かれているからである
+# （実装方針の一貫性。素朴な grep -n interface は validation.go のコメント
+# `//	[domain] [application] [interfaces]` を誤検出するが、^type アンカーなら 0 件で
+# 現ツリーに必要な精度は出ている）。
+#
+# 2 パターン見る理由: 現ツリーにグループ化 type ( ... ) 宣言は 0 件で P1 だけで足りるが、
+# 「今は違反が無いから green」は検証にならない。将来グループ化で書かれた interface を
+# 取りこぼさないよう P2 を併置する。
+#   P1  単独の型宣言        type Foo interface {
+#   P2  グループ化宣言の中身  	Foo interface {
+#
+# P2 の既知の偽陽性（許容）: 無名 interface のフィールド（x interface{ Foo() }）や、
+# 複数行にまたがる関数引数中の無名 interface。いずれも現ツリーに存在せず、かつ
+# 「application 層に無名 interface を埋め込む」こと自体が指摘に値するので fail してよい。
+#
+# 型引数制約の interface（type Number interface { ~int | ~float64 }）も P1 が拾って fail する。
+# 除外規則は設けない（制約とポートは同じ構文で書かれるため除外の判定を機械化できず、
+# 「rule はあるが何も検査していない」状態を生みやすい）。詳細は CONVENTIONS.md B-5。
+check_ports_exhaustive() {
+  local f n name hits
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    is_generated "$f" && continue
+    # 違反 0 件のとき grep は終了コード 1 を返す。set -e 下でスクリプト全体が落ちないよう
+    # 既存検査と同じく || true でガードする。
+    hits=$(grep -nE '^type[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]+interface[[:space:]]*\{|^[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]+interface[[:space:]]*\{' "$f" 2>/dev/null || true)
+    [ -z "$hits" ] && continue
+    while IFS= read -r hit; do
+      n="${hit%%:*}"
+      name=$(printf '%s' "${hit#*:}" | sed -E 's/^(type[[:space:]]+)?[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]+interface.*$/\2/')
+      report_fail "検査 10 ポート宣言は ports.go にのみ置く（B-5）" \
+        "$f:$n: application 層の interface 宣言は ports.go に集約する（見つかった宣言: ${name}）"
+    done <<< "$hits"
+  done < <(find contexts -type f -path '*/internal/application/*.go' ! -name '*_test.go' ! -name 'ports.go' 2>/dev/null | sort)
+}
+
+# --- 検査 11: ports.go はポート宣言だけを含む（B-5 の (a) 純度） --------------
+#
+# ^func に一致する行があれば fail。関数・メソッドの両方を捕まえる
+# （func f(...) も func (r T) m(...) も func + 空白で始まる）。
+#
+# 型エイリアス（type UnitOfWork = uow.UnitOfWork[Repos]）は type で始まるので ^func に
+# 原理的に一致しない。エイリアス先がインターフェースでポート語彙の一部なので、
+# B-5 の (a) はこれを例外として許している。
+check_ports_purity() {
+  local f n hits
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    is_generated "$f" && continue
+    hits=$(grep -nE '^func[[:space:]]' "$f" 2>/dev/null || true)
+    [ -z "$hits" ] && continue
+    while IFS= read -r hit; do
+      n="${hit%%:*}"
+      report_fail "検査 11 ports.go はポート宣言だけを含む（B-5）" \
+        "$f:$n: ports.go に func 宣言を置かない（概念を名指したファイルへ移す）"
+    done <<< "$hits"
+  done < <(find contexts -type f -path '*/internal/application/ports.go' 2>/dev/null | sort)
+}
+
 # --- 実行 -------------------------------------------------------------------
 
 echo "== 規約ゲート（scripts/convention-gate.sh） =="
@@ -421,6 +493,8 @@ check_package_matches_dir
 check_single_domain_package
 check_doc_spacing
 check_file_cohesion
+check_ports_exhaustive
+check_ports_purity
 
 echo ""
 if [ "$fail_count" -gt 0 ]; then
