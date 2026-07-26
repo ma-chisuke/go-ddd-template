@@ -204,6 +204,16 @@ check_positional_case_literals() {
       report_fail "検査 8 位置指定の複合リテラルの不在（D-6）" \
         "$loc: 位置ではなくフィールド名で書く（ケース名は name: に入れる）: ${content}"
     done < <(awk -v keyed="$POSITIONAL_KEYED_FIELD" -v value_head="$POSITIONAL_VALUE_HEAD" '
+      # raw string リテラル（バッククォート）の中身は Go の構文ではないので検査しない。
+      # 整形した JSON をテストデータとして埋め込むと「{ の次行が値リテラル」の形に一致して
+      # 偽陽性になる（レビュアの指摘で実際に再現した）。行内のバッククォートが奇数個なら
+      # 開閉が切り替わる、という素朴な追跡で足りる（1 行に 2 個以上書く形は gofmt が崩さない）。
+      inraw == 1 {
+        if (gsub(/`/, "&") % 2 == 1) inraw = 0
+        pending = 0
+        next
+      }
+      { if (gsub(/`/, "&") % 2 == 1) inraw = 1 }
       # 直前が「開き括弧だけの行」で、この行が値リテラルで始まる = 複数行の位置指定
       pending == 1 {
         pending = 0
