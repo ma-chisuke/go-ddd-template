@@ -180,16 +180,42 @@ func TestDeriveReservationRef(t *testing.T) {
 	assert.Equal(t, id.String(), r1.String())
 }
 
-func TestOrder_IdentityConstruction(t *testing.T) {
+// 以下の 3 つは、もともと TestOrder_IdentityConstruction という 1 つの関数に束ねられていた
+// 5 つのアサーションを主題ごとに分けたものである。名前が指していた Order は、その関数が
+// 検証していない型だった（検証していたのは OrderID / CustomerID / ReservationRef の 3 主題）。
+// C-2 が「主題は検証対象の Go 識別子そのまま」と定めている以上、束ねている限り正しい名前を
+// 付けようがない。**アサーションの意味は変えず、再配置だけを行っている。**
+//
+// 各主題は order_property_test.go に往復の性質テスト（R-1 / R-2）を持つ。
+// 「例示テスト（ゼロ値と構築エラー）」と「性質テスト（往復）」が主題単位で対になる配置である。
+
+// TestNewOrderID_ZeroAndConstruction は OrderID のゼロ値と構築エラーを検証する。
+func TestNewOrderID_ZeroAndConstruction(t *testing.T) {
 	t.Parallel()
 
 	assert.True(t, (domain.OrderID{}).IsZero(), "OrderID{} は IsZero であるべき")
+
+	_, err := domain.NewOrderID("")
+	require.ErrorIs(t, err, domain.ErrInvalidOrderID)
+}
+
+// TestNewCustomerID_Construction は CustomerID の構築エラーを検証する。
+//
+// CustomerID は IsZero を持たないので、ゼロ値のアサーションは他の 2 つと違って無い。
+// この非対称は分割で生じたものではなく、もともと型が持つメソッドの差である。
+func TestNewCustomerID_Construction(t *testing.T) {
+	t.Parallel()
+
+	_, err := domain.NewCustomerID("")
+	require.ErrorIs(t, err, domain.ErrInvalidCustomerID)
+}
+
+// TestNewReservationRef_ZeroAndConstruction は ReservationRef のゼロ値と構築エラーを検証する。
+func TestNewReservationRef_ZeroAndConstruction(t *testing.T) {
+	t.Parallel()
+
 	assert.True(t, (domain.ReservationRef{}).IsZero(), "ReservationRef{} は IsZero であるべき")
 
 	_, err := domain.NewReservationRef("  ")
 	require.ErrorIs(t, err, domain.ErrInvalidReservationRef)
-	_, err = domain.NewOrderID("")
-	require.ErrorIs(t, err, domain.ErrInvalidOrderID)
-	_, err = domain.NewCustomerID("")
-	require.ErrorIs(t, err, domain.ErrInvalidCustomerID)
 }

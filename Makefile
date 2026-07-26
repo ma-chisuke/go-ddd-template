@@ -24,6 +24,16 @@ GEN_MODULES   := clients/inventory contexts/inventory contexts/ordering shared
 # 統合テスト（build tag integration。DB 接続時のみ実行される）を持つモジュール。
 ITEST_MODULES := contexts/inventory contexts/ordering
 
+# fuzz ターゲットの一覧。「モジュール:パッケージ:ターゲット名」の 3 つ組で書く。
+# go test の -fuzz は 1 回の実行で 1 ターゲットしか回せないので、順に回すしかない。
+# fuzz ターゲットを足すときに直すのはここ 1 行で、下の fuzz ターゲットは触らなくてよい。
+FUZZ_TARGETS  := contexts/ordering:./internal/adapter/inbound/httpapi:FuzzHTTP \
+                 contexts/inventory:./internal/adapter/inbound/httpapi:FuzzHTTP \
+                 contexts/inventory:./internal/adapter/inbound/internalhttp:FuzzInternalHTTP
+
+# 1 ターゲットあたりの探索時間。`make fuzz FUZZTIME=5m` で上書きできる。
+FUZZTIME      ?= 30s
+
 # 整形の対象ディレクトリ。gofmt / goimports はモジュール単位ではなくツリー単位で回すため
 # MODULES とは別の変数にする。
 FMT_DIRS      := shared clients contexts cmd
@@ -115,6 +125,13 @@ test-race: ## 全モジュールのテストを -race で実行する
 		(cd $$m && go test -race ./...) || exit 1; \
 	done
 
+fuzz: ## fuzz を任意実行する（時間制限つき。ci には載せない）
+	@set -e; for spec in $(FUZZ_TARGETS); do \
+		m=$${spec%%:*}; rest=$${spec#*:}; pkg=$${rest%%:*}; target=$${rest##*:}; \
+		echo "== fuzz: $$m $$pkg $$target（$(FUZZTIME)）"; \
+		(cd $$m && go test $$pkg -run='^$$' -fuzz="^$${target}"'$$' -fuzztime=$(FUZZTIME)) || exit 1; \
+	done
+
 cover: ## カバレッジゲート（domain + application >= 80% ／ モジュール）
 	@bash scripts/coverage-gate.sh
 
@@ -133,6 +150,11 @@ vuln: ## 依存関係の既知脆弱性をスキャンする（govulncheck）
 		(cd $$m && govulncheck ./...) || exit 1; \
 	done
 
+# ci に fuzz を **含めない**のは意図である。マージゲートに載るのは既定回数・既定シードの
+# rapid.Check と、fuzz の seed corpus（testdata/fuzz/ にコミット済み。通常の go test で毎回
+# 実行される）だけにする。長時間の -fuzz は打ち切り時刻でしか止まらず、同じコミットでも
+# 実行のたびに結果が変わりうるので、ゲートに載せると赤の意味が「壊れた」から
+# 「今日は運が悪かった」に薄まる。探索は make fuzz で任意に行う。
 ci: generate-check fmt-check vet lint conventions build test-race cover ## CI の ci ジョブと同じ検査一式をローカルで再現する
 	@echo "ci: OK"
 
@@ -156,4 +178,4 @@ test-integration: ## PostgreSQL を起動して統合テスト（build tag integ
 	done
 
 .PHONY: help generate generate-check fmt fmt-check vet lint build test test-race \
-        conventions cover contracts vuln ci dev up down test-integration
+        fuzz conventions cover contracts vuln ci dev up down test-integration

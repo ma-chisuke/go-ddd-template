@@ -23,10 +23,15 @@ import (
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
-// newServer はインメモリアダプタで組み立てた HTTP サーバを起動する。
+// newHandler はインメモリアダプタで組み立てた HTTP ハンドラを返す。
 // これにより OpenAPI → ogen サーバ → アプリケーション → ドメイン → リポジトリ の
 // 一気通貫（walking skeleton の背骨）を HTTP レベルで検証できる。
-func newServer(t *testing.T) *httptest.Server {
+//
+// httptest サーバを起こす newServer と、プロセス内で直接 ServeHTTP を呼ぶ fuzz ターゲット
+// （httpapi_fuzz_test.go）の両方がここを使う。fuzz がサーバを経由しないのは、net/http の
+// サーバがハンドラの panic を**回復してログへ落とす**ため、サーバ越しでは panic が
+// テストの失敗として現れないからである（「panic しない」を主張できなくなる）。
+func newHandler(t *testing.T) http.Handler {
 	t.Helper()
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	store := memory.NewStore()
@@ -43,7 +48,12 @@ func newServer(t *testing.T) *httptest.Server {
 	// テストだけ ogen の既定エラーハンドラで動き、本番の振る舞いを検証できなくなる。
 	server, err := openapi.NewServer(h, h.ServerOptions()...)
 	require.NoError(t, err, "ogen サーバの構築")
-	ts := httptest.NewServer(corrhttp.Middleware(server))
+	return corrhttp.Middleware(server)
+}
+
+func newServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	ts := httptest.NewServer(newHandler(t))
 	t.Cleanup(ts.Close)
 	return ts
 }

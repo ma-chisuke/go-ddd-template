@@ -1,0 +1,3 @@
+go test fuzz v1
+string("/stock/%00/replenish")
+string("{\"quantity\":1}")

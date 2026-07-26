@@ -24,7 +24,14 @@ import (
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
-func newInternalServer(t *testing.T) *httptest.Server {
+// newInternalHandler は本番の合成ルート（inventory.go）と同じ結線で内部 HTTP ハンドラを
+// 組み立てる。在庫が必要なので補充ユースケースで種を蒔いてある。
+//
+// httptest サーバを起こす newInternalServer と、プロセス内で直接 ServeHTTP を呼ぶ fuzz
+// ターゲット（internalhttp_fuzz_test.go）の両方がここを使う。fuzz がサーバを経由しないのは、
+// net/http のサーバがハンドラの panic を**回復してログへ落とす**ため、サーバ越しでは panic が
+// テストの失敗として現れないからである（「panic しない」を主張できなくなる）。
+func newInternalHandler(t *testing.T) http.Handler {
 	t.Helper()
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	store := memory.NewStore()
@@ -52,7 +59,12 @@ func newInternalServer(t *testing.T) *httptest.Server {
 	require.NoError(t, err, "内部サーバの構築")
 	// 本番結線（inventory.go）と同じく、内部サーバも共有ミドルウェア corrhttp で相関 ID を
 	// 確立する。これにより注文サービスから伝播した traceparent が最終ホップまで途切れない。
-	ts := httptest.NewServer(corrhttp.Middleware(server))
+	return corrhttp.Middleware(server)
+}
+
+func newInternalServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	ts := httptest.NewServer(newInternalHandler(t))
 	t.Cleanup(ts.Close)
 	return ts
 }
