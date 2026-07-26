@@ -21,14 +21,22 @@ DDD のパターンがどのファイルに実装されているかは [ddd-patt
 次の 3 語は**両方の境界に同じ名前で存在し、しかも別の型・別の意味**です。このリポジトリで
 最も教材価値の高い箇所であり、境界を引いた根拠そのものでもあります。
 
+両者はどちらも `package domain` に属します（B-8。層の名前でパッケージを命名する）。
+**同じパッケージ名・同じ型名でありながら、import パスが違うので別の型**です — 下表では
+`contexts/ordering/internal/domain` を **ordering の** `domain`、
+`contexts/inventory/internal/domain` を **inventory の** `domain` と呼び分けます。
+
 | 語 | Ordering での意味と型 | Inventory での意味と型 | なぜ共有しないのか |
 | --- | --- | --- | --- |
-| `SKU` | 注文明細が**参照する**商品識別子（`order.SKU`）。注文は在庫の実体を知らない | 在庫項目**そのものの同一性**（`inventory.SKU`）。集約の識別子 | 一方は参照、他方は同一性。同じ型にすると、在庫の識別規則がそのまま注文側の制約になる |
-| `Quantity` | 注文する数量（`order.Quantity`）。**1 以上**で、加減算を持たない（`Int()` のみ） | 在庫数量（`inventory.Quantity`）。**0 以上**で、`Add` / `Sub`（不足で失敗）/ `GreaterThan` を持つ | 在庫にしかない演算を注文側が持つと、注文が在庫の計算規則に縛られる。値域（1 以上 / 0 以上）も別のドメイン規則から来ている |
-| `ReservationRef` | 注文 ID から**決定的に導出**する（`order.ReservationRef` / `DeriveReservationRef`） | **外から受け取る**予約の識別子（`inventory.ReservationRef`）。導出規則を持たない | 導出規則は注文側の関心。在庫が同じ型を持つと、在庫が注文 ID の構造を知ることになる |
+| `SKU` | 注文明細が**参照する**商品識別子（ordering の `domain.SKU`）。注文は在庫の実体を知らない | 在庫項目**そのものの同一性**（inventory の `domain.SKU`）。集約の識別子 | 一方は参照、他方は同一性。同じ型にすると、在庫の識別規則がそのまま注文側の制約になる |
+| `Quantity` | 注文する数量（ordering の `domain.Quantity`）。**1 以上**で、加減算を持たない（`Int()` のみ） | 在庫数量（inventory の `domain.Quantity`）。**0 以上**で、`Add` / `Sub`（不足で失敗）/ `GreaterThan` を持つ | 在庫にしかない演算を注文側が持つと、注文が在庫の計算規則に縛られる。値域（1 以上 / 0 以上）も別のドメイン規則から来ている |
+| `ReservationRef` | 注文 ID から**決定的に導出**する（ordering の `domain.ReservationRef` / `DeriveReservationRef`） | **外から受け取る**予約の識別子（inventory の `domain.ReservationRef`）。導出規則を持たない | 導出規則は注文側の関心。在庫が同じ型を持つと、在庫が注文 ID の構造を知ることになる |
 
-**取り違えは Go のコンパイラが防いでいます。** `order.SKU` と `inventory.SKU` は別パッケージの
-別の型なので、片方をもう片方の関数へ渡すとビルドエラーになります。境界を跨いで値を渡すときは、
+**取り違えは Go のコンパイラが防いでいます。** 2 つの `domain.SKU` は import パスの異なる
+別パッケージの別の型なので、片方をもう片方の関数へ渡すとビルドエラーになります。
+そもそも 1 つのファイルが両方を import することはありません — 注文コンテキストが在庫の
+Go パッケージへ触れることを depguard の `ordering-no-inventory-context` が禁じているためです
+（在庫へは `clients/inventory` 経由で HTTP 越しにのみ到達します）。境界を跨いで値を渡すときは、
 内部のドメイン値オブジェクトではなく**翻訳済みの公開型**（`contexts/<ctx>/port/` の DTO や
 `contracts/events/` のメッセージ契約）を使います。翻訳を担うのが腐敗防止層（ACL）です
 （[context-map.md](./context-map.md)）。

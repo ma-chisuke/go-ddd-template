@@ -1,4 +1,4 @@
-package inventory_test
+package domain_test
 
 import (
 	"errors"
@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 )
 
 // このファイルは「ドメインが自分の語彙でフィールドを名乗る」という契約を固定する。
@@ -22,9 +22,9 @@ import (
 // 行われるため、位置を知っているのはドメインだけである。
 
 // requireViolation は err からドメインの FieldViolation を取り出す。
-func requireViolation(t *testing.T, err error) *inventory.FieldViolation {
+func requireViolation(t *testing.T, err error) *domain.FieldViolation {
 	t.Helper()
-	var v *inventory.FieldViolation
+	var v *domain.FieldViolation
 	require.ErrorAs(t, err, &v, "FieldViolation として取り出せること")
 	return v
 }
@@ -37,22 +37,22 @@ func TestFieldViolation_ValueObjects(t *testing.T) {
 		err  func() error
 		// want は違反が名乗るべき検証規則。Rule ごと比較するので、Field / Code / 番兵の
 		// 3 つが同時に固定される。
-		want inventory.Rule
+		want domain.Rule
 	}{
 		{
 			name: "境界: NewQuantity(-1) は quantity を名乗る",
-			err:  func() error { _, err := inventory.NewQuantity(-1); return err },
-			want: inventory.VQuantity,
+			err:  func() error { _, err := domain.NewQuantity(-1); return err },
+			want: domain.VQuantity,
 		},
 		{
 			name: "境界: NewSKU(空) は sku を名乗る",
-			err:  func() error { _, err := inventory.NewSKU("  "); return err },
-			want: inventory.VSKU,
+			err:  func() error { _, err := domain.NewSKU("  "); return err },
+			want: domain.VSKU,
 		},
 		{
 			name: "境界: NewReservationRef(空) は reservationRef を名乗る",
-			err:  func() error { _, err := inventory.NewReservationRef(""); return err },
-			want: inventory.VReservationRef,
+			err:  func() error { _, err := domain.NewReservationRef(""); return err },
+			want: domain.VReservationRef,
 		},
 	}
 
@@ -73,7 +73,7 @@ func TestFieldViolation_ValueObjects(t *testing.T) {
 func TestFieldViolation_QuantityZeroPassesTheValueObject(t *testing.T) {
 	t.Parallel()
 
-	q, err := inventory.NewQuantity(0)
+	q, err := domain.NewQuantity(0)
 	require.NoError(t, err, "在庫の Quantity は 0 を許容する（>= 0）")
 	assert.True(t, q.IsZero())
 }
@@ -81,9 +81,9 @@ func TestFieldViolation_QuantityZeroPassesTheValueObject(t *testing.T) {
 func TestFieldViolation_AggregateRules(t *testing.T) {
 	t.Parallel()
 
-	newItem := func(t *testing.T, available int) *inventory.StockItem {
+	newItem := func(t *testing.T, available int) *domain.StockItem {
 		t.Helper()
-		item, err := inventory.NewStockItem("stock-1", mustSKU(t, "WIDGET-001"))
+		item, err := domain.NewStockItem("stock-1", mustSKU(t, "WIDGET-001"))
 		require.NoError(t, err)
 		if available > 0 {
 			require.NoError(t, item.Replenish(mustQuantity(t, available)))
@@ -95,32 +95,32 @@ func TestFieldViolation_AggregateRules(t *testing.T) {
 		t.Parallel()
 
 		err := newItem(t, 0).Replenish(mustQuantity(t, 0))
-		require.ErrorIs(t, err, inventory.ErrInvalidQuantity)
-		assert.Equal(t, inventory.VQuantity, requireViolation(t, err).Rule)
+		require.ErrorIs(t, err, domain.ErrInvalidQuantity)
+		assert.Equal(t, domain.VQuantity, requireViolation(t, err).Rule)
 	})
 
 	t.Run("境界: Reserve(空 ref) は reservationRef を名乗る", func(t *testing.T) {
 		t.Parallel()
 
-		err := newItem(t, 5).Reserve(inventory.ReservationRef{}, mustQuantity(t, 1), time.Minute)
-		require.ErrorIs(t, err, inventory.ErrInvalidReservationRef)
-		assert.Equal(t, inventory.VReservationRef, requireViolation(t, err).Rule)
+		err := newItem(t, 5).Reserve(domain.ReservationRef{}, mustQuantity(t, 1), time.Minute)
+		require.ErrorIs(t, err, domain.ErrInvalidReservationRef)
+		assert.Equal(t, domain.VReservationRef, requireViolation(t, err).Rule)
 	})
 
 	t.Run("境界: Reserve(0) は quantity を名乗る", func(t *testing.T) {
 		t.Parallel()
 
 		err := newItem(t, 5).Reserve(mustRef(t, "ORDER-1"), mustQuantity(t, 0), time.Minute)
-		require.ErrorIs(t, err, inventory.ErrInvalidQuantity)
-		assert.Equal(t, inventory.VQuantity, requireViolation(t, err).Rule)
+		require.ErrorIs(t, err, domain.ErrInvalidQuantity)
+		assert.Equal(t, domain.VQuantity, requireViolation(t, err).Rule)
 	})
 
 	t.Run("異常系: 在庫不足の 409 は FieldViolation にしない", func(t *testing.T) {
 		t.Parallel()
 
 		err := newItem(t, 1).Reserve(mustRef(t, "ORDER-1"), mustQuantity(t, 5), time.Minute)
-		require.ErrorIs(t, err, inventory.ErrInsufficientStock)
-		var v *inventory.FieldViolation
+		require.ErrorIs(t, err, domain.ErrInsufficientStock)
+		var v *domain.FieldViolation
 		assert.False(t, errors.As(err, &v), "状態の矛盾であり入力フィールドの問題ではない（規則 R-14）")
 	})
 }
@@ -130,29 +130,29 @@ func TestFieldViolation_AggregateRules(t *testing.T) {
 func TestFieldViolation_AllocateCarriesLineIndex(t *testing.T) {
 	t.Parallel()
 
-	items := []*inventory.StockItem{}
+	items := []*domain.StockItem{}
 	for _, sku := range []string{"SKU-A", "SKU-B", "SKU-C"} {
-		item, err := inventory.NewStockItem("stock-"+sku, mustSKU(t, sku))
+		item, err := domain.NewStockItem("stock-"+sku, mustSKU(t, sku))
 		require.NoError(t, err)
 		require.NoError(t, item.Replenish(mustQuantity(t, 10)))
 		items = append(items, item)
 	}
 
-	var svc inventory.ReservationService
+	var svc domain.ReservationService
 
 	t.Run("境界: 2 行目（添字 1）が 0 なら Index=1 を載せる", func(t *testing.T) {
 		t.Parallel()
 
-		lines := []inventory.ReservationLine{
+		lines := []domain.ReservationLine{
 			{SKU: mustSKU(t, "SKU-A"), Quantity: mustQuantity(t, 1)},
 			{SKU: mustSKU(t, "SKU-B"), Quantity: mustQuantity(t, 0)},
 			{SKU: mustSKU(t, "SKU-C"), Quantity: mustQuantity(t, 1)},
 		}
 		err := svc.Allocate(items, mustRef(t, "ORDER-1"), lines, time.Minute)
-		require.ErrorIs(t, err, inventory.ErrInvalidQuantity)
+		require.ErrorIs(t, err, domain.ErrInvalidQuantity)
 
 		v := requireViolation(t, err)
-		assert.Equal(t, inventory.VQuantity, v.Rule)
+		assert.Equal(t, domain.VQuantity, v.Rule)
 		require.NotNil(t, v.Index, "明細位置が載っていること")
 		// 壊れた実装が「常に 0」を返しても通ってしまわないよう、2 行目を壊して 1 を要求する。
 		assert.Equal(t, 1, *v.Index)
@@ -161,7 +161,7 @@ func TestFieldViolation_AllocateCarriesLineIndex(t *testing.T) {
 	t.Run("境界: 3 行目（添字 2）が 0 なら Index=2 を載せる", func(t *testing.T) {
 		t.Parallel()
 
-		lines := []inventory.ReservationLine{
+		lines := []domain.ReservationLine{
 			{SKU: mustSKU(t, "SKU-A"), Quantity: mustQuantity(t, 1)},
 			{SKU: mustSKU(t, "SKU-B"), Quantity: mustQuantity(t, 1)},
 			{SKU: mustSKU(t, "SKU-C"), Quantity: mustQuantity(t, 0)},
@@ -175,34 +175,34 @@ func TestFieldViolation_AllocateCarriesLineIndex(t *testing.T) {
 	t.Run("境界: 参照が空なら位置は載らない（明細の問題ではない）", func(t *testing.T) {
 		t.Parallel()
 
-		lines := []inventory.ReservationLine{
+		lines := []domain.ReservationLine{
 			{SKU: mustSKU(t, "SKU-A"), Quantity: mustQuantity(t, 1)},
 		}
-		err := svc.Allocate(items, inventory.ReservationRef{}, lines, time.Minute)
-		require.ErrorIs(t, err, inventory.ErrInvalidReservationRef)
+		err := svc.Allocate(items, domain.ReservationRef{}, lines, time.Minute)
+		require.ErrorIs(t, err, domain.ErrInvalidReservationRef)
 
 		v := requireViolation(t, err)
-		assert.Equal(t, inventory.VReservationRef, v.Rule)
+		assert.Equal(t, domain.VReservationRef, v.Rule)
 		assert.Nil(t, v.Index, "参照は明細に帰着しないので位置を持たない")
 	})
 
 	t.Run("異常系: 在庫項目が無い場合と在庫不足は FieldViolation にしない", func(t *testing.T) {
 		t.Parallel()
 
-		var v *inventory.FieldViolation
+		var v *domain.FieldViolation
 
-		missing := []inventory.ReservationLine{
+		missing := []domain.ReservationLine{
 			{SKU: mustSKU(t, "SKU-UNKNOWN"), Quantity: mustQuantity(t, 1)},
 		}
 		err := svc.Allocate(items, mustRef(t, "ORDER-1"), missing, time.Minute)
-		require.ErrorIs(t, err, inventory.ErrStockItemNotFound)
+		require.ErrorIs(t, err, domain.ErrStockItemNotFound)
 		assert.False(t, errors.As(err, &v), "404 系は入力フィールドの問題ではない")
 
-		tooMany := []inventory.ReservationLine{
+		tooMany := []domain.ReservationLine{
 			{SKU: mustSKU(t, "SKU-A"), Quantity: mustQuantity(t, 999)},
 		}
 		err = svc.Allocate(items, mustRef(t, "ORDER-1"), tooMany, time.Minute)
-		require.ErrorIs(t, err, inventory.ErrInsufficientStock)
+		require.ErrorIs(t, err, domain.ErrInsufficientStock)
 		assert.False(t, errors.As(err, &v), "409 系は入力フィールドの問題ではない")
 	})
 }
@@ -210,7 +210,7 @@ func TestFieldViolation_AllocateCarriesLineIndex(t *testing.T) {
 func TestFieldViolation_ErrorPassesThroughWrappedMessage(t *testing.T) {
 	t.Parallel()
 
-	_, err := inventory.NewQuantity(-1)
+	_, err := domain.NewQuantity(-1)
 	v := requireViolation(t, err)
 
 	assert.Equal(t, v.Err.Error(), v.Error())

@@ -48,7 +48,8 @@ type TypedHandler[E Occurred] func(ctx context.Context, e E) error
 //   - sinks（捕捉ハンドラ）… 種別を問わず全イベントへ渡す。
 //   - inner（型なし InProcess 機構）… 種別名ごとに登録されたハンドラへ渡す。
 //
-// E は各コンテキストのドメインイベント型（order.DomainEvent など）であり、EventName() を
+// E は各コンテキストのドメインイベント型（各 contexts/<ctx>/internal/domain の domain.DomainEvent）
+// であり、EventName() を
 // 持つので Event を構造的に満たす。この適合をここで一度だけ行うことで、ドメイン層を
 // shared/event に依存させずに汎用の配信機構へ載せられる。
 //

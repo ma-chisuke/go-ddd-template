@@ -8,7 +8,7 @@ package application
 import (
 	"context"
 
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 	"github.com/example/go-ddd-template/contexts/ordering/port"
 	"github.com/example/go-ddd-template/shared/outbox"
 	"github.com/example/go-ddd-template/shared/uow"
@@ -22,12 +22,12 @@ type ReserveLine = port.ReserveLine
 // 実装（アダプタ）は adapter/outbound 層に置く（インメモリ版と PostgreSQL 版）。
 type OrderStore interface {
 	// Load は注文 ID に対応する注文を読み込む。存在しない場合は
-	// order.ErrOrderNotFound を返す。
-	Load(ctx context.Context, id order.OrderID) (*order.Order, error)
+	// domain.ErrOrderNotFound を返す。
+	Load(ctx context.Context, id domain.OrderID) (*domain.Order, error)
 
 	// Save は注文を永続化する。楽観的排他制御の版が一致しない場合は
 	// uow.ErrConcurrencyConflict を返す。
-	Save(ctx context.Context, o *order.Order) error
+	Save(ctx context.Context, o *domain.Order) error
 }
 
 // MessagePublisher は、集約書き込みと同一トランザクションでアウトボックスへメッセージを

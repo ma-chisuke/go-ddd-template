@@ -4,7 +4,7 @@
 # 再現できる。規約の本文は CONVENTIONS.md と docs/testing-conventions.md にあり、
 # ここは「その文言のうち機械化できるもの」だけを実装する。
 #
-# 検査は 10 個（fail 9 個 + warn 1 個）。fail は終了コード 1、warn は報告のみで終了コード 0 のまま:
+# 検査は 11 個（fail 10 個 + warn 1 個）。fail は終了コード 1、warn は報告のみで終了コード 0 のまま:
 #   1  テスト関数名の主題の一意性（C-1b）                    fail
 #   2  t.Run の 8 語語彙（D-1 / D-2）                        fail
 #   2' テーブル駆動の name フィールドの 8 語語彙（D-6）        fail
@@ -15,6 +15,7 @@
 #   6  規約系 Markdown の半角スペース境界（F-3）              fail
 #   7  ファイル凝集（40 行未満の単型ファイルの乱立）           warn
 #   8  位置指定の複合リテラルの不在（D-6）                     fail
+#   9  ドメインパッケージの単一性（B-8）                       fail
 #
 # 検査 8 は検査 2' / 3' の**盲点をふさぐためだけに在る**。検査 2' は `name:` に続く文字列
 # リテラルを拾うので、`{"空 SKU", …}` のように位置で並べたケースは構造体に name フィールドが
@@ -264,6 +265,34 @@ check_package_matches_dir() {
   done < <(find "${SCAN_DIRS[@]}" -type f -name '*.go' ! -name '*_test.go' 2>/dev/null | sort)
 }
 
+# --- 検査 9: ドメインパッケージの単一性（B-8） --------------------------------
+#
+# 各コンテキストのドメインは internal/domain の 1 パッケージに保ち、サブパッケージへ
+# 割らない。集約・値オブジェクト・ドメインイベントは 1 つのモデルとして相互に参照し合うので、
+# 割れば相互 import（Go では循環 import）か、それを避けるための不自然な型の押し出しを強いられる。
+#
+# 検査 5（package 名 = ディレクトリ名）と対で B-8 を成す。検査 5 だけでは
+# internal/domain/pricing/（package pricing）が「名前は合っている」ので素通りしてしまう。
+#
+# ディレクトリの存在だけでは違反にしない（.go を 1 つも持たない空ディレクトリは
+# Go のパッケージではない）。testdata/ も Go ツールチェインが無視する慣習の名前なので除外する。
+DOMAIN_SUBPKG_EXCLUDE='/testdata/'
+
+check_single_domain_package() {
+  local ctx domain_dir sub
+  for ctx in contexts/*/; do
+    domain_dir="${ctx}internal/domain"
+    [ -d "$domain_dir" ] || continue
+    while IFS= read -r sub; do
+      [ -z "$sub" ] && continue
+      report_fail "検査 9 ドメインパッケージの単一性（B-8）" \
+        "$sub: ドメインは 1 コンテキスト 1 パッケージ（${domain_dir}）に保つ（型が増えたらファイルを足す）"
+    done < <(find "$domain_dir" -mindepth 2 -type f -name '*.go' 2>/dev/null |
+      grep -v "$DOMAIN_SUBPKG_EXCLUDE" |
+      xargs -n1 dirname 2>/dev/null | sort -u || true)
+  done
+}
+
 # --- 検査 6: 規約系 Markdown の半角スペース境界（F-3） -----------------------
 #
 # 日本語（かな・カナ・漢字）の直後に英数字が空白なしで続く箇所を検出する。
@@ -363,6 +392,7 @@ check_table_case_names
 check_positional_case_literals
 check_catalog_filenames
 check_package_matches_dir
+check_single_domain_package
 check_doc_spacing
 check_file_cohesion
 

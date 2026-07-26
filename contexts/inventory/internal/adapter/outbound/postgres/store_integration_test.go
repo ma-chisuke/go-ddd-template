@@ -24,7 +24,7 @@ import (
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/postgres"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/event"
 	"github.com/example/go-ddd-template/shared/outbox"
 	"github.com/example/go-ddd-template/shared/testutil"
@@ -61,9 +61,9 @@ func countRows(t *testing.T, pool *pgxpool.Pool, table string) int {
 	return n
 }
 
-func mustSKU(t *testing.T, s string) inventory.SKU {
+func mustSKU(t *testing.T, s string) domain.SKU {
 	t.Helper()
-	sku, err := inventory.NewSKU(s)
+	sku, err := domain.NewSKU(s)
 	require.NoError(t, err, "SKU 生成")
 	return sku
 }
@@ -83,7 +83,7 @@ func newPgFixture(t *testing.T, pool *pgxpool.Pool, _ application.Clock) pgFixtu
 	log := testLogger()
 	work := postgres.NewUnitOfWork(pool)
 	exec := uow.NewExecutor()
-	dispatcher := event.NewTyped[inventory.DomainEvent](log)
+	dispatcher := event.NewTyped[domain.DomainEvent](log)
 	return pgFixture{
 		replenisher: application.NewReplenisher(exec, work, dispatcher, log),
 		reserver:    application.NewReserver(exec, work, dispatcher, log, time.Hour),
@@ -110,7 +110,7 @@ func TestPostgres_ReplenishThenQuery(t *testing.T) {
 	assert.Equal(t, 1, view.Version)
 
 	_, err = f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "MISSING"})
-	require.ErrorIs(t, err, inventory.ErrStockItemNotFound)
+	require.ErrorIs(t, err, domain.ErrStockItemNotFound)
 }
 
 func TestPostgres_ReserveConfirmRelease(t *testing.T) {
@@ -163,7 +163,7 @@ func TestPostgres_ReaperReleasesExpiredPending(t *testing.T) {
 	require.NoError(t, f.reserver.Reserve(ctx, application.ReserveInput{Ref: "CONFIRMED", Lines: []application.ReserveLine{{SKU: "PGX-R", Quantity: 20}}}), "confirmed 予約")
 	require.NoError(t, f.confirmer.Confirm(ctx, "CONFIRMED"), "Confirm")
 
-	reaper := application.NewReaper(uow.NewExecutor(), f.work, event.NewTyped[inventory.DomainEvent](log), clock, log, 100)
+	reaper := application.NewReaper(uow.NewExecutor(), f.work, event.NewTyped[domain.DomainEvent](log), clock, log, 100)
 	require.NoError(t, reaper.Sweep(ctx), "Sweep")
 
 	view, _ := f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "PGX-R"})
@@ -180,11 +180,11 @@ func TestPostgres_OutboxEnqueueAndRelay(t *testing.T) {
 
 	// UoW 内で在庫保存とアウトボックス Enqueue を同一トランザクションで行う。
 	err := work.Within(ctx, func(ctx context.Context, r application.Repos) error {
-		item, err := inventory.NewStockItem("id-obx", mustSKU(t, "PGX-OBX"))
+		item, err := domain.NewStockItem("id-obx", mustSKU(t, "PGX-OBX"))
 		if err != nil {
 			return err
 		}
-		q, _ := inventory.NewQuantity(5)
+		q, _ := domain.NewQuantity(5)
 		if err := item.Replenish(q); err != nil {
 			return err
 		}
@@ -233,11 +233,11 @@ func TestPostgres_EventLogRollsBackWithAggregate(t *testing.T) {
 
 	sentinel := errors.New("業務都合で中断")
 	err := work.Within(ctx, func(ctx context.Context, r application.Repos) error {
-		item, err := inventory.NewStockItem("id-rollback", mustSKU(t, "PGX-RB"))
+		item, err := domain.NewStockItem("id-rollback", mustSKU(t, "PGX-RB"))
 		if err != nil {
 			return err
 		}
-		q, _ := inventory.NewQuantity(5)
+		q, _ := domain.NewQuantity(5)
 		if err := item.Replenish(q); err != nil {
 			return err
 		}
@@ -274,7 +274,7 @@ func TestPostgres_ConcurrencyConflict(t *testing.T) {
 	stale := loadVia(t, read, sku) // version 1
 	other := loadVia(t, read, sku) // version 1
 
-	q1, _ := inventory.NewQuantity(1)
+	q1, _ := domain.NewQuantity(1)
 
 	_ = other.Replenish(q1)
 	require.NoError(t, f.work.Within(ctx, func(ctx context.Context, r application.Repos) error {
@@ -297,7 +297,7 @@ func (p *countingPublisher) Publish(_ context.Context, _ outbox.Message) error {
 }
 
 // loadVia は読み取りストア経由で集約を読み込む。
-func loadVia(t *testing.T, read application.StockStore, sku inventory.SKU) *inventory.StockItem {
+func loadVia(t *testing.T, read application.StockStore, sku domain.SKU) *domain.StockItem {
 	t.Helper()
 	item, err := read.Load(context.Background(), sku)
 	require.NoError(t, err, "読み込み")

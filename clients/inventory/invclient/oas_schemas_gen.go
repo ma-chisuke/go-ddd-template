@@ -106,7 +106,7 @@ type InvalidParam struct {
 	// なら契約検証語彙、invalid-input ならドメイン検証語彙）。 enum
 	// はこの内部契約のサーバが実際に載せうる値の全体（契約検証語彙 ∪
 	// 在庫コンテキストの
-	// ドメイン検証語彙）。新しいドメイン検証規則（inventory.Rule）を足したら、その
+	// ドメイン検証語彙）。新しいドメイン検証規則（domain.Rule）を足したら、その
 	// code を ここへも足す（規則 R-19。手順は CONVENTIONS.md）。.
 	Code InvalidParamCode `json:"code"`
 	// 人間可読な説明。code から導出される定型文であり、受信値を含まない。.
@@ -147,7 +147,7 @@ func (s *InvalidParam) SetReason(val OptString) {
 // なら契約検証語彙、invalid-input ならドメイン検証語彙）。 enum
 // はこの内部契約のサーバが実際に載せうる値の全体（契約検証語彙 ∪
 // 在庫コンテキストの
-// ドメイン検証語彙）。新しいドメイン検証規則（inventory.Rule）を足したら、その
+// ドメイン検証語彙）。新しいドメイン検証規則（domain.Rule）を足したら、その
 // code を ここへも足す（規則 R-19。手順は CONVENTIONS.md）。.
 type InvalidParamCode string
 

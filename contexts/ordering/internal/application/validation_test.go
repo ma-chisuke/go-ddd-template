@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 )
 
 // これらは入力検証（境界での値検証）が、在庫予約より前に失敗して番兵を返すことを検証する。
@@ -19,7 +19,7 @@ func TestGetOrder_InvalidID(t *testing.T) {
 
 	f := newMemFixture(t)
 	_, err := f.get.Handle(context.Background(), "   ")
-	require.ErrorIs(t, err, order.ErrInvalidOrderID)
+	require.ErrorIs(t, err, domain.ErrInvalidOrderID)
 }
 
 func TestCancelOrder_InvalidID(t *testing.T) {
@@ -27,7 +27,7 @@ func TestCancelOrder_InvalidID(t *testing.T) {
 
 	f := newMemFixture(t)
 	err := f.cancel.Handle(context.Background(), "   ")
-	require.ErrorIs(t, err, order.ErrInvalidOrderID)
+	require.ErrorIs(t, err, domain.ErrInvalidOrderID)
 }
 
 func TestPlaceOrder_InvalidLineValues(t *testing.T) {
@@ -49,25 +49,25 @@ func TestPlaceOrder_InvalidLineValues(t *testing.T) {
 			name:     "境界: 数量 0 は ErrInvalidQuantity",
 			customer: "CUST-1",
 			line:     application.PlaceOrderLine{SKU: "SKU-A", Quantity: 0, UnitPriceAmount: 100, Currency: "JPY"},
-			want:     order.ErrInvalidQuantity,
+			want:     domain.ErrInvalidQuantity,
 		},
 		{
 			name:     "境界: SKU が空なら ErrInvalidSKU",
 			customer: "CUST-1",
 			line:     application.PlaceOrderLine{SKU: "  ", Quantity: 1, UnitPriceAmount: 100, Currency: "JPY"},
-			want:     order.ErrInvalidSKU,
+			want:     domain.ErrInvalidSKU,
 		},
 		{
 			name:     "境界: 通貨が空なら ErrInvalidMoney",
 			customer: "CUST-1",
 			line:     application.PlaceOrderLine{SKU: "SKU-A", Quantity: 1, UnitPriceAmount: 100, Currency: ""},
-			want:     order.ErrInvalidMoney,
+			want:     domain.ErrInvalidMoney,
 		},
 		{
 			name:     "境界: 顧客 ID が空なら ErrInvalidCustomerID",
 			customer: "  ",
 			line:     application.PlaceOrderLine{SKU: "SKU-A", Quantity: 1, UnitPriceAmount: 100, Currency: "JPY"},
-			want:     order.ErrInvalidCustomerID,
+			want:     domain.ErrInvalidCustomerID,
 		},
 	}
 	for _, tc := range cases {

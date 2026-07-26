@@ -152,7 +152,7 @@ make test
 依存の向き:  inbound ──▶ application ◀── outbound、  application ──▶ domain
 ```
 
-- **domain（`internal/domain/inventory`）** — 純粋なドメイン層。`context.Context`・
+- **domain（`internal/domain`）** — 純粋なドメイン層。`context.Context`・
   リポジトリ・永続化・IO・フレームワーク・アダプタのいずれにも依存しません。不変条件は
   集約自身が守ります。この純粋性は静的解析（depguard）でも機械的に強制しています。
 - **application（`internal/application`）** — ユースケースとポート（`StockStore` など）。
@@ -283,7 +283,7 @@ make test
         ├── port/                … 公開の翻訳済み DTO（ReserveLine）と ACL の番兵（ErrReservationRejected など）
         ├── db/ · sqlc.yaml      … schema.sql / queries.sql（orders / order_lines / outbox / events）/ roles.sql / seed.sql / fixtures.sql / sqldef.yml
         └── internal/
-            ├── domain/order/    … 純粋なドメイン（Order / OrderLine / VO / イベント）
+            ├── domain/          … 純粋なドメイン（Order / OrderLine / VO / イベント）
             ├── application/     … ユースケース（PlaceOrder / GetOrder / CancelOrder）/ ポート / ACL ポート
             └── adapter/
                 ├── inbound/{http, openapi}     … 公開 API の薄いハンドラ + ogen 生成サーバ

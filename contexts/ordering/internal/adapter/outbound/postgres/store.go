@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/postgres/sqlcgen"
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
@@ -32,12 +32,12 @@ func newOrderStore(q *sqlcgen.Queries) *orderStore {
 }
 
 // Load は ID で注文を読み込み、明細を含めて集約を復元する。
-// 行が存在しない場合は order.ErrOrderNotFound を返す。
-func (s *orderStore) Load(ctx context.Context, id order.OrderID) (*order.Order, error) {
+// 行が存在しない場合は domain.ErrOrderNotFound を返す。
+func (s *orderStore) Load(ctx context.Context, id domain.OrderID) (*domain.Order, error) {
 	row, err := s.q.GetOrderByID(ctx, id.String())
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("注文 %q: %w", id.String(), order.ErrOrderNotFound)
+			return nil, fmt.Errorf("注文 %q: %w", id.String(), domain.ErrOrderNotFound)
 		}
 		return nil, fmt.Errorf("注文の読み込みに失敗しました: %w", err)
 	}
@@ -45,12 +45,12 @@ func (s *orderStore) Load(ctx context.Context, id order.OrderID) (*order.Order, 
 }
 
 // reconstitute は注文行と、その明細行から集約を復元する。
-func (s *orderStore) reconstitute(ctx context.Context, row sqlcgen.GetOrderByIDRow) (*order.Order, error) {
-	orderID, err := order.NewOrderID(row.ID)
+func (s *orderStore) reconstitute(ctx context.Context, row sqlcgen.GetOrderByIDRow) (*domain.Order, error) {
+	orderID, err := domain.NewOrderID(row.ID)
 	if err != nil {
 		return nil, fmt.Errorf("永続化された注文 ID が不正です: %w", err)
 	}
-	customer, err := order.NewCustomerID(row.CustomerID)
+	customer, err := domain.NewCustomerID(row.CustomerID)
 	if err != nil {
 		return nil, fmt.Errorf("永続化された顧客 ID が不正です: %w", err)
 	}
@@ -58,11 +58,11 @@ func (s *orderStore) reconstitute(ctx context.Context, row sqlcgen.GetOrderByIDR
 	if err != nil {
 		return nil, err
 	}
-	total, err := order.NewMoney(row.TotalAmount, row.TotalCurrency)
+	total, err := domain.NewMoney(row.TotalAmount, row.TotalCurrency)
 	if err != nil {
 		return nil, fmt.Errorf("永続化された合計金額が不正です: %w", err)
 	}
-	ref, err := order.NewReservationRef(row.ReservationRef)
+	ref, err := domain.NewReservationRef(row.ReservationRef)
 	if err != nil {
 		return nil, fmt.Errorf("永続化された予約参照が不正です: %w", err)
 	}
@@ -71,29 +71,29 @@ func (s *orderStore) reconstitute(ctx context.Context, row sqlcgen.GetOrderByIDR
 	if err != nil {
 		return nil, fmt.Errorf("注文明細の読み込みに失敗しました: %w", err)
 	}
-	lines := make([]order.OrderLine, 0, len(lineRows))
+	lines := make([]domain.OrderLine, 0, len(lineRows))
 	for _, lr := range lineRows {
-		sku, err := order.NewSKU(lr.Sku)
+		sku, err := domain.NewSKU(lr.Sku)
 		if err != nil {
 			return nil, fmt.Errorf("永続化された SKU が不正です: %w", err)
 		}
-		qty, err := order.NewQuantity(int(lr.Quantity))
+		qty, err := domain.NewQuantity(int(lr.Quantity))
 		if err != nil {
 			return nil, fmt.Errorf("永続化された数量が不正です: %w", err)
 		}
-		price, err := order.NewMoney(lr.UnitPrice, lr.Currency)
+		price, err := domain.NewMoney(lr.UnitPrice, lr.Currency)
 		if err != nil {
 			return nil, fmt.Errorf("永続化された単価が不正です: %w", err)
 		}
-		lines = append(lines, order.NewOrderLine(sku, qty, price))
+		lines = append(lines, domain.NewOrderLine(sku, qty, price))
 	}
-	return order.ReconstituteOrder(orderID, customer, lines, status, total, ref, int(row.Version)), nil
+	return domain.ReconstituteOrder(orderID, customer, lines, status, total, ref, int(row.Version)), nil
 }
 
 // Save は注文を明細ごと永続化する。version が 0 の集約は新規挿入し、それ以外は
 // 楽観的排他制御つきで更新する。版が食い違えば uow.ErrConcurrencyConflict を返す。
 // 明細は作成後に変化しないため、更新時（取消）には注文行の状態のみを書き換える。
-func (s *orderStore) Save(ctx context.Context, o *order.Order) error {
+func (s *orderStore) Save(ctx context.Context, o *domain.Order) error {
 	if o.Version() == 0 {
 		return s.insert(ctx, o)
 	}
@@ -101,7 +101,7 @@ func (s *orderStore) Save(ctx context.Context, o *order.Order) error {
 }
 
 // insert は新規注文を明細ごと挿入する。永続化済みのバージョンは 1 から始まる。
-func (s *orderStore) insert(ctx context.Context, o *order.Order) error {
+func (s *orderStore) insert(ctx context.Context, o *domain.Order) error {
 	err := s.q.InsertOrder(ctx, sqlcgen.InsertOrderParams{
 		ID:             o.ID().String(),
 		CustomerID:     o.CustomerID().String(),
@@ -137,7 +137,7 @@ func (s *orderStore) insert(ctx context.Context, o *order.Order) error {
 }
 
 // update は楽観的排他制御つきで注文の状態を更新する（取消など）。
-func (s *orderStore) update(ctx context.Context, o *order.Order) error {
+func (s *orderStore) update(ctx context.Context, o *domain.Order) error {
 	next := o.Version() + 1
 	rows, err := s.q.UpdateOrder(ctx, sqlcgen.UpdateOrderParams{
 		Status:    o.Status().String(),
@@ -157,13 +157,13 @@ func (s *orderStore) update(ctx context.Context, o *order.Order) error {
 }
 
 // parseStatus は永続化された文字列を注文状態へ変換する。
-func parseStatus(s string) (order.Status, error) {
+func parseStatus(s string) (domain.Status, error) {
 	switch s {
 	case "confirmed":
-		return order.StatusConfirmed, nil
+		return domain.StatusConfirmed, nil
 	case "cancelled":
-		return order.StatusCancelled, nil
+		return domain.StatusCancelled, nil
 	default:
-		return order.StatusConfirmed, fmt.Errorf("永続化された注文状態が不正です: %q", s)
+		return domain.StatusConfirmed, fmt.Errorf("永続化された注文状態が不正です: %q", s)
 	}
 }

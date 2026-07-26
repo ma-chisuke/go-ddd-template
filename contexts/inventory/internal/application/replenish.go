@@ -5,7 +5,7 @@ import (
 	"errors"
 	"log/slog"
 
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/id"
 	"github.com/example/go-ddd-template/shared/uow"
 )
@@ -47,27 +47,27 @@ func NewReplenisher(exec uow.Executor, work UnitOfWork, dispatch EventDispatcher
 // ドメインイベントは外側の変数に退避し、作業単位が成功（uow.Run が nil を返す）した
 // あとにのみ配信する。これにより「保存に失敗したのにイベントだけ配信される」ことを防ぐ。
 func (r *Replenisher) Replenish(ctx context.Context, in ReplenishInput) (StockResult, error) {
-	sku, err := inventory.NewSKU(in.SKU)
+	sku, err := domain.NewSKU(in.SKU)
 	if err != nil {
 		return StockResult{}, locate("", err)
 	}
-	qty, err := inventory.NewQuantity(in.Quantity)
+	qty, err := domain.NewQuantity(in.Quantity)
 	if err != nil {
 		return StockResult{}, locate("", err)
 	}
 
 	// クロージャの外で結果とイベントを退避する。再試行時は最後（成功時）の値で上書きされる。
-	var events []inventory.DomainEvent
+	var events []domain.DomainEvent
 	var result StockResult
 
 	err = uow.Run(ctx, r.exec, r.work, func(ctx context.Context, repos Repos) error {
 		item, err := repos.Stock().Load(ctx, sku)
 		if err != nil {
-			if !errors.Is(err, inventory.ErrStockItemNotFound) {
+			if !errors.Is(err, domain.ErrStockItemNotFound) {
 				return err
 			}
 			// 未登録の SKU は新規の在庫項目として扱う。
-			item, err = inventory.NewStockItem(id.New(), sku)
+			item, err = domain.NewStockItem(id.New(), sku)
 			if err != nil {
 				return err
 			}

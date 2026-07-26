@@ -11,7 +11,7 @@ import (
 
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 	"github.com/example/go-ddd-template/contexts/ordering/port"
 )
 
@@ -140,7 +140,7 @@ func TestPlaceOrder_EmptyLinesRejected(t *testing.T) {
 	// もし Reserve が呼ばれれば gomock がテストを失敗させる。
 
 	_, err := f.place.Handle(ctx, application.PlaceOrderInput{CustomerID: "CUST-1"})
-	require.ErrorIs(t, err, order.ErrEmptyOrder)
+	require.ErrorIs(t, err, domain.ErrEmptyOrder)
 }
 
 func TestPlaceOrder_RetriesOnConflictReserveOnce(t *testing.T) {

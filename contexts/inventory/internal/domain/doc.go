@@ -1,4 +1,4 @@
-// Package inventory は在庫（Inventory）の境界づけられたコンテキストのドメイン層である。
+// Package domain は在庫（Inventory）の境界づけられたコンテキストのドメイン層である。
 //
 // # 集約ルート
 //
@@ -43,8 +43,9 @@
 // # 語彙
 //
 // 用語の定義は contexts/inventory/GLOSSARY.md にある。SKU・Quantity・ReservationRef は
-// 受注（Ordering）コンテキストにも同名で存在するが、別パッケージの別の型であり意味も
-// 異なる（対比表は docs/glossary.md）。とくにこのコンテキストは「注文」という概念を
+// 受注（Ordering）コンテキストにも同名で存在するが、import パスの異なる別パッケージ
+// （contexts/ordering/internal/domain）の別の型であり意味も異なる
+// （対比表は docs/glossary.md）。とくにこのコンテキストは「注文」という概念を
 // 持たない。ReservationRef は呼び出し側が供給する不透明な相関 ID であり、在庫側はその
 // 由来を解釈しない。
-package inventory
+package domain

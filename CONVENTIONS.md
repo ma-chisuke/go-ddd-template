@@ -17,7 +17,9 @@
 
 - **1 ディレクトリ 1 パッケージ**。
 - パッケージ名は**短く・小文字・単数形**。冗長な繰り返し（stutter）を避けます。
-  例: `inventory.SKU` とし、`inventory.InventorySKU` とはしません。
+  例: `inventory.Module` とし、`inventory.InventoryModule` とはしません。
+- **層のパッケージは層の名前で命名**します（B-8）。`internal/domain` は `package domain`、
+  `internal/application` は `package application` です。
 - **生成ファイルは隔離**します。ogen は `internal/adapter/inbound/openapi/` に、
   sqlc は `internal/adapter/outbound/postgres/sqlcgen/` に出力し、**手で編集しません**。
 
@@ -57,8 +59,9 @@ snake_case にし、**主要型名に対応させます**。例: `StockItem` →
 > `ReservationRef` と読み比べるときではありません。再発は検査 4 の禁止語幹
 > （`identifiers` を追加済み）が機械的に止めます。
 
-この 3 則の帰結として、`order.Quantity`（28 行）は `order_line.go` に束ねられ、
-`inventory.Quantity`（55 行）は `quantity.go` に残ります。**同じ規則に異なる入力を通した結果**です。
+この 3 則の帰結として、注文の `Quantity`（28 行）は `order_line.go` に束ねられ、
+在庫の `Quantity`（55 行）は `quantity.go` に残ります。**同じ規則に異なる入力を通した結果**です
+（どちらも `package domain` の型で、属する境界だけが違います。B-8）。
 
 ### B-4 カタログ的なファイル名を禁止する
 
@@ -96,6 +99,38 @@ package doc → import → 定数 → 型 → コンストラクタ → 公開�
 > なお `scripts/convention-gate.sh` の検査 7 は「公開型 1 個だけを含む 40 行未満のファイルが
 > 同一パッケージに 3 つ以上」を **warn** で報告します。B-2（短いファイルを禁止しない）と矛盾しません
 > — 前者は「短いファイルの乱立」を人間の判断に委ねて警告するだけで、fail にはしません。
+
+> **ドメイン層にはこの逃げ道がありません。** B-8 がサブパッケージ化を禁じるので、
+> ドメインパッケージが膨らんだときの手は**ファイルの束ね直し**（B-3）だけです。
+> それでも 12 ファイルに収まらないなら、疑うべきはファイル分割ではなく**境界の引き方**です
+> — 1 つの境界づけられたコンテキストに 2 つのモデルが同居している可能性があります
+> （`docs/why-these-boundaries.md`）。
+
+### B-8 層のパッケージは層の名前で命名する
+
+パッケージ名は**中身ではなく層**で決めます。`internal/domain` は `package domain`、
+`internal/application` は `package application` です。`internal/domain/order`（`package order`）の
+ように中身で名づけると、同じ 4 層のうち application だけが層で・domain だけが中身で命名される
+**非対称**になります。
+
+**1 コンテキストにドメインパッケージは 1 つ**とし、サブパッケージには割りません。
+集約・値オブジェクト・ドメインイベントは 1 つのモデルとして相互に参照し合うので、割れば
+**相互 import**（Go では循環 import になり、そもそもコンパイルが通らない）か、
+それを避けるための不自然な型の押し出しかのどちらかを強いられます。**ひとつのモデルは
+ひとつのパッケージ**です。型が増えたら**ファイル**を足します（束ね方は B-3 が決めます）。
+→ `scripts/convention-gate.sh`（検査 9）
+
+呼び出し側にこの命名が現れることで、**依存の向きがコードを読むだけで見える**という副産物も
+あります。`domain.NewOrder(...)` / `domain.StockItem` の `domain.` は「外側から内側を呼んでいる」
+という印であり、逆向き（ドメインから `application.` や `httpapi.`）は depguard の
+`domain-purity` が禁じています。
+
+**名前の衝突も同時に消えます。** 従来は公開ファサード `contexts/inventory/inventory.go`
+（`package inventory`）とドメイン（`package inventory`）が同名で、ファサードの中に書かれた
+`inventory.StockItem` が「自分自身」ではなく「import したドメイン」を指す、という罠がありました。
+
+【家 — この 1 階層は子が常に 1 つだけの素通しディレクトリでした。他の階層
+（`adapter` 2 / `inbound` 2〜4 / `outbound` 2〜4）は実際に複数を束ねているので畳みません】
 
 ## 命名
 
@@ -246,7 +281,7 @@ ogen の既定ハンドラが `{"error_message": "operation placeOrder: decode r
 | inventory（公開） | `getStock` | 400, 404, 422 |
 
 `getOrder` / `cancelOrder` の 422 は、パスパラメータ `id` がドメイン検証
-（`order.NewOrderID` → `ErrInvalidOrderID`）を通るため実際に返りうります。415（メディアタイプ
+（`domain.NewOrderID` → `ErrInvalidOrderID`）を通るため実際に返りうります。415（メディアタイプ
 非対応）と、経路レベルの 404（未定義パス）/ 405（メソッド不許可）は E1〜E3 のトランスポート層
 （`ServerOption` ハンドラ）が生成するもので、オペレーション単位では宣言できません（同じ
 `ProblemDetails` 形状は共有します）。
@@ -395,7 +430,7 @@ OpenAPI の `enum` ではなく `shared/problem/type_uri.go`（サフィック�
 規則を 1 つ足すだけで 4 箇所を編集する羽目になります。
 
 ```go
-// internal/domain/order/errors.go
+// internal/domain/errors.go
 var (
     VQuantity      = Rule{Field: "quantity", Code: "invalid_quantity",       Err: ErrInvalidQuantity}
     VMoneyAmount   = Rule{Field: "amount",   Code: "invalid_money_amount",   Err: ErrInvalidMoney}
@@ -583,7 +618,7 @@ for i, l := range lines {
 
 - `event.go` が**型なしのコア**（`Event` / `Handler` / `Dispatcher` / `InProcess`）、`typed.go` が
   各コンテキストのドメインイベント型で使う**型付きファサード**（`Occurred` / `Sink[E]` /
-  `TypedHandler[E]` / `Typed[E]`）です。合成ルートは `event.NewTyped[order.DomainEvent](log)` の
+  `TypedHandler[E]` / `Typed[E]`）です。合成ルートは `event.NewTyped[domain.DomainEvent](log)` の
   ように型引数を綴って直接生成します。
 - **ドメイン層はこのパッケージを import しません**。各コンテキストは自分の `DomainEvent` を
   独自に定義し、それが `EventName() string` と `OccurredAt() time.Time` を持つことで
@@ -790,6 +825,7 @@ for i, l := range lines {
 | 11b | `*_test.go` の複合リテラルを位置指定で書かない（D-6。#11 の**視界**を担保する） | `scripts/convention-gate.sh` 検査 8 | **fail** |
 | 12 | カタログ的ファイル名の不在（B-4） | `scripts/convention-gate.sh` 検査 4 | **fail** |
 | 13 | package 名 = ディレクトリ名（A-7） | `scripts/convention-gate.sh` 検査 5 | **fail** |
+| 13b | ドメインパッケージの単一性（B-8。#13 と対で「層の名前で 1 つ」を成す） | `scripts/convention-gate.sh` 検査 9 | **fail** |
 | 14 | 規約系 Markdown の半角スペース境界（F-3） | `scripts/convention-gate.sh` 検査 6 | **fail** |
 | 15 | ファイル凝集（公開型 1 個のみを含む 40 行未満のファイルが同一パッケージに 3 つ以上） | `scripts/convention-gate.sh` 検査 7 | **warn** |
 | 16 | CI 時間 | **計測して記録するだけ** | なし |

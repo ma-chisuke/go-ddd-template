@@ -8,7 +8,7 @@ import (
 
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/inbound/openapi"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 	"github.com/example/go-ddd-template/shared/problem"
 	"github.com/example/go-ddd-template/shared/uow"
 )
@@ -97,17 +97,17 @@ func classify(err error) (int, string) {
 		return http.StatusServiceUnavailable, "Service Unavailable"
 	case errors.Is(err, application.ErrReservationRejected):
 		return http.StatusConflict, "Conflict"
-	case errors.Is(err, order.ErrOrderNotFound):
+	case errors.Is(err, domain.ErrOrderNotFound):
 		return http.StatusNotFound, "Not Found"
-	case errors.Is(err, order.ErrOrderNotConfirmed), errors.Is(err, uow.ErrConcurrencyConflict):
+	case errors.Is(err, domain.ErrOrderNotConfirmed), errors.Is(err, uow.ErrConcurrencyConflict):
 		return http.StatusConflict, "Conflict"
-	case errors.Is(err, order.ErrEmptyOrder),
-		errors.Is(err, order.ErrInvalidSKU),
-		errors.Is(err, order.ErrInvalidQuantity),
-		errors.Is(err, order.ErrInvalidMoney),
-		errors.Is(err, order.ErrInvalidCustomerID),
-		errors.Is(err, order.ErrInvalidOrderID),
-		errors.Is(err, order.ErrInvalidReservationRef):
+	case errors.Is(err, domain.ErrEmptyOrder),
+		errors.Is(err, domain.ErrInvalidSKU),
+		errors.Is(err, domain.ErrInvalidQuantity),
+		errors.Is(err, domain.ErrInvalidMoney),
+		errors.Is(err, domain.ErrInvalidCustomerID),
+		errors.Is(err, domain.ErrInvalidOrderID),
+		errors.Is(err, domain.ErrInvalidReservationRef):
 		return http.StatusUnprocessableEntity, "Unprocessable Entity"
 	default:
 		return http.StatusInternalServerError, "Internal Server Error"

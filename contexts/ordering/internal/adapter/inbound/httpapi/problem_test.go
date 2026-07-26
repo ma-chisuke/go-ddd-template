@@ -16,7 +16,7 @@ import (
 
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/inbound/openapi"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 	"github.com/example/go-ddd-template/shared/problem"
 )
 
@@ -219,37 +219,37 @@ func TestProblem_E4_DomainValidationHasInvalidParams(t *testing.T) {
 		{
 			name:     "境界: 数量 0 は lines[0].quantity を指す",
 			body:     orderBody("CUST-1", orderLine("SKU-A", 0, 100, "JPY")),
-			wantName: "lines[0].quantity", wantCode: order.VQuantity.Code,
+			wantName: "lines[0].quantity", wantCode: domain.VQuantity.Code,
 		},
 		{
 			name:     "境界: SKU が空なら lines[0].sku を指す",
 			body:     orderBody("CUST-1", orderLine(" ", 1, 100, "JPY")),
-			wantName: "lines[0].sku", wantCode: order.VSKU.Code,
+			wantName: "lines[0].sku", wantCode: domain.VSKU.Code,
 		},
 		{
 			name:     "境界: 金額が負なら lines[0].unitPrice.amount を指す",
 			body:     orderBody("CUST-1", orderLine("SKU-A", 1, -1, "JPY")),
-			wantName: "lines[0].unitPrice.amount", wantCode: order.VMoneyAmount.Code,
+			wantName: "lines[0].unitPrice.amount", wantCode: domain.VMoneyAmount.Code,
 		},
 		{
 			name:     "境界: 通貨が空なら lines[0].unitPrice.currency を指す",
 			body:     orderBody("CUST-1", orderLine("SKU-A", 1, 100, "")),
-			wantName: "lines[0].unitPrice.currency", wantCode: order.VMoneyCurrency.Code,
+			wantName: "lines[0].unitPrice.currency", wantCode: domain.VMoneyCurrency.Code,
 		},
 		{
 			name:     "境界: 顧客 ID が空なら customerId を指す",
 			body:     orderBody("  ", orderLine("SKU-A", 1, 100, "JPY")),
-			wantName: "customerId", wantCode: order.VCustomerID.Code,
+			wantName: "customerId", wantCode: domain.VCustomerID.Code,
 		},
 		{
 			name:     "境界: 明細が空なら lines を指す（集約規則）",
 			body:     orderBody("CUST-1"),
-			wantName: "lines", wantCode: order.VEmptyOrder.Code,
+			wantName: "lines", wantCode: domain.VEmptyOrder.Code,
 		},
 		{
 			name:     "境界: 2 行目が壊れていれば添字は lines[1] を指す",
 			body:     orderBody("CUST-1", orderLine("SKU-A", 1, 100, "JPY"), orderLine("SKU-B", 0, 100, "JPY")),
-			wantName: "lines[1].quantity", wantCode: order.VQuantity.Code,
+			wantName: "lines[1].quantity", wantCode: domain.VQuantity.Code,
 		},
 	}
 
@@ -275,7 +275,7 @@ func TestProblem_E4_PathParameterUsesHTTPName(t *testing.T) {
 
 	require.Len(t, pb.InvalidParams, 1)
 	assert.Equal(t, "id", pb.InvalidParams[0].Name, "Go 識別子 OrderID を露出しない（規則 R-10）")
-	assert.Equal(t, order.VOrderID.Code, pb.InvalidParams[0].Code)
+	assert.Equal(t, domain.VOrderID.Code, pb.InvalidParams[0].Code)
 }
 
 // FR-4.3 の中核。番兵が同じ ErrInvalidMoney でも、応答レベルで amount と currency が
@@ -396,11 +396,11 @@ func TestProblem_E4_SameStatusDifferentType(t *testing.T) {
 // TestProblem_InvalidParamCodeEnumCoversVocabulary は、このサーバが応答に載せうる code
 // 語彙のすべてが、契約（openapi.yaml）の InvalidParam.code enum に含まれることを網羅的に
 // 検証する。列挙元は語彙の唯一の情報源そのもの——契約検証語彙（shared/problem の Code*）と、
-// 注文コンテキストが所有するドメイン検証語彙（order.Rule の Code）——である。
+// 注文コンテキストが所有するドメイン検証語彙（domain.Rule の Code）——である。
 //
 // readProblem 内の Validate はテストが実際に踏んだ経路の code しか検証できない（例えば
 // invalid_reservation_ref は公開 API から容易には誘発できない）。この網羅テストは経路に
-// 依存せず、語彙 → enum の対応を直接固定する。新しい order.Rule を足したのに契約の enum へ
+// 依存せず、語彙 → enum の対応を直接固定する。新しい domain.Rule を足したのに契約の enum へ
 // 足し忘れれば、その code の生成型 Validate が invalid value を返し CI が落ちる（規則 R-19）。
 func TestProblem_InvalidParamCodeEnumCoversVocabulary(t *testing.T) {
 	// 契約検証語彙（400 / validation-error）。shared/problem/vocab.go の Code* が唯一の情報源。
@@ -409,11 +409,11 @@ func TestProblem_InvalidParamCodeEnumCoversVocabulary(t *testing.T) {
 		problem.CodePattern, problem.CodeUniqueItems, problem.CodeInvalidParam,
 		problem.CodeBodyRequired, problem.CodeInvalid,
 	}
-	// ドメイン検証語彙（422 / invalid-input）。注文コンテキストの order.Rule が唯一の情報源。
+	// ドメイン検証語彙（422 / invalid-input）。注文コンテキストの domain.Rule が唯一の情報源。
 	domainCodes := []string{
-		order.VEmptyOrder.Code, order.VSKU.Code, order.VQuantity.Code,
-		order.VMoneyAmount.Code, order.VMoneyCurrency.Code, order.VCustomerID.Code,
-		order.VOrderID.Code, order.VReservationRef.Code,
+		domain.VEmptyOrder.Code, domain.VSKU.Code, domain.VQuantity.Code,
+		domain.VMoneyAmount.Code, domain.VMoneyCurrency.Code, domain.VCustomerID.Code,
+		domain.VOrderID.Code, domain.VReservationRef.Code,
 	}
 
 	for _, code := range append(contractCodes, domainCodes...) {

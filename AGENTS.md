@@ -68,7 +68,7 @@
 
 | 関心事 | 置き場所 |
 | --- | --- |
-| 集約・値オブジェクト・不変条件・ドメインイベント・ドメインサービス | `internal/domain/<ctx>/`（在庫は `inventory`、注文は `order`）。集約ルートと不変条件の要約は同ディレクトリの `doc.go`（package コメントは `stylecheck` の ST1000 で必須化されている） |
+| 集約・値オブジェクト・不変条件・ドメインイベント・ドメインサービス | `internal/domain/`（`package domain`。1 コンテキストに 1 つで、サブパッケージへは割らない）。集約ルートと不変条件の要約は同ディレクトリの `doc.go`（package コメントは `stylecheck` の ST1000 で必須化されている） |
 | **その境界のユビキタス言語**（語 → 業務上の意味 → Go 型 → 定義ファイル） | `contexts/<ctx>/GLOSSARY.md`。ドメインに公開型を足したらここにも 1 行足す（`docs/glossary.md` は索引と、境界を跨いで同名の語の対比だけを持つ） |
 | **DDD パターン → 実装位置の索引**（「集約はどこ？ ACL は？」に答える表） | `docs/ddd-patterns.md`（「新しいものをどう足すか」は `docs/add-a-use-case.md`、境界を割った理由は `docs/why-these-boundaries.md`） |
 | ユースケース、ポート（interface）、サブスクライバ、Reaper | `internal/application/` |
@@ -137,7 +137,7 @@
 ドメインの検証規則を足すコストは **3 箇所の編集**である。規約の全体像は `CONVENTIONS.md` の
 「HTTP エラー応答（RFC 9457 / Problem Details）」にある。
 
-1. **ドメイン層** `internal/domain/<ctx>/errors.go` の `Rule` 一覧に 1 行足す。
+1. **ドメイン層** `internal/domain/errors.go` の `Rule` 一覧に 1 行足す。
 
    ```go
    VQuantity = Rule{Field: "quantity", Code: "invalid_quantity", Err: ErrInvalidQuantity}
@@ -151,7 +151,7 @@
    「規則 → 定型文」を 1 行足す。
 
    ```go
-   order.VQuantity.Code: "1 以上の値を指定してください",
+   domain.VQuantity.Code: "1 以上の値を指定してください",
    ```
 
    受信値も閾値も書かない（FR-2.3 / FR-2.4）。キーを `Rule` から引いているので、
@@ -285,7 +285,7 @@ if n < 1 {
   この rule に引っかかったら回避策を探すのではなく、**それは `shared/` に置くべきものではない**
   というシグナルとして扱う。
 - **`shared/event`**: `event.go` が型なしコア（`InProcess`）、`typed.go` が型付きファサード
-  （`Typed[E Occurred]`）。合成ルートは `event.NewTyped[order.DomainEvent](log)` のように型引数を
+  （`Typed[E Occurred]`）。合成ルートは `event.NewTyped[domain.DomainEvent](log)` のように型引数を
   綴って直接生成する。per-context の委譲コンストラクタは作らない（「機構は共有・型はコンテキスト
   固有」が呼び出し側から見えている状態を保つ）。ドメイン層は `shared/event` を import せず、
   `DomainEvent` が `EventName()` + `OccurredAt()` を持つことで `event.Occurred` を構造的に満たす。

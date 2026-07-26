@@ -24,7 +24,7 @@ import (
 
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/postgres"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 	"github.com/example/go-ddd-template/contexts/ordering/port"
 	"github.com/example/go-ddd-template/shared/event"
 	"github.com/example/go-ddd-template/shared/outbox"
@@ -80,7 +80,7 @@ func newPgFixture(t *testing.T, pool *pgxpool.Pool) pgFixture {
 	log := testLogger()
 	work := postgres.NewUnitOfWork(pool)
 	exec := uow.NewExecutor()
-	dispatcher := event.NewTyped[order.DomainEvent](log)
+	dispatcher := event.NewTyped[domain.DomainEvent](log)
 	return pgFixture{
 		place:  application.NewPlaceOrder(exec, work, okReserver{}, dispatcher, log),
 		get:    application.NewGetOrder(postgres.NewReadOrderStore(pool), log),
@@ -253,7 +253,7 @@ func (p *countingPublisher) Publish(_ context.Context, _ outbox.Message) error {
 }
 
 // loadVia は読み取りストア経由で注文を読み込む。
-func loadVia(t *testing.T, read application.OrderStore, id order.OrderID) *order.Order {
+func loadVia(t *testing.T, read application.OrderStore, id domain.OrderID) *domain.Order {
 	t.Helper()
 	o, err := read.Load(context.Background(), id)
 	require.NoError(t, err, "読み込み 失敗")

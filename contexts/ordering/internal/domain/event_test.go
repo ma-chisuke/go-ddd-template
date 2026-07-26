@@ -1,4 +1,4 @@
-package order_test
+package domain_test
 
 import (
 	"testing"
@@ -6,14 +6,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 )
 
 func TestEventOccurredAt(t *testing.T) {
 	t.Parallel()
 
-	o, err := order.NewOrder(mustOrderID(t, "ORDER-1"), mustCustomerID(t, "CUST-1"),
-		[]order.OrderLine{mustLine(t, "SKU-A", 1, 1000, "JPY")})
+	o, err := domain.NewOrder(mustOrderID(t, "ORDER-1"), mustCustomerID(t, "CUST-1"),
+		[]domain.OrderLine{mustLine(t, "SKU-A", 1, 1000, "JPY")})
 	require.NoError(t, err, "注文作成失敗")
 	placed := o.PullEvents()
 	require.Len(t, placed, 1)

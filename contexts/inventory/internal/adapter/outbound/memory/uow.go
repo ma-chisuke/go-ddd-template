@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/outbox"
 	"github.com/example/go-ddd-template/shared/uow"
 )
@@ -89,26 +89,26 @@ type txStore struct {
 // コンパイル時にポートを満たしていることを確認する。
 var _ application.StockStore = (*txStore)(nil)
 
-func (s *txStore) Load(_ context.Context, sku inventory.SKU) (*inventory.StockItem, error) {
+func (s *txStore) Load(_ context.Context, sku domain.SKU) (*domain.StockItem, error) {
 	return s.tx.store.load(sku)
 }
 
-func (s *txStore) LoadMany(_ context.Context, skus []inventory.SKU) ([]*inventory.StockItem, error) {
+func (s *txStore) LoadMany(_ context.Context, skus []domain.SKU) ([]*domain.StockItem, error) {
 	return s.tx.store.loadMany(skus)
 }
 
-func (s *txStore) LoadByReservation(_ context.Context, ref inventory.ReservationRef) ([]*inventory.StockItem, error) {
+func (s *txStore) LoadByReservation(_ context.Context, ref domain.ReservationRef) ([]*domain.StockItem, error) {
 	return s.tx.store.loadByReservation(ref)
 }
 
-func (s *txStore) LoadExpiredPending(_ context.Context, before time.Time, limit int) ([]*inventory.StockItem, error) {
+func (s *txStore) LoadExpiredPending(_ context.Context, before time.Time, limit int) ([]*domain.StockItem, error) {
 	return s.tx.store.loadExpiredPending(before, limit)
 }
 
 // Save は各集約の版を確定ストアと突き合わせて検証し、集約のバージョンを同期（MarkPersisted）
 // したうえで、確定ストアへ書き込む行（予約状態を含む）を staging に積む。実際の書き込みは
 // コミット時に行う。版が食い違えば uow.ErrConcurrencyConflict を返し、確定ストアは変更しない。
-func (s *txStore) Save(_ context.Context, items ...*inventory.StockItem) error {
+func (s *txStore) Save(_ context.Context, items ...*domain.StockItem) error {
 	s.tx.store.mu.Lock()
 	defer s.tx.store.mu.Unlock()
 
@@ -163,23 +163,23 @@ type readStore struct {
 
 var _ application.StockStore = (*readStore)(nil)
 
-func (s *readStore) Load(_ context.Context, sku inventory.SKU) (*inventory.StockItem, error) {
+func (s *readStore) Load(_ context.Context, sku domain.SKU) (*domain.StockItem, error) {
 	return s.store.load(sku)
 }
 
-func (s *readStore) LoadMany(_ context.Context, skus []inventory.SKU) ([]*inventory.StockItem, error) {
+func (s *readStore) LoadMany(_ context.Context, skus []domain.SKU) ([]*domain.StockItem, error) {
 	return s.store.loadMany(skus)
 }
 
-func (s *readStore) LoadByReservation(_ context.Context, ref inventory.ReservationRef) ([]*inventory.StockItem, error) {
+func (s *readStore) LoadByReservation(_ context.Context, ref domain.ReservationRef) ([]*domain.StockItem, error) {
 	return s.store.loadByReservation(ref)
 }
 
-func (s *readStore) LoadExpiredPending(_ context.Context, before time.Time, limit int) ([]*inventory.StockItem, error) {
+func (s *readStore) LoadExpiredPending(_ context.Context, before time.Time, limit int) ([]*domain.StockItem, error) {
 	return s.store.loadExpiredPending(before, limit)
 }
 
 // Save は読み取り専用アダプタでは使用しない。誤用を早期に検知するためエラーを返す。
-func (s *readStore) Save(_ context.Context, _ ...*inventory.StockItem) error {
+func (s *readStore) Save(_ context.Context, _ ...*domain.StockItem) error {
 	return fmt.Errorf("readStore は読み取り専用です: 書き込みは UnitOfWork.Within を使ってください")
 }

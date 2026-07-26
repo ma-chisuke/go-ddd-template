@@ -13,7 +13,7 @@ import (
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/outbox"
 )
 
@@ -39,7 +39,7 @@ func TestOutbox_EnqueueCommitsWithSave(t *testing.T) {
 
 	// UoW 内で在庫を保存しつつ、同一トランザクションでメッセージを Enqueue する。
 	err := work.Within(ctx, func(ctx context.Context, r application.Repos) error {
-		item, err := inventory.NewStockItem("id-1", mustSKU(t, "WIDGET-001"))
+		item, err := domain.NewStockItem("id-1", mustSKU(t, "WIDGET-001"))
 		if err != nil {
 			return err
 		}
@@ -125,7 +125,7 @@ func TestEvents_SameTxAsAggregateAndOutbox(t *testing.T) {
 	// 集約の保存とメッセージ投入を行ってから中断する。3 者すべてが巻き戻る。
 	sentinel := errors.New("業務都合で中断")
 	err := work.Within(ctx, func(ctx context.Context, r application.Repos) error {
-		item, err := inventory.NewStockItem("id-tx", sku)
+		item, err := domain.NewStockItem("id-tx", sku)
 		if err != nil {
 			return err
 		}
@@ -145,13 +145,13 @@ func TestEvents_SameTxAsAggregateAndOutbox(t *testing.T) {
 	require.ErrorIs(t, err, sentinel)
 
 	_, err = read.Load(ctx, sku)
-	require.ErrorIs(t, err, inventory.ErrStockItemNotFound, "集約は保存されていない")
+	require.ErrorIs(t, err, domain.ErrStockItemNotFound, "集約は保存されていない")
 	assert.Empty(t, stores.Queued(), "配送キューにも残らない")
 	assert.Empty(t, stores.Events(), "イベントログにも残らない")
 
 	// 同じ操作を成功させると、3 者すべてが確定する。
 	err = work.Within(ctx, func(ctx context.Context, r application.Repos) error {
-		item, err := inventory.NewStockItem("id-tx", sku)
+		item, err := domain.NewStockItem("id-tx", sku)
 		if err != nil {
 			return err
 		}

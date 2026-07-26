@@ -11,7 +11,7 @@ import (
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/openapiinternal"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/problem"
 	"github.com/example/go-ddd-template/shared/problem/ogenproblem"
 )
@@ -34,7 +34,7 @@ import (
 // 識別子であり、解決可能な文書ページを公開する必要はない（OOS-5）。手順は CONVENTIONS.md。
 const problemTypeBase = "https://github.com/example/go-ddd-template/problems/"
 
-// domainReasons はドメインの検証規則（inventory.Rule）に対応する人間可読な定型文。
+// domainReasons はドメインの検証規則（domain.Rule）に対応する人間可読な定型文。
 //
 // **キーを Rule から引いているので、code の綴りがドメインの一覧とずれることが構造的に
 // 起こらない。** ドメインに規則を 1 つ足したときに編集するのはドメインの Rule 一覧と
@@ -44,9 +44,9 @@ const problemTypeBase = "https://github.com/example/go-ddd-template/problems/"
 // invalid_quantity の値域が違う（在庫は 0 以上、注文行は 1 以上）。共有しないのは
 // この違いを文言に出すためである（制約 C-6 / 規則 R-7）。
 var domainReasons = map[string]string{
-	inventory.VSKU.Code:            "SKU を指定してください",
-	inventory.VQuantity.Code:       "0 以上の値を指定してください（補充・予約は 1 以上）",
-	inventory.VReservationRef.Code: "予約参照を指定してください",
+	domain.VSKU.Code:            "SKU を指定してください",
+	domain.VQuantity.Code:       "0 以上の値を指定してください（補充・予約は 1 以上）",
+	domain.VReservationRef.Code: "予約参照を指定してください",
 }
 
 // domainReasonOf はドメイン検証 code に対応する定型文を返す。

@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
@@ -27,12 +27,12 @@ func NewReleaser(exec uow.Executor, work UnitOfWork, dispatch EventDispatcher, l
 // 有効な予約を持つ StockItem が皆無でも冪等な no-op として成功を返す（未知 / 解放済みの
 // 参照に対する解放は安全）。
 func (r *Releaser) Release(ctx context.Context, ref string) error {
-	reservationRef, err := inventory.NewReservationRef(ref)
+	reservationRef, err := domain.NewReservationRef(ref)
 	if err != nil {
 		return locate("", err)
 	}
 
-	var events []inventory.DomainEvent
+	var events []domain.DomainEvent
 	err = uow.Run(ctx, r.exec, r.work, func(ctx context.Context, repos Repos) error {
 		stocks, err := repos.Stock().LoadByReservation(ctx, reservationRef)
 		if err != nil {

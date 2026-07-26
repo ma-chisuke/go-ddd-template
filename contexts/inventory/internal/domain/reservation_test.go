@@ -1,4 +1,4 @@
-package inventory_test
+package domain_test
 
 import (
 	"testing"
@@ -7,21 +7,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 )
 
 // mustRef はテスト用に ReservationRef を生成するヘルパー。
-func mustRef(t *testing.T, s string) inventory.ReservationRef {
+func mustRef(t *testing.T, s string) domain.ReservationRef {
 	t.Helper()
-	ref, err := inventory.NewReservationRef(s)
+	ref, err := domain.NewReservationRef(s)
 	require.NoError(t, err, "ReservationRef の生成")
 	return ref
 }
 
 // seededItem は available=n の在庫項目を作る（新規作成 → 補充）。
-func seededItem(t *testing.T, sku string, n int) *inventory.StockItem {
+func seededItem(t *testing.T, sku string, n int) *domain.StockItem {
 	t.Helper()
-	item, err := inventory.NewStockItem("id-"+sku, mustSKU(t, sku))
+	item, err := domain.NewStockItem("id-"+sku, mustSKU(t, sku))
 	require.NoError(t, err, "NewStockItem")
 	require.NoError(t, item.Replenish(mustQuantity(t, n)), "Replenish")
 	_ = item.PullEvents() // 補充イベントは以降のテストに無関係なので捨てる
@@ -29,7 +29,7 @@ func seededItem(t *testing.T, sku string, n int) *inventory.StockItem {
 }
 
 // hasEvent はイベント列に指定種別が含まれるかを返す。
-func hasEvent(events []inventory.DomainEvent, name string) bool {
+func hasEvent(events []domain.DomainEvent, name string) bool {
 	for _, e := range events {
 		if e.EventName() == name {
 			return true
@@ -70,7 +70,7 @@ func TestStockItem_Reserve(t *testing.T) {
 
 		item := seededItem(t, "WIDGET-001", 3)
 		err := item.Reserve(mustRef(t, "RES-1"), mustQuantity(t, 4), time.Hour)
-		require.ErrorIs(t, err, inventory.ErrInsufficientStock)
+		require.ErrorIs(t, err, domain.ErrInsufficientStock)
 		assert.Equal(t, 3, item.Available().Int(), "失敗時 available 不変")
 		assert.Equal(t, 0, item.Reserved().Int(), "失敗時 reserved 不変")
 	})
@@ -79,8 +79,8 @@ func TestStockItem_Reserve(t *testing.T) {
 		t.Parallel()
 
 		item := seededItem(t, "WIDGET-001", 10)
-		require.ErrorIs(t, item.Reserve(mustRef(t, "RES-1"), mustQuantity(t, 0), time.Hour), inventory.ErrInvalidQuantity)
-		require.ErrorIs(t, item.Reserve(inventory.ReservationRef{}, mustQuantity(t, 1), time.Hour), inventory.ErrInvalidReservationRef)
+		require.ErrorIs(t, item.Reserve(mustRef(t, "RES-1"), mustQuantity(t, 0), time.Hour), domain.ErrInvalidQuantity)
+		require.ErrorIs(t, item.Reserve(domain.ReservationRef{}, mustQuantity(t, 1), time.Hour), domain.ErrInvalidReservationRef)
 	})
 
 	t.Run("境界: available が 0 到達で StockDepleted", func(t *testing.T) {
@@ -131,7 +131,7 @@ func TestStockItem_Confirm(t *testing.T) {
 		t.Parallel()
 
 		item := seededItem(t, "WIDGET-001", 10)
-		require.ErrorIs(t, item.Confirm(mustRef(t, "UNKNOWN")), inventory.ErrReservationNotFound)
+		require.ErrorIs(t, item.Confirm(mustRef(t, "UNKNOWN")), domain.ErrReservationNotFound)
 	})
 }
 
@@ -194,7 +194,7 @@ func TestStockItem_ReapExpired(t *testing.T) {
 
 	// 解放されるのは期限切れ pending の EXP だけ。
 	require.Len(t, reaped, 1, "Reap 件数")
-	rel, ok := reaped[0].(inventory.StockReleased)
+	rel, ok := reaped[0].(domain.StockReleased)
 	require.True(t, ok, "Reap されたイベントは StockReleased")
 	assert.Equal(t, "EXP", rel.ReservationRef)
 	// EXP の 10 が戻る。残る有効予約は LIVE(20) + CONF(30) = 50。
@@ -212,11 +212,11 @@ func TestStockItem_ReapExpired(t *testing.T) {
 func TestReconstituteStockItem_WithReservations(t *testing.T) {
 	t.Parallel()
 
-	res := []*inventory.Reservation{
-		inventory.ReconstituteReservation(mustRef(t, "RES-1"), mustQuantity(t, 4), inventory.ReservationPending, time.Now().Add(time.Hour)),
-		inventory.ReconstituteReservation(mustRef(t, "RES-2"), mustQuantity(t, 6), inventory.ReservationConfirmed, time.Time{}),
+	res := []*domain.Reservation{
+		domain.ReconstituteReservation(mustRef(t, "RES-1"), mustQuantity(t, 4), domain.ReservationPending, time.Now().Add(time.Hour)),
+		domain.ReconstituteReservation(mustRef(t, "RES-2"), mustQuantity(t, 6), domain.ReservationConfirmed, time.Time{}),
 	}
-	item := inventory.ReconstituteStockItem("id-1", mustSKU(t, "WIDGET-001"), mustQuantity(t, 90), 5, res)
+	item := domain.ReconstituteStockItem("id-1", mustSKU(t, "WIDGET-001"), mustQuantity(t, 90), 5, res)
 	assert.Equal(t, 90, item.Available().Int(), "Available")
 	assert.Equal(t, 10, item.Reserved().Int(), "Reserved（導出）")
 	assert.Len(t, item.Reservations(), 2, "復元された予約数")
@@ -225,7 +225,7 @@ func TestReconstituteStockItem_WithReservations(t *testing.T) {
 func TestReservationService_Allocate(t *testing.T) {
 	t.Parallel()
 
-	svc := inventory.ReservationService{}
+	svc := domain.ReservationService{}
 
 	t.Run("正常系: 複数 SKU を全か無かで予約する", func(t *testing.T) {
 		t.Parallel()
@@ -233,11 +233,11 @@ func TestReservationService_Allocate(t *testing.T) {
 		a := seededItem(t, "SKU-A", 10)
 		b := seededItem(t, "SKU-B", 10)
 		ref := mustRef(t, "ORDER-1")
-		lines := []inventory.ReservationLine{
+		lines := []domain.ReservationLine{
 			{SKU: mustSKU(t, "SKU-A"), Quantity: mustQuantity(t, 3)},
 			{SKU: mustSKU(t, "SKU-B"), Quantity: mustQuantity(t, 7)},
 		}
-		require.NoError(t, svc.Allocate([]*inventory.StockItem{a, b}, ref, lines, time.Hour))
+		require.NoError(t, svc.Allocate([]*domain.StockItem{a, b}, ref, lines, time.Hour))
 		assert.Equal(t, 3, a.Reserved().Int(), "A 予約数")
 		assert.Equal(t, 7, b.Reserved().Int(), "B 予約数")
 	})
@@ -248,12 +248,12 @@ func TestReservationService_Allocate(t *testing.T) {
 		a := seededItem(t, "SKU-A", 10)
 		b := seededItem(t, "SKU-B", 2) // 不足させる
 		ref := mustRef(t, "ORDER-1")
-		lines := []inventory.ReservationLine{
+		lines := []domain.ReservationLine{
 			{SKU: mustSKU(t, "SKU-A"), Quantity: mustQuantity(t, 3)},
 			{SKU: mustSKU(t, "SKU-B"), Quantity: mustQuantity(t, 7)},
 		}
-		err := svc.Allocate([]*inventory.StockItem{a, b}, ref, lines, time.Hour)
-		require.ErrorIs(t, err, inventory.ErrInsufficientStock)
+		err := svc.Allocate([]*domain.StockItem{a, b}, ref, lines, time.Hour)
+		require.ErrorIs(t, err, domain.ErrInsufficientStock)
 		// 部分予約が作られていないこと（A も予約されない）。
 		assert.Equal(t, 0, a.Reserved().Int(), "A に部分予約なし")
 		assert.Equal(t, 0, b.Reserved().Int(), "B に部分予約なし")
@@ -264,10 +264,10 @@ func TestReservationService_Allocate(t *testing.T) {
 
 		a := seededItem(t, "SKU-A", 10)
 		ref := mustRef(t, "ORDER-1")
-		lines := []inventory.ReservationLine{
+		lines := []domain.ReservationLine{
 			{SKU: mustSKU(t, "SKU-MISSING"), Quantity: mustQuantity(t, 1)},
 		}
-		err := svc.Allocate([]*inventory.StockItem{a}, ref, lines, time.Hour)
-		require.ErrorIs(t, err, inventory.ErrStockItemNotFound)
+		err := svc.Allocate([]*domain.StockItem{a}, ref, lines, time.Hour)
+		require.ErrorIs(t, err, domain.ErrStockItemNotFound)
 	})
 }

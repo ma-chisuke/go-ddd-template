@@ -11,7 +11,7 @@ import (
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 )
 
 // このファイルは「アプリケーション層が入力 DTO 上の位置を付与する」ことを固定する
@@ -55,8 +55,8 @@ func TestValidationPath_SingleValueUseCases(t *testing.T) {
 				return err
 			},
 			wantPath: "Sku",
-			wantCode: inventory.VSKU.Code,
-			wantErr:  inventory.ErrInvalidSKU,
+			wantCode: domain.VSKU.Code,
+			wantErr:  domain.ErrInvalidSKU,
 		},
 		{
 			name: "境界: Replenish は負の数量を Quantity として指す（値オブジェクトで弾かれる）",
@@ -65,8 +65,8 @@ func TestValidationPath_SingleValueUseCases(t *testing.T) {
 				return err
 			},
 			wantPath: "Quantity",
-			wantCode: inventory.VQuantity.Code,
-			wantErr:  inventory.ErrInvalidQuantity,
+			wantCode: domain.VQuantity.Code,
+			wantErr:  domain.ErrInvalidQuantity,
 		},
 		{
 			name: "境界: Replenish は 0 の数量を Quantity として指す（値オブジェクトを通過し集約で弾かれる）",
@@ -75,8 +75,8 @@ func TestValidationPath_SingleValueUseCases(t *testing.T) {
 				return err
 			},
 			wantPath: "Quantity",
-			wantCode: inventory.VQuantity.Code,
-			wantErr:  inventory.ErrInvalidQuantity,
+			wantCode: domain.VQuantity.Code,
+			wantErr:  domain.ErrInvalidQuantity,
 		},
 		{
 			name: "境界: QueryStock は空の SKU を Sku として指す",
@@ -85,29 +85,29 @@ func TestValidationPath_SingleValueUseCases(t *testing.T) {
 				return err
 			},
 			wantPath: "Sku",
-			wantCode: inventory.VSKU.Code,
-			wantErr:  inventory.ErrInvalidSKU,
+			wantCode: domain.VSKU.Code,
+			wantErr:  domain.ErrInvalidSKU,
 		},
 		{
 			name:     "境界: Reserve は空の参照を Ref として指す",
 			call:     func(f reserveFixture) error { return f.reserver.Reserve(ctx, application.ReserveInput{Ref: "  "}) },
 			wantPath: "Ref",
-			wantCode: inventory.VReservationRef.Code,
-			wantErr:  inventory.ErrInvalidReservationRef,
+			wantCode: domain.VReservationRef.Code,
+			wantErr:  domain.ErrInvalidReservationRef,
 		},
 		{
 			name:     "境界: Confirm は空の参照を Ref として指す",
 			call:     func(f reserveFixture) error { return f.confirmer.Confirm(ctx, "") },
 			wantPath: "Ref",
-			wantCode: inventory.VReservationRef.Code,
-			wantErr:  inventory.ErrInvalidReservationRef,
+			wantCode: domain.VReservationRef.Code,
+			wantErr:  domain.ErrInvalidReservationRef,
 		},
 		{
 			name:     "境界: Release は空の参照を Ref として指す",
 			call:     func(f reserveFixture) error { return f.releaser.Release(ctx, "") },
 			wantPath: "Ref",
-			wantCode: inventory.VReservationRef.Code,
-			wantErr:  inventory.ErrInvalidReservationRef,
+			wantCode: domain.VReservationRef.Code,
+			wantErr:  domain.ErrInvalidReservationRef,
 		},
 	}
 
@@ -160,10 +160,10 @@ func TestValidationPath_ReserveLineIndex(t *testing.T) {
 				lines[broken].SKU = "  "
 
 				err := newStocked(t).reserver.Reserve(ctx, application.ReserveInput{Ref: "ORDER-1", Lines: lines})
-				require.ErrorIs(t, err, inventory.ErrInvalidSKU)
+				require.ErrorIs(t, err, domain.ErrInvalidSKU)
 				assert.Equal(t, application.FieldViolation{
 					Path: fmt.Sprintf("Lines[%d].Sku", broken),
-					Code: inventory.VSKU.Code,
+					Code: domain.VSKU.Code,
 				}, requireSingle(t, err))
 			})
 		}
@@ -181,10 +181,10 @@ func TestValidationPath_ReserveLineIndex(t *testing.T) {
 				lines[broken].Quantity = 0
 
 				err := newStocked(t).reserver.Reserve(ctx, application.ReserveInput{Ref: "ORDER-1", Lines: lines})
-				require.ErrorIs(t, err, inventory.ErrInvalidQuantity)
+				require.ErrorIs(t, err, domain.ErrInvalidQuantity)
 				assert.Equal(t, application.FieldViolation{
 					Path: fmt.Sprintf("Lines[%d].Quantity", broken),
-					Code: inventory.VQuantity.Code,
+					Code: domain.VQuantity.Code,
 				}, requireSingle(t, err))
 			})
 		}
@@ -203,7 +203,7 @@ func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
 
 		f := newReserveOnlyFixture(t)
 		_, err := f.viewer.QueryStock(ctx, application.QueryStockInput{SKU: "SKU-UNKNOWN"})
-		require.ErrorIs(t, err, inventory.ErrStockItemNotFound)
+		require.ErrorIs(t, err, domain.ErrStockItemNotFound)
 		assert.False(t, errors.As(err, &ve), "リポジトリ由来のエラーは検証エラーに化けない")
 	})
 
@@ -215,7 +215,7 @@ func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
 			Ref:   "ORDER-1",
 			Lines: []application.ReserveLine{{SKU: "SKU-UNKNOWN", Quantity: 1}},
 		})
-		require.ErrorIs(t, err, inventory.ErrStockItemNotFound)
+		require.ErrorIs(t, err, domain.ErrStockItemNotFound)
 		assert.False(t, errors.As(err, &ve), "在庫項目なしは検証エラーに化けない")
 	})
 
@@ -230,7 +230,7 @@ func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
 			Ref:   "ORDER-1",
 			Lines: []application.ReserveLine{{SKU: "SKU-A", Quantity: 99}},
 		})
-		require.ErrorIs(t, err, inventory.ErrInsufficientStock)
+		require.ErrorIs(t, err, domain.ErrInsufficientStock)
 		assert.False(t, errors.As(err, &ve), "在庫不足は状態の矛盾であり検証エラーではない")
 	})
 
@@ -239,7 +239,7 @@ func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
 
 		f := newReserveOnlyFixture(t)
 		err := f.confirmer.Confirm(ctx, "ORDER-UNKNOWN")
-		require.ErrorIs(t, err, inventory.ErrReservationNotFound)
+		require.ErrorIs(t, err, domain.ErrReservationNotFound)
 		assert.False(t, errors.As(err, &ve), "予約なしは検証エラーに化けない")
 	})
 }

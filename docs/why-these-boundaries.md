@@ -42,7 +42,7 @@
 （在庫の数量を 1 以上に狭めるか、注文行に数量 0 を許すか）。だから後者を選びました。
 
 対比の詳細は [glossary.md](./glossary.md) にあります。この 3 語がそれぞれ独立した型として
-`contexts/inventory/internal/domain/inventory/` と `contexts/ordering/internal/domain/order/` に
+`contexts/inventory/internal/domain/` と `contexts/ordering/internal/domain/` に
 **別々に定義されている**ことが、境界が実在することの証拠です。
 
 ## 3. 境界線をどこに引いたか（3 つの基準）

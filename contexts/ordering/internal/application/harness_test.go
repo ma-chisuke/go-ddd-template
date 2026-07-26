@@ -23,7 +23,7 @@ import (
 
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/mock"
 	"github.com/example/go-ddd-template/shared/event"
 	"github.com/example/go-ddd-template/shared/outbox"
@@ -46,7 +46,7 @@ type memFixture struct {
 	store    *memory.Store
 	stores   *memory.Stores
 	reserver *mock.MockStockReserver
-	captured *[]order.DomainEvent
+	captured *[]domain.DomainEvent
 }
 
 // newMemFixture はインメモリの UoW で束を組み立てる（最も一般的な構成）。
@@ -66,8 +66,8 @@ func newMemFixtureWith(t *testing.T, work application.UnitOfWork, store *memory.
 	reserver := mock.NewMockStockReserver(ctrl)
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 	log := testLogger()
-	captured := &[]order.DomainEvent{}
-	dispatcher := event.NewTyped[order.DomainEvent](log, func(_ context.Context, e order.DomainEvent) {
+	captured := &[]domain.DomainEvent{}
+	dispatcher := event.NewTyped[domain.DomainEvent](log, func(_ context.Context, e domain.DomainEvent) {
 		*captured = append(*captured, e)
 	})
 	return memFixture{
@@ -128,7 +128,7 @@ func decodeReservationRef(t *testing.T, payload []byte) string {
 	return p.ReservationRef
 }
 
-func countEvents(events []order.DomainEvent, name string) int {
+func countEvents(events []domain.DomainEvent, name string) int {
 	n := 0
 	for _, e := range events {
 		if e.EventName() == name {

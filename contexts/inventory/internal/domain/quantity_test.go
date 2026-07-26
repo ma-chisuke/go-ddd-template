@@ -1,4 +1,4 @@
-package inventory_test
+package domain_test
 
 import (
 	"testing"
@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 )
 
 func TestNewQuantity(t *testing.T) {
@@ -16,7 +16,7 @@ func TestNewQuantity(t *testing.T) {
 		t.Parallel()
 
 		for _, n := range []int{0, 1, 100} {
-			q, err := inventory.NewQuantity(n)
+			q, err := domain.NewQuantity(n)
 			require.NoError(t, err, "NewQuantity(%d)", n)
 			assert.Equal(t, n, q.Int())
 		}
@@ -25,8 +25,8 @@ func TestNewQuantity(t *testing.T) {
 	t.Run("異常系: 負数は ErrInvalidQuantity", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := inventory.NewQuantity(-1)
-		require.ErrorIs(t, err, inventory.ErrInvalidQuantity)
+		_, err := domain.NewQuantity(-1)
+		require.ErrorIs(t, err, domain.ErrInvalidQuantity)
 	})
 
 	t.Run("正常系: IsZero と Add が数量を正しく扱う", func(t *testing.T) {

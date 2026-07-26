@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 )
 
 // GetOrder は注文照会（読み取り専用）ユースケース。
@@ -22,10 +22,10 @@ func NewGetOrder(read OrderStore, log *slog.Logger) *GetOrder {
 	return &GetOrder{read: read, log: log}
 }
 
-// Handle は指定 ID の注文の現在状態を返す。ID が不正なら order.ErrInvalidOrderID、
-// 存在しなければ order.ErrOrderNotFound をそのまま伝播する。
+// Handle は指定 ID の注文の現在状態を返す。ID が不正なら domain.ErrInvalidOrderID、
+// 存在しなければ domain.ErrOrderNotFound をそのまま伝播する。
 func (uc *GetOrder) Handle(ctx context.Context, idStr string) (OrderView, error) {
-	orderID, err := order.NewOrderID(idStr)
+	orderID, err := domain.NewOrderID(idStr)
 	if err != nil {
 		return OrderView{}, locate("", err)
 	}

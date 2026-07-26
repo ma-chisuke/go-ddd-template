@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 )
 
 // locate の安全性は、ユースケース経由のテスト（validation_path_test.go）では踏めない
@@ -32,7 +32,7 @@ func TestLocate_PassesThroughNonDomainErrors(t *testing.T) {
 func TestLocate_DoesNotDoubleWrap(t *testing.T) {
 	t.Parallel()
 
-	_, err := order.NewQuantity(0)
+	_, err := domain.NewQuantity(0)
 	first := locate("Lines[0]", err)
 	require.IsType(t, &ValidationError{}, first)
 
@@ -52,7 +52,7 @@ func TestLocate_UnknownFieldUsesMechanicalConversion(t *testing.T) {
 	t.Parallel()
 
 	// ドメインに新しい規則を 1 行足した状況を模す。
-	newRule := order.Rule{Field: "somethingNew", Code: "something_new", Err: order.ErrInvalidSKU}
+	newRule := domain.Rule{Field: "somethingNew", Code: "something_new", Err: domain.ErrInvalidSKU}
 
 	var ve *ValidationError
 	require.ErrorAs(t, locate("Lines[0]", newRule.Violated("新しい規則に違反しました")), &ve)
@@ -66,7 +66,7 @@ func TestLocate_UnknownFieldUsesMechanicalConversion(t *testing.T) {
 func TestLocate_OverriddenFieldUsesTable(t *testing.T) {
 	t.Parallel()
 
-	_, err := order.NewMoney(-1, "JPY")
+	_, err := domain.NewMoney(-1, "JPY")
 
 	var ve *ValidationError
 	require.ErrorAs(t, locate("Lines[0]", err), &ve)
@@ -79,7 +79,7 @@ func TestLocate_OverriddenFieldUsesTable(t *testing.T) {
 func TestLocate_DomainIndexOverridesPrefix(t *testing.T) {
 	t.Parallel()
 
-	err := order.VQuantity.ViolatedAt(2, "明細の数量が不正です")
+	err := domain.VQuantity.ViolatedAt(2, "明細の数量が不正です")
 
 	var ve *ValidationError
 	require.ErrorAs(t, locate("", err), &ve)
@@ -91,7 +91,7 @@ func TestLocate_NilAndEmptyPrefix(t *testing.T) {
 
 	require.NoError(t, locate("", nil), "nil は nil のまま")
 
-	_, err := order.NewCustomerID("")
+	_, err := domain.NewCustomerID("")
 	var ve *ValidationError
 	require.ErrorAs(t, locate("", err), &ve)
 	assert.Equal(t, "CustomerId", ve.Violations[0].Path, "前置が空ならフィールド名だけになる")
@@ -102,9 +102,9 @@ func TestLocate_NilAndEmptyPrefix(t *testing.T) {
 func TestValidationError_ErrorPassesThroughWrappedMessage(t *testing.T) {
 	t.Parallel()
 
-	_, err := order.NewQuantity(0)
+	_, err := domain.NewQuantity(0)
 	located := locate("Lines[0]", err)
 
 	assert.Equal(t, err.Error(), located.Error(), "元の文言を変えない")
-	assert.ErrorIs(t, located, order.ErrInvalidQuantity, "番兵まで Unwrap が繋がる")
+	assert.ErrorIs(t, located, domain.ErrInvalidQuantity, "番兵まで Unwrap が繋がる")
 }

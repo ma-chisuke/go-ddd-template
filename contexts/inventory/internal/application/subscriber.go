@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/outbox"
 )
 
@@ -59,7 +59,7 @@ func OnConfirmReservation(confirm *Confirmer, log *slog.Logger) outbox.Consumer 
 			return err
 		}
 		err = confirm.Confirm(ctx, ref)
-		if errors.Is(err, inventory.ErrReservationNotFound) {
+		if errors.Is(err, domain.ErrReservationNotFound) {
 			log.WarnContext(ctx, "確定対象の有効な予約がありません（速い取消 or TTL 失効の可能性・良性 no-op）",
 				slog.String("ref", ref),
 				slog.String("trace_id", m.TraceID),

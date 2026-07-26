@@ -8,7 +8,7 @@
 // なお在庫コンテキストの Quantity は 55 行あるので quantity.go に単独で残る（則 3）。
 // 同じ規則に異なる入力を通した結果であり、非対称は意図的である。
 
-package order
+package domain
 
 import "strings"
 

@@ -246,7 +246,7 @@ cases := []struct {
 
 ```go
 // mustLine はテスト用に注文明細を組み立てるヘルパー。
-func mustLine(t *testing.T, sku string, qty int) order.OrderLine {
+func mustLine(t *testing.T, sku string, qty int) domain.OrderLine {
 ```
 
 句点「。」で終えます。→ `godot`（実測: `godot` は日本語の「。」を句点として認識する）

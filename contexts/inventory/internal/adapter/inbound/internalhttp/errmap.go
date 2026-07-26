@@ -7,7 +7,7 @@ import (
 	"net/url"
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/openapiinternal"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/outbox"
 	"github.com/example/go-ddd-template/shared/problem"
 	"github.com/example/go-ddd-template/shared/uow"
@@ -86,13 +86,13 @@ func detailOf(suffix string) string {
 // classify はエラーを HTTP ステータスとタイトルに対応づける。
 func classify(err error) (int, string) {
 	switch {
-	case errors.Is(err, inventory.ErrStockItemNotFound), errors.Is(err, inventory.ErrReservationNotFound):
+	case errors.Is(err, domain.ErrStockItemNotFound), errors.Is(err, domain.ErrReservationNotFound):
 		return http.StatusNotFound, "Not Found"
-	case errors.Is(err, inventory.ErrInsufficientStock), errors.Is(err, uow.ErrConcurrencyConflict):
+	case errors.Is(err, domain.ErrInsufficientStock), errors.Is(err, uow.ErrConcurrencyConflict):
 		return http.StatusConflict, "Conflict"
-	case errors.Is(err, inventory.ErrInvalidSKU),
-		errors.Is(err, inventory.ErrInvalidQuantity),
-		errors.Is(err, inventory.ErrInvalidReservationRef),
+	case errors.Is(err, domain.ErrInvalidSKU),
+		errors.Is(err, domain.ErrInvalidQuantity),
+		errors.Is(err, domain.ErrInvalidReservationRef),
 		errors.Is(err, outbox.ErrNoRoute):
 		return http.StatusUnprocessableEntity, "Unprocessable Entity"
 	default:

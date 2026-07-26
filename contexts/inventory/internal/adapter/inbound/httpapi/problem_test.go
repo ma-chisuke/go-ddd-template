@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/openapi"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/problem"
 )
 
@@ -177,7 +177,7 @@ func TestProblem_E4_DomainValidation(t *testing.T) {
 
 		require.Len(t, pb.InvalidParams, 1)
 		assert.Equal(t, "quantity", pb.InvalidParams[0].Name)
-		assert.Equal(t, inventory.VQuantity.Code, pb.InvalidParams[0].Code)
+		assert.Equal(t, domain.VQuantity.Code, pb.InvalidParams[0].Code)
 		assert.NotEmpty(t, pb.InvalidParams[0].Reason)
 	})
 
@@ -195,7 +195,7 @@ func TestProblem_E4_DomainValidation(t *testing.T) {
 
 		require.Len(t, pb.InvalidParams, 1)
 		assert.Equal(t, "sku", pb.InvalidParams[0].Name, "Go 識別子 SKU を露出しない（規則 R-10）")
-		assert.Equal(t, inventory.VSKU.Code, pb.InvalidParams[0].Code)
+		assert.Equal(t, domain.VSKU.Code, pb.InvalidParams[0].Code)
 	})
 }
 
@@ -240,10 +240,10 @@ func TestProblem_SameStatusDifferentType(t *testing.T) {
 // TestProblem_InvalidParamCodeEnumCoversVocabulary は、このサーバが応答に載せうる code
 // 語彙のすべてが、契約（openapi.yaml）の InvalidParam.code enum に含まれることを網羅的に
 // 検証する。列挙元は語彙の唯一の情報源そのもの——契約検証語彙（shared/problem の Code*）と、
-// 在庫コンテキストが所有するドメイン検証語彙（inventory.Rule の Code）——である。
+// 在庫コンテキストが所有するドメイン検証語彙（domain.Rule の Code）——である。
 //
 // readProblem 内の Validate はテストが実際に踏んだ経路の code しか検証できない。この網羅
-// テストは経路に依存せず、語彙 → enum の対応を直接固定する。新しい inventory.Rule を足したのに
+// テストは経路に依存せず、語彙 → enum の対応を直接固定する。新しい domain.Rule を足したのに
 // 契約の enum へ足し忘れれば、その code の生成型 Validate が invalid value を返し CI が落ちる
 // （規則 R-19）。
 func TestProblem_InvalidParamCodeEnumCoversVocabulary(t *testing.T) {
@@ -253,9 +253,9 @@ func TestProblem_InvalidParamCodeEnumCoversVocabulary(t *testing.T) {
 		problem.CodePattern, problem.CodeUniqueItems, problem.CodeInvalidParam,
 		problem.CodeBodyRequired, problem.CodeInvalid,
 	}
-	// ドメイン検証語彙（422 / invalid-input）。在庫コンテキストの inventory.Rule が唯一の情報源。
+	// ドメイン検証語彙（422 / invalid-input）。在庫コンテキストの domain.Rule が唯一の情報源。
 	domainCodes := []string{
-		inventory.VSKU.Code, inventory.VQuantity.Code, inventory.VReservationRef.Code,
+		domain.VSKU.Code, domain.VQuantity.Code, domain.VReservationRef.Code,
 	}
 
 	for _, code := range append(contractCodes, domainCodes...) {

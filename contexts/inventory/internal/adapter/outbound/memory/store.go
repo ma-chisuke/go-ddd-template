@@ -14,14 +14,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 )
 
 // reservationRow は確定済み（コミット済み）の予約行。
 type reservationRow struct {
 	ref       string
 	quantity  int
-	status    inventory.ReservationStatus
+	status    domain.ReservationStatus
 	expiresAt time.Time
 }
 
@@ -46,49 +46,49 @@ func NewStore() *Store {
 }
 
 // recordToStockItem は確定済みの行から集約を復元する。
-func recordToStockItem(r record) (*inventory.StockItem, error) {
-	qty, err := inventory.NewQuantity(r.available)
+func recordToStockItem(r record) (*domain.StockItem, error) {
+	qty, err := domain.NewQuantity(r.available)
 	if err != nil {
 		return nil, fmt.Errorf("永続化された数量が不正です（SKU=%q）: %w", r.sku, err)
 	}
-	loadedSKU, err := inventory.NewSKU(r.sku)
+	loadedSKU, err := domain.NewSKU(r.sku)
 	if err != nil {
 		return nil, fmt.Errorf("永続化された SKU が不正です: %w", err)
 	}
-	reservations := make([]*inventory.Reservation, 0, len(r.reservations))
+	reservations := make([]*domain.Reservation, 0, len(r.reservations))
 	for _, rr := range r.reservations {
-		ref, err := inventory.NewReservationRef(rr.ref)
+		ref, err := domain.NewReservationRef(rr.ref)
 		if err != nil {
 			return nil, fmt.Errorf("永続化された予約参照が不正です: %w", err)
 		}
-		rq, err := inventory.NewQuantity(rr.quantity)
+		rq, err := domain.NewQuantity(rr.quantity)
 		if err != nil {
 			return nil, fmt.Errorf("永続化された予約数量が不正です: %w", err)
 		}
-		reservations = append(reservations, inventory.ReconstituteReservation(ref, rq, rr.status, rr.expiresAt))
+		reservations = append(reservations, domain.ReconstituteReservation(ref, rq, rr.status, rr.expiresAt))
 	}
-	return inventory.ReconstituteStockItem(r.id, loadedSKU, qty, r.version, reservations), nil
+	return domain.ReconstituteStockItem(r.id, loadedSKU, qty, r.version, reservations), nil
 }
 
 // load は確定済みデータから在庫項目を読み込み、集約を復元する。
-func (s *Store) load(sku inventory.SKU) (*inventory.StockItem, error) {
+func (s *Store) load(sku domain.SKU) (*domain.StockItem, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	r, ok := s.rows[sku.String()]
 	if !ok {
-		return nil, fmt.Errorf("SKU %q: %w", sku.String(), inventory.ErrStockItemNotFound)
+		return nil, fmt.Errorf("SKU %q: %w", sku.String(), domain.ErrStockItemNotFound)
 	}
 	return recordToStockItem(r)
 }
 
 // loadMany は複数 SKU をまとめて読み込む。見つからない SKU は黙って除外する
 // （存在検査はドメインサービス側の事前検証が担う）。
-func (s *Store) loadMany(skus []inventory.SKU) ([]*inventory.StockItem, error) {
+func (s *Store) loadMany(skus []domain.SKU) ([]*domain.StockItem, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	items := make([]*inventory.StockItem, 0, len(skus))
+	items := make([]*domain.StockItem, 0, len(skus))
 	for _, sku := range skus {
 		r, ok := s.rows[sku.String()]
 		if !ok {
@@ -104,11 +104,11 @@ func (s *Store) loadMany(skus []inventory.SKU) ([]*inventory.StockItem, error) {
 }
 
 // loadByReservation は指定参照を持つ全ての在庫項目を読み込む。
-func (s *Store) loadByReservation(ref inventory.ReservationRef) ([]*inventory.StockItem, error) {
+func (s *Store) loadByReservation(ref domain.ReservationRef) ([]*domain.StockItem, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var items []*inventory.StockItem
+	var items []*domain.StockItem
 	for _, r := range s.rows {
 		if !recordHasReservation(r, ref.String()) {
 			continue
@@ -123,11 +123,11 @@ func (s *Store) loadByReservation(ref inventory.ReservationRef) ([]*inventory.St
 }
 
 // loadExpiredPending は before 時点で期限切れの pending 予約を持つ在庫項目を最大 limit 件返す。
-func (s *Store) loadExpiredPending(before time.Time, limit int) ([]*inventory.StockItem, error) {
+func (s *Store) loadExpiredPending(before time.Time, limit int) ([]*domain.StockItem, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var items []*inventory.StockItem
+	var items []*domain.StockItem
 	for _, r := range s.rows {
 		if !recordHasExpiredPending(r, before) {
 			continue
@@ -155,7 +155,7 @@ func recordHasReservation(r record, ref string) bool {
 
 func recordHasExpiredPending(r record, before time.Time) bool {
 	for _, rr := range r.reservations {
-		if rr.status == inventory.ReservationPending && !rr.expiresAt.IsZero() && !before.Before(rr.expiresAt) {
+		if rr.status == domain.ReservationPending && !rr.expiresAt.IsZero() && !before.Before(rr.expiresAt) {
 			return true
 		}
 	}
@@ -163,7 +163,7 @@ func recordHasExpiredPending(r record, before time.Time) bool {
 }
 
 // itemToRecord は集約を、指定バージョンで確定行へ変換する（予約状態を含む）。
-func itemToRecord(item *inventory.StockItem, version int) record {
+func itemToRecord(item *domain.StockItem, version int) record {
 	res := item.Reservations()
 	rows := make([]reservationRow, 0, len(res))
 	for _, r := range res {

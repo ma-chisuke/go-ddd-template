@@ -1,4 +1,4 @@
-// Package order は受注（Ordering）の境界づけられたコンテキストのドメイン層である。
+// Package domain は受注（Ordering）の境界づけられたコンテキストのドメイン層である。
 //
 // # 集約ルート
 //
@@ -32,7 +32,8 @@
 // # 語彙
 //
 // 用語の定義は contexts/ordering/GLOSSARY.md にある。SKU・Quantity・ReservationRef は
-// 在庫（Inventory）コンテキストにも同名で存在するが、別パッケージの別の型であり意味も
-// 異なる（対比表は docs/glossary.md）。境界を跨ぐときはこれらの内部型をそのまま渡さず、
+// 在庫（Inventory）コンテキストにも同名で存在するが、import パスの異なる別パッケージ
+// （contexts/inventory/internal/domain）の別の型であり意味も異なる
+// （対比表は docs/glossary.md）。境界を跨ぐときはこれらの内部型をそのまま渡さず、
 // 翻訳済みの公開型（contexts/ordering/port の DTO）を使う。
-package order
+package domain

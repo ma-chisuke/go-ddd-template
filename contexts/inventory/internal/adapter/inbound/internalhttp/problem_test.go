@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/openapiinternal"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/problem"
 )
 
@@ -194,25 +194,25 @@ func TestProblem_E4_DomainValidation(t *testing.T) {
 		{
 			name: "境界: 予約参照が空なら ref を指す", path: "/reservations",
 			body:     reserveBody("  ", reserveLine("WIDGET-001", 1)),
-			wantName: "ref", wantCode: inventory.VReservationRef.Code,
+			wantName: "ref", wantCode: domain.VReservationRef.Code,
 		},
 		{
 			name: "境界: 明細の SKU が空なら lines[0].sku を指す（アプリ層のループが位置を付ける）", path: "/reservations",
 			body:     reserveBody("ORDER-1", reserveLine("  ", 1)),
-			wantName: "lines[0].sku", wantCode: inventory.VSKU.Code,
+			wantName: "lines[0].sku", wantCode: domain.VSKU.Code,
 		},
 		{
 			name: "境界: 明細の数量が負なら lines[0].quantity を指す（値オブジェクトで弾かれる）", path: "/reservations",
 			body:     reserveBody("ORDER-1", reserveLine("WIDGET-001", -1)),
-			wantName: "lines[0].quantity", wantCode: inventory.VQuantity.Code,
+			wantName: "lines[0].quantity", wantCode: domain.VQuantity.Code,
 		},
 		{
 			name: "境界: 確定のパスパラメータが空なら ref を指す", path: "/reservations/%20/confirm",
-			wantName: "ref", wantCode: inventory.VReservationRef.Code,
+			wantName: "ref", wantCode: domain.VReservationRef.Code,
 		},
 		{
 			name: "境界: 解放のパスパラメータが空なら ref を指す", path: "/reservations/%20/release",
-			wantName: "ref", wantCode: inventory.VReservationRef.Code,
+			wantName: "ref", wantCode: domain.VReservationRef.Code,
 		},
 	}
 
@@ -249,7 +249,7 @@ func TestProblem_E4_ZeroQuantityCarriesLineIndexFromDomain(t *testing.T) {
 
 			require.Len(t, pb.InvalidParams, 1)
 			assert.Equal(t, fmt.Sprintf("lines[%d].quantity", broken), pb.InvalidParams[0].Name)
-			assert.Equal(t, inventory.VQuantity.Code, pb.InvalidParams[0].Code)
+			assert.Equal(t, domain.VQuantity.Code, pb.InvalidParams[0].Code)
 		})
 	}
 }
@@ -299,10 +299,10 @@ func TestProblem_E4_TypeMigrationAndNoEcho(t *testing.T) {
 // 載せうる code 語彙のすべてが、契約（internal.openapi.yaml）の InvalidParam.code enum に
 // 含まれることを網羅的に検証する。列挙元は語彙の唯一の情報源そのもの——契約検証語彙
 // （shared/problem の Code*）と、在庫コンテキストが所有するドメイン検証語彙
-// （inventory.Rule の Code）——である。
+// （domain.Rule の Code）——である。
 //
 // readProblem 内の Validate はテストが実際に踏んだ経路の code しか検証できない。この網羅
-// テストは経路に依存せず、語彙 → enum の対応を直接固定する。新しい inventory.Rule を足したのに
+// テストは経路に依存せず、語彙 → enum の対応を直接固定する。新しい domain.Rule を足したのに
 // 契約の enum へ足し忘れれば、その code の生成型 Validate が invalid value を返し CI が落ちる
 // （規則 R-19）。
 func TestProblem_InvalidParamCodeEnumCoversVocabulary(t *testing.T) {
@@ -312,9 +312,9 @@ func TestProblem_InvalidParamCodeEnumCoversVocabulary(t *testing.T) {
 		problem.CodePattern, problem.CodeUniqueItems, problem.CodeInvalidParam,
 		problem.CodeBodyRequired, problem.CodeInvalid,
 	}
-	// ドメイン検証語彙（422 / invalid-input）。在庫コンテキストの inventory.Rule が唯一の情報源。
+	// ドメイン検証語彙（422 / invalid-input）。在庫コンテキストの domain.Rule が唯一の情報源。
 	domainCodes := []string{
-		inventory.VSKU.Code, inventory.VQuantity.Code, inventory.VReservationRef.Code,
+		domain.VSKU.Code, domain.VQuantity.Code, domain.VReservationRef.Code,
 	}
 
 	for _, code := range append(contractCodes, domainCodes...) {

@@ -10,7 +10,7 @@ import (
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/event"
 	"github.com/example/go-ddd-template/shared/outbox"
 	"github.com/example/go-ddd-template/shared/uow"
@@ -84,7 +84,7 @@ func TestOnConfirmReservation_BenignNoopWhenNotFound(t *testing.T) {
 	work := memory.NewUnitOfWork(store, memory.NewStores())
 	log := testLogger()
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
-	confirmer := application.NewConfirmer(exec, work, event.NewTyped[inventory.DomainEvent](log), log)
+	confirmer := application.NewConfirmer(exec, work, event.NewTyped[domain.DomainEvent](log), log)
 
 	// 有効な予約が無い ref への確定要求は、良性の no-op（エラーにしない）。
 	consumer := application.OnConfirmReservation(confirmer, log)

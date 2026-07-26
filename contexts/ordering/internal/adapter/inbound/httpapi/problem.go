@@ -11,7 +11,7 @@ import (
 
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/inbound/openapi"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 	"github.com/example/go-ddd-template/shared/problem"
 	"github.com/example/go-ddd-template/shared/problem/ogenproblem"
 )
@@ -40,7 +40,7 @@ import (
 // 識別子であり、解決可能な文書ページを公開する必要はない（OOS-5）。手順は CONVENTIONS.md。
 const problemTypeBase = "https://github.com/example/go-ddd-template/problems/"
 
-// domainReasons はドメインの検証規則（order.Rule）に対応する人間可読な定型文。
+// domainReasons はドメインの検証規則（domain.Rule）に対応する人間可読な定型文。
 //
 // **キーを Rule から引いているので、code の綴りがドメインの一覧とずれることが構造的に
 // 起こらない。** ドメインに規則を 1 つ足したときに編集するのはドメインの Rule 一覧と
@@ -52,14 +52,14 @@ const problemTypeBase = "https://github.com/example/go-ddd-template/problems/"
 //
 // 受信値も閾値の由来も載せない — 定型文だけを返す（FR-2.3 / FR-2.4）。
 var domainReasons = map[string]string{
-	order.VEmptyOrder.Code:     "1 行以上の明細を指定してください",
-	order.VSKU.Code:            "SKU を指定してください",
-	order.VQuantity.Code:       "1 以上の値を指定してください",
-	order.VMoneyAmount.Code:    "0 以上の値を指定してください",
-	order.VMoneyCurrency.Code:  "通貨コードを指定してください",
-	order.VCustomerID.Code:     "顧客 ID を指定してください",
-	order.VOrderID.Code:        "注文 ID を指定してください",
-	order.VReservationRef.Code: "予約参照を指定してください",
+	domain.VEmptyOrder.Code:     "1 行以上の明細を指定してください",
+	domain.VSKU.Code:            "SKU を指定してください",
+	domain.VQuantity.Code:       "1 以上の値を指定してください",
+	domain.VMoneyAmount.Code:    "0 以上の値を指定してください",
+	domain.VMoneyCurrency.Code:  "通貨コードを指定してください",
+	domain.VCustomerID.Code:     "顧客 ID を指定してください",
+	domain.VOrderID.Code:        "注文 ID を指定してください",
+	domain.VReservationRef.Code: "予約参照を指定してください",
 }
 
 // domainReasonOf はドメイン検証 code に対応する定型文を返す。

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"unicode"
 
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 )
 
 // このファイルは「フィールド識別情報を 3 層で段階的に組み立てる」の第 2 段を担う。
@@ -61,8 +61,8 @@ const linesField = "Lines"
 //
 // **したがって、ドメインに検証規則を 1 つ足しても通常はこの表を触らなくてよい**。
 var dtoPaths = map[string]string{
-	order.VMoneyAmount.Field:   "UnitPrice.Amount",
-	order.VMoneyCurrency.Field: "UnitPrice.Currency",
+	domain.VMoneyAmount.Field:   "UnitPrice.Amount",
+	domain.VMoneyCurrency.Field: "UnitPrice.Currency",
 }
 
 // locate はドメインの FieldViolation に、入力 DTO 上の位置 at を前置して
@@ -82,7 +82,7 @@ func locate(at string, err error) error {
 		return err
 	}
 
-	var v *order.FieldViolation
+	var v *domain.FieldViolation
 	if !errors.As(err, &v) {
 		return err
 	}

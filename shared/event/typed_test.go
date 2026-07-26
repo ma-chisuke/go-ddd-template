@@ -17,7 +17,7 @@ import (
 
 // testDomainEvent はテスト用の「コンテキスト固有ドメインイベント型」。
 //
-// 実際の order.DomainEvent / inventory.DomainEvent と同じ形（EventName + OccurredAt）を、
+// 実際の各コンテキストの domain.DomainEvent と同じ形（EventName + OccurredAt）を、
 // shared/event を import しない独立した interface として定義する。これがそのまま
 // event.NewTyped の型引数へ渡せることが、構造的型付けによる境界設計の実証である。
 type testDomainEvent interface {

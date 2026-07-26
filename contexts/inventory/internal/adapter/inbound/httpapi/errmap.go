@@ -7,7 +7,7 @@ import (
 	"net/url"
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/inbound/openapi"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/problem"
 	"github.com/example/go-ddd-template/shared/uow"
 )
@@ -81,9 +81,9 @@ func detailOf(suffix string) string {
 // classify はエラーを HTTP ステータスとタイトルに対応づける。
 func classify(err error) (int, string) {
 	switch {
-	case errors.Is(err, inventory.ErrStockItemNotFound):
+	case errors.Is(err, domain.ErrStockItemNotFound):
 		return http.StatusNotFound, "Not Found"
-	case errors.Is(err, inventory.ErrInvalidSKU), errors.Is(err, inventory.ErrInvalidQuantity):
+	case errors.Is(err, domain.ErrInvalidSKU), errors.Is(err, domain.ErrInvalidQuantity):
 		return http.StatusUnprocessableEntity, "Unprocessable Entity"
 	case errors.Is(err, uow.ErrConcurrencyConflict):
 		return http.StatusConflict, "Conflict"

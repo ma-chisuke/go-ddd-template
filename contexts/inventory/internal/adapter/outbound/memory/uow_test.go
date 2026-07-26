@@ -10,29 +10,29 @@ import (
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
-func mustSKU(t *testing.T, s string) inventory.SKU {
+func mustSKU(t *testing.T, s string) domain.SKU {
 	t.Helper()
-	sku, err := inventory.NewSKU(s)
+	sku, err := domain.NewSKU(s)
 	require.NoError(t, err, "SKU 生成")
 	return sku
 }
 
-func mustQty(t *testing.T, n int) inventory.Quantity {
+func mustQty(t *testing.T, n int) domain.Quantity {
 	t.Helper()
-	q, err := inventory.NewQuantity(n)
+	q, err := domain.NewQuantity(n)
 	require.NoError(t, err, "Quantity 生成")
 	return q
 }
 
 // seedItem は SKU を新規補充して version 1 の状態を作る。
-func seedItem(t *testing.T, work *memory.UnitOfWork, sku inventory.SKU, qty inventory.Quantity) {
+func seedItem(t *testing.T, work *memory.UnitOfWork, sku domain.SKU, qty domain.Quantity) {
 	t.Helper()
 	err := work.Within(context.Background(), func(ctx context.Context, r application.Repos) error {
-		item, err := inventory.NewStockItem("id-"+sku.String(), sku)
+		item, err := domain.NewStockItem("id-"+sku.String(), sku)
 		if err != nil {
 			return err
 		}
@@ -45,9 +45,9 @@ func seedItem(t *testing.T, work *memory.UnitOfWork, sku inventory.SKU, qty inve
 }
 
 // loadItem は Within の内側で SKU を読み込み、集約を取り出す。
-func loadItem(t *testing.T, work *memory.UnitOfWork, sku inventory.SKU) *inventory.StockItem {
+func loadItem(t *testing.T, work *memory.UnitOfWork, sku domain.SKU) *domain.StockItem {
 	t.Helper()
-	var loaded *inventory.StockItem
+	var loaded *domain.StockItem
 	err := work.Within(context.Background(), func(ctx context.Context, r application.Repos) error {
 		item, err := r.Stock().Load(ctx, sku)
 		if err != nil {
@@ -104,7 +104,7 @@ func TestUnitOfWork_RollbackOnError(t *testing.T) {
 
 	sentinel := errors.New("業務都合で中断")
 	err := work.Within(ctx, func(ctx context.Context, r application.Repos) error {
-		item, _ := inventory.NewStockItem("id-1", sku)
+		item, _ := domain.NewStockItem("id-1", sku)
 		_ = item.Replenish(mustQty(t, 99))
 		if err := r.Stock().Save(ctx, item); err != nil {
 			return err
@@ -115,5 +115,5 @@ func TestUnitOfWork_RollbackOnError(t *testing.T) {
 
 	// ロールバックされたので在庫は存在しない。
 	_, err = memory.NewReadStockStore(store).Load(ctx, sku)
-	require.ErrorIs(t, err, inventory.ErrStockItemNotFound, "ロールバック後の読み込み")
+	require.ErrorIs(t, err, domain.ErrStockItemNotFound, "ロールバック後の読み込み")
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
@@ -29,19 +29,19 @@ func NewConfirmer(exec uow.Executor, work UnitOfWork, dispatch EventDispatcher, 
 // 有効な予約を持つ StockItem が皆無なら ErrReservationNotFound を返す。既に confirmed の
 // 予約は冪等な no-op として扱われる。
 func (c *Confirmer) Confirm(ctx context.Context, ref string) error {
-	reservationRef, err := inventory.NewReservationRef(ref)
+	reservationRef, err := domain.NewReservationRef(ref)
 	if err != nil {
 		return locate("", err)
 	}
 
-	var events []inventory.DomainEvent
+	var events []domain.DomainEvent
 	err = uow.Run(ctx, c.exec, c.work, func(ctx context.Context, repos Repos) error {
 		stocks, err := repos.Stock().LoadByReservation(ctx, reservationRef)
 		if err != nil {
 			return err
 		}
 		if len(stocks) == 0 {
-			return inventory.ErrReservationNotFound
+			return domain.ErrReservationNotFound
 		}
 		for _, s := range stocks {
 			if err := s.Confirm(reservationRef); err != nil {

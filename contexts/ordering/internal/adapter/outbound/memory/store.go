@@ -13,7 +13,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 )
 
 // lineRow は確定済み（コミット済み）の注文明細行。
@@ -48,36 +48,36 @@ func NewStore() *Store {
 }
 
 // load は確定済みデータから注文を読み込み、集約を復元する。
-func (s *Store) load(id order.OrderID) (*order.Order, error) {
+func (s *Store) load(id domain.OrderID) (*domain.Order, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	r, ok := s.rows[id.String()]
 	if !ok {
-		return nil, fmt.Errorf("注文 %q: %w", id.String(), order.ErrOrderNotFound)
+		return nil, fmt.Errorf("注文 %q: %w", id.String(), domain.ErrOrderNotFound)
 	}
 	return recordToOrder(r)
 }
 
 // parseStatus は永続化された文字列を注文状態へ変換する。
-func parseStatus(s string) (order.Status, error) {
+func parseStatus(s string) (domain.Status, error) {
 	switch s {
 	case "confirmed":
-		return order.StatusConfirmed, nil
+		return domain.StatusConfirmed, nil
 	case "cancelled":
-		return order.StatusCancelled, nil
+		return domain.StatusCancelled, nil
 	default:
-		return order.StatusConfirmed, fmt.Errorf("永続化された注文状態が不正です: %q", s)
+		return domain.StatusConfirmed, fmt.Errorf("永続化された注文状態が不正です: %q", s)
 	}
 }
 
 // recordToOrder は確定済みの行から集約を復元する。
-func recordToOrder(r record) (*order.Order, error) {
-	orderID, err := order.NewOrderID(r.id)
+func recordToOrder(r record) (*domain.Order, error) {
+	orderID, err := domain.NewOrderID(r.id)
 	if err != nil {
 		return nil, fmt.Errorf("永続化された注文 ID が不正です: %w", err)
 	}
-	customer, err := order.NewCustomerID(r.customerID)
+	customer, err := domain.NewCustomerID(r.customerID)
 	if err != nil {
 		return nil, fmt.Errorf("永続化された顧客 ID が不正です: %w", err)
 	}
@@ -85,35 +85,35 @@ func recordToOrder(r record) (*order.Order, error) {
 	if err != nil {
 		return nil, err
 	}
-	total, err := order.NewMoney(r.totalAmount, r.totalCurrency)
+	total, err := domain.NewMoney(r.totalAmount, r.totalCurrency)
 	if err != nil {
 		return nil, fmt.Errorf("永続化された合計金額が不正です: %w", err)
 	}
-	ref, err := order.NewReservationRef(r.reservationRef)
+	ref, err := domain.NewReservationRef(r.reservationRef)
 	if err != nil {
 		return nil, fmt.Errorf("永続化された予約参照が不正です: %w", err)
 	}
-	lines := make([]order.OrderLine, 0, len(r.lines))
+	lines := make([]domain.OrderLine, 0, len(r.lines))
 	for _, lr := range r.lines {
-		sku, err := order.NewSKU(lr.sku)
+		sku, err := domain.NewSKU(lr.sku)
 		if err != nil {
 			return nil, fmt.Errorf("永続化された SKU が不正です: %w", err)
 		}
-		qty, err := order.NewQuantity(lr.quantity)
+		qty, err := domain.NewQuantity(lr.quantity)
 		if err != nil {
 			return nil, fmt.Errorf("永続化された数量が不正です: %w", err)
 		}
-		price, err := order.NewMoney(lr.unitPrice, lr.currency)
+		price, err := domain.NewMoney(lr.unitPrice, lr.currency)
 		if err != nil {
 			return nil, fmt.Errorf("永続化された単価が不正です: %w", err)
 		}
-		lines = append(lines, order.NewOrderLine(sku, qty, price))
+		lines = append(lines, domain.NewOrderLine(sku, qty, price))
 	}
-	return order.ReconstituteOrder(orderID, customer, lines, status, total, ref, r.version), nil
+	return domain.ReconstituteOrder(orderID, customer, lines, status, total, ref, r.version), nil
 }
 
 // orderToRecord は集約を、指定バージョンで確定行へ変換する（明細を含む）。
-func orderToRecord(o *order.Order, version int) record {
+func orderToRecord(o *domain.Order, version int) record {
 	lines := make([]lineRow, 0, len(o.Lines()))
 	for _, l := range o.Lines() {
 		lines = append(lines, lineRow{

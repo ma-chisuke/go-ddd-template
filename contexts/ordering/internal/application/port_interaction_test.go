@@ -15,7 +15,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/mock"
 	"github.com/example/go-ddd-template/shared/outbox"
 )
@@ -73,7 +73,7 @@ func eventNamed(name string) gomock.Matcher {
 type eventNameMatcher struct{ name string }
 
 func (m eventNameMatcher) Matches(x any) bool {
-	e, ok := x.(order.DomainEvent)
+	e, ok := x.(domain.DomainEvent)
 	return ok && e.EventName() == m.name
 }
 func (m eventNameMatcher) String() string { return "DomainEvent(" + m.name + ")" }
@@ -168,10 +168,10 @@ func TestCancelOrder_LoadNotFoundPropagates(t *testing.T) {
 	t.Parallel()
 
 	m := newMockPorts(t)
-	m.orders.EXPECT().Load(gomock.Any(), gomock.Any()).Return(nil, order.ErrOrderNotFound)
+	m.orders.EXPECT().Load(gomock.Any(), gomock.Any()).Return(nil, domain.ErrOrderNotFound)
 
 	err := m.cancelUseCase().Handle(context.Background(), "ORDER-9")
-	require.ErrorIs(t, err, order.ErrOrderNotFound)
+	require.ErrorIs(t, err, domain.ErrOrderNotFound)
 }
 
 // TestGetOrder_LoadErrorPropagates は、照会が読み取り用 OrderStore（モック）の Load エラーを
@@ -180,28 +180,28 @@ func TestGetOrder_LoadErrorPropagates(t *testing.T) {
 	t.Parallel()
 
 	m := newMockPorts(t)
-	m.orders.EXPECT().Load(gomock.Any(), gomock.Any()).Return(nil, order.ErrOrderNotFound)
+	m.orders.EXPECT().Load(gomock.Any(), gomock.Any()).Return(nil, domain.ErrOrderNotFound)
 
 	get := application.NewGetOrder(m.orders, testLogger())
 	_, err := get.Handle(context.Background(), "ORDER-9")
-	require.ErrorIs(t, err, order.ErrOrderNotFound)
+	require.ErrorIs(t, err, domain.ErrOrderNotFound)
 }
 
 // newConfirmedOrder は Confirmed・version 1（永続化済み相当）の注文集約を組み立てる。Load が
 // 返す既存注文の代役として使う（イベントは復元相当のため未保持にする）。
-func newConfirmedOrder(t *testing.T, idStr string) *order.Order {
+func newConfirmedOrder(t *testing.T, idStr string) *domain.Order {
 	t.Helper()
-	oid, err := order.NewOrderID(idStr)
+	oid, err := domain.NewOrderID(idStr)
 	require.NoError(t, err)
-	cust, err := order.NewCustomerID("CUST-1")
+	cust, err := domain.NewCustomerID("CUST-1")
 	require.NoError(t, err)
-	sku, err := order.NewSKU("SKU-A")
+	sku, err := domain.NewSKU("SKU-A")
 	require.NoError(t, err)
-	qty, err := order.NewQuantity(2)
+	qty, err := domain.NewQuantity(2)
 	require.NoError(t, err)
-	price, err := order.NewMoney(1000, "JPY")
+	price, err := domain.NewMoney(1000, "JPY")
 	require.NoError(t, err)
-	o, err := order.NewOrder(oid, cust, []order.OrderLine{order.NewOrderLine(sku, qty, price)})
+	o, err := domain.NewOrder(oid, cust, []domain.OrderLine{domain.NewOrderLine(sku, qty, price)})
 	require.NoError(t, err)
 	o.PullEvents()     // OrderPlaced を捨てる（Load は復元相当でイベントを持たない）
 	o.MarkPersisted(1) // 永続化済み version=1 を模す

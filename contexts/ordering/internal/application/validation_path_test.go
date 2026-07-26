@@ -12,7 +12,7 @@ import (
 
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
-	"github.com/example/go-ddd-template/contexts/ordering/internal/domain/order"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 	"github.com/example/go-ddd-template/contexts/ordering/port"
 	"github.com/example/go-ddd-template/shared/uow"
 )
@@ -54,43 +54,43 @@ func TestValidationPath_PlaceOrder(t *testing.T) {
 			name:     "境界: 顧客 ID が空なら CustomerId を指す",
 			in:       application.PlaceOrderInput{CustomerID: "  ", Lines: []application.PlaceOrderLine{{SKU: "SKU-A", Quantity: 1, UnitPriceAmount: 100, Currency: "JPY"}}},
 			wantPath: "CustomerId",
-			wantCode: order.VCustomerID.Code,
-			wantErr:  order.ErrInvalidCustomerID,
+			wantCode: domain.VCustomerID.Code,
+			wantErr:  domain.ErrInvalidCustomerID,
 		},
 		{
 			name:     "境界: 明細が空なら Lines を指す（集約規則）",
 			in:       application.PlaceOrderInput{CustomerID: "CUST-1"},
 			wantPath: "Lines",
-			wantCode: order.VEmptyOrder.Code,
-			wantErr:  order.ErrEmptyOrder,
+			wantCode: domain.VEmptyOrder.Code,
+			wantErr:  domain.ErrEmptyOrder,
 		},
 		{
 			name:     "境界: 1 行目の SKU が空なら Lines[0].Sku を指す",
 			in:       application.PlaceOrderInput{CustomerID: "CUST-1", Lines: []application.PlaceOrderLine{{SKU: " ", Quantity: 1, UnitPriceAmount: 100, Currency: "JPY"}}},
 			wantPath: "Lines[0].Sku",
-			wantCode: order.VSKU.Code,
-			wantErr:  order.ErrInvalidSKU,
+			wantCode: domain.VSKU.Code,
+			wantErr:  domain.ErrInvalidSKU,
 		},
 		{
 			name:     "境界: 1 行目の数量が 0 なら Lines[0].Quantity を指す",
 			in:       application.PlaceOrderInput{CustomerID: "CUST-1", Lines: []application.PlaceOrderLine{{SKU: "SKU-A", Quantity: 0, UnitPriceAmount: 100, Currency: "JPY"}}},
 			wantPath: "Lines[0].Quantity",
-			wantCode: order.VQuantity.Code,
-			wantErr:  order.ErrInvalidQuantity,
+			wantCode: domain.VQuantity.Code,
+			wantErr:  domain.ErrInvalidQuantity,
 		},
 		{
 			name:     "境界: 1 行目の金額が負なら Lines[0].UnitPrice.Amount を指す",
 			in:       application.PlaceOrderInput{CustomerID: "CUST-1", Lines: []application.PlaceOrderLine{{SKU: "SKU-A", Quantity: 1, UnitPriceAmount: -1, Currency: "JPY"}}},
 			wantPath: "Lines[0].UnitPrice.Amount",
-			wantCode: order.VMoneyAmount.Code,
-			wantErr:  order.ErrInvalidMoney,
+			wantCode: domain.VMoneyAmount.Code,
+			wantErr:  domain.ErrInvalidMoney,
 		},
 		{
 			name:     "境界: 1 行目の通貨が空なら Lines[0].UnitPrice.Currency を指す",
 			in:       application.PlaceOrderInput{CustomerID: "CUST-1", Lines: []application.PlaceOrderLine{{SKU: "SKU-A", Quantity: 1, UnitPriceAmount: 100, Currency: ""}}},
 			wantPath: "Lines[0].UnitPrice.Currency",
-			wantCode: order.VMoneyCurrency.Code,
-			wantErr:  order.ErrInvalidMoney,
+			wantCode: domain.VMoneyCurrency.Code,
+			wantErr:  domain.ErrInvalidMoney,
 		},
 	}
 
@@ -133,7 +133,7 @@ func TestValidationPath_PlaceOrderReportsTheBrokenLine(t *testing.T) {
 			v := requireSingle(t, err)
 			assert.Equal(t, application.FieldViolation{
 				Path: fmt.Sprintf("Lines[%d].Quantity", broken),
-				Code: order.VQuantity.Code,
+				Code: domain.VQuantity.Code,
 			}, v)
 		})
 	}
@@ -149,10 +149,10 @@ func TestValidationPath_CancelAndGetOrder(t *testing.T) {
 
 		f := newMemFixture(t)
 		err := f.cancel.Handle(ctx, "   ")
-		require.ErrorIs(t, err, order.ErrInvalidOrderID)
+		require.ErrorIs(t, err, domain.ErrInvalidOrderID)
 		v := requireSingle(t, err)
 		assert.Equal(t, "OrderId", v.Path)
-		assert.Equal(t, order.VOrderID.Code, v.Code)
+		assert.Equal(t, domain.VOrderID.Code, v.Code)
 	})
 
 	t.Run("境界: GetOrder は空白のみの ID を OrderId として指す", func(t *testing.T) {
@@ -160,7 +160,7 @@ func TestValidationPath_CancelAndGetOrder(t *testing.T) {
 
 		f := newMemFixture(t)
 		_, err := f.get.Handle(ctx, "   ")
-		require.ErrorIs(t, err, order.ErrInvalidOrderID)
+		require.ErrorIs(t, err, domain.ErrInvalidOrderID)
 		v := requireSingle(t, err)
 		assert.Equal(t, "OrderId", v.Path)
 	})
@@ -180,7 +180,7 @@ func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
 
 		f := newMemFixture(t)
 		err := f.cancel.Handle(ctx, "MISSING")
-		require.ErrorIs(t, err, order.ErrOrderNotFound)
+		require.ErrorIs(t, err, domain.ErrOrderNotFound)
 		assert.False(t, errors.As(err, &ve), "リポジトリ由来のエラーは検証エラーに化けない")
 	})
 

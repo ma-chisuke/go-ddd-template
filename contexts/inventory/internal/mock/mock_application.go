@@ -15,7 +15,7 @@ import (
 	time "time"
 
 	application "github.com/example/go-ddd-template/contexts/inventory/internal/application"
-	inventory "github.com/example/go-ddd-template/contexts/inventory/internal/domain/inventory"
+	domain "github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	outbox "github.com/example/go-ddd-template/shared/outbox"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -45,10 +45,10 @@ func (m *MockStockStore) EXPECT() *MockStockStoreMockRecorder {
 }
 
 // Load mocks base method.
-func (m *MockStockStore) Load(ctx context.Context, sku inventory.SKU) (*inventory.StockItem, error) {
+func (m *MockStockStore) Load(ctx context.Context, sku domain.SKU) (*domain.StockItem, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Load", ctx, sku)
-	ret0, _ := ret[0].(*inventory.StockItem)
+	ret0, _ := ret[0].(*domain.StockItem)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -66,28 +66,28 @@ type MockStockStoreLoadCall struct {
 }
 
 // Return rewrite *gomock.Call.Return
-func (c *MockStockStoreLoadCall) Return(arg0 *inventory.StockItem, arg1 error) *MockStockStoreLoadCall {
+func (c *MockStockStoreLoadCall) Return(arg0 *domain.StockItem, arg1 error) *MockStockStoreLoadCall {
 	c.Call = c.Call.Return(arg0, arg1)
 	return c
 }
 
 // Do rewrite *gomock.Call.Do
-func (c *MockStockStoreLoadCall) Do(f func(context.Context, inventory.SKU) (*inventory.StockItem, error)) *MockStockStoreLoadCall {
+func (c *MockStockStoreLoadCall) Do(f func(context.Context, domain.SKU) (*domain.StockItem, error)) *MockStockStoreLoadCall {
 	c.Call = c.Call.Do(f)
 	return c
 }
 
 // DoAndReturn rewrite *gomock.Call.DoAndReturn
-func (c *MockStockStoreLoadCall) DoAndReturn(f func(context.Context, inventory.SKU) (*inventory.StockItem, error)) *MockStockStoreLoadCall {
+func (c *MockStockStoreLoadCall) DoAndReturn(f func(context.Context, domain.SKU) (*domain.StockItem, error)) *MockStockStoreLoadCall {
 	c.Call = c.Call.DoAndReturn(f)
 	return c
 }
 
 // LoadByReservation mocks base method.
-func (m *MockStockStore) LoadByReservation(ctx context.Context, ref inventory.ReservationRef) ([]*inventory.StockItem, error) {
+func (m *MockStockStore) LoadByReservation(ctx context.Context, ref domain.ReservationRef) ([]*domain.StockItem, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "LoadByReservation", ctx, ref)
-	ret0, _ := ret[0].([]*inventory.StockItem)
+	ret0, _ := ret[0].([]*domain.StockItem)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -105,28 +105,28 @@ type MockStockStoreLoadByReservationCall struct {
 }
 
 // Return rewrite *gomock.Call.Return
-func (c *MockStockStoreLoadByReservationCall) Return(arg0 []*inventory.StockItem, arg1 error) *MockStockStoreLoadByReservationCall {
+func (c *MockStockStoreLoadByReservationCall) Return(arg0 []*domain.StockItem, arg1 error) *MockStockStoreLoadByReservationCall {
 	c.Call = c.Call.Return(arg0, arg1)
 	return c
 }
 
 // Do rewrite *gomock.Call.Do
-func (c *MockStockStoreLoadByReservationCall) Do(f func(context.Context, inventory.ReservationRef) ([]*inventory.StockItem, error)) *MockStockStoreLoadByReservationCall {
+func (c *MockStockStoreLoadByReservationCall) Do(f func(context.Context, domain.ReservationRef) ([]*domain.StockItem, error)) *MockStockStoreLoadByReservationCall {
 	c.Call = c.Call.Do(f)
 	return c
 }
 
 // DoAndReturn rewrite *gomock.Call.DoAndReturn
-func (c *MockStockStoreLoadByReservationCall) DoAndReturn(f func(context.Context, inventory.ReservationRef) ([]*inventory.StockItem, error)) *MockStockStoreLoadByReservationCall {
+func (c *MockStockStoreLoadByReservationCall) DoAndReturn(f func(context.Context, domain.ReservationRef) ([]*domain.StockItem, error)) *MockStockStoreLoadByReservationCall {
 	c.Call = c.Call.DoAndReturn(f)
 	return c
 }
 
 // LoadExpiredPending mocks base method.
-func (m *MockStockStore) LoadExpiredPending(ctx context.Context, before time.Time, limit int) ([]*inventory.StockItem, error) {
+func (m *MockStockStore) LoadExpiredPending(ctx context.Context, before time.Time, limit int) ([]*domain.StockItem, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "LoadExpiredPending", ctx, before, limit)
-	ret0, _ := ret[0].([]*inventory.StockItem)
+	ret0, _ := ret[0].([]*domain.StockItem)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -144,28 +144,28 @@ type MockStockStoreLoadExpiredPendingCall struct {
 }
 
 // Return rewrite *gomock.Call.Return
-func (c *MockStockStoreLoadExpiredPendingCall) Return(arg0 []*inventory.StockItem, arg1 error) *MockStockStoreLoadExpiredPendingCall {
+func (c *MockStockStoreLoadExpiredPendingCall) Return(arg0 []*domain.StockItem, arg1 error) *MockStockStoreLoadExpiredPendingCall {
 	c.Call = c.Call.Return(arg0, arg1)
 	return c
 }
 
 // Do rewrite *gomock.Call.Do
-func (c *MockStockStoreLoadExpiredPendingCall) Do(f func(context.Context, time.Time, int) ([]*inventory.StockItem, error)) *MockStockStoreLoadExpiredPendingCall {
+func (c *MockStockStoreLoadExpiredPendingCall) Do(f func(context.Context, time.Time, int) ([]*domain.StockItem, error)) *MockStockStoreLoadExpiredPendingCall {
 	c.Call = c.Call.Do(f)
 	return c
 }
 
 // DoAndReturn rewrite *gomock.Call.DoAndReturn
-func (c *MockStockStoreLoadExpiredPendingCall) DoAndReturn(f func(context.Context, time.Time, int) ([]*inventory.StockItem, error)) *MockStockStoreLoadExpiredPendingCall {
+func (c *MockStockStoreLoadExpiredPendingCall) DoAndReturn(f func(context.Context, time.Time, int) ([]*domain.StockItem, error)) *MockStockStoreLoadExpiredPendingCall {
 	c.Call = c.Call.DoAndReturn(f)
 	return c
 }
 
 // LoadMany mocks base method.
-func (m *MockStockStore) LoadMany(ctx context.Context, skus []inventory.SKU) ([]*inventory.StockItem, error) {
+func (m *MockStockStore) LoadMany(ctx context.Context, skus []domain.SKU) ([]*domain.StockItem, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "LoadMany", ctx, skus)
-	ret0, _ := ret[0].([]*inventory.StockItem)
+	ret0, _ := ret[0].([]*domain.StockItem)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -183,25 +183,25 @@ type MockStockStoreLoadManyCall struct {
 }
 
 // Return rewrite *gomock.Call.Return
-func (c *MockStockStoreLoadManyCall) Return(arg0 []*inventory.StockItem, arg1 error) *MockStockStoreLoadManyCall {
+func (c *MockStockStoreLoadManyCall) Return(arg0 []*domain.StockItem, arg1 error) *MockStockStoreLoadManyCall {
 	c.Call = c.Call.Return(arg0, arg1)
 	return c
 }
 
 // Do rewrite *gomock.Call.Do
-func (c *MockStockStoreLoadManyCall) Do(f func(context.Context, []inventory.SKU) ([]*inventory.StockItem, error)) *MockStockStoreLoadManyCall {
+func (c *MockStockStoreLoadManyCall) Do(f func(context.Context, []domain.SKU) ([]*domain.StockItem, error)) *MockStockStoreLoadManyCall {
 	c.Call = c.Call.Do(f)
 	return c
 }
 
 // DoAndReturn rewrite *gomock.Call.DoAndReturn
-func (c *MockStockStoreLoadManyCall) DoAndReturn(f func(context.Context, []inventory.SKU) ([]*inventory.StockItem, error)) *MockStockStoreLoadManyCall {
+func (c *MockStockStoreLoadManyCall) DoAndReturn(f func(context.Context, []domain.SKU) ([]*domain.StockItem, error)) *MockStockStoreLoadManyCall {
 	c.Call = c.Call.DoAndReturn(f)
 	return c
 }
 
 // Save mocks base method.
-func (m *MockStockStore) Save(ctx context.Context, items ...*inventory.StockItem) error {
+func (m *MockStockStore) Save(ctx context.Context, items ...*domain.StockItem) error {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx}
 	for _, a := range items {
@@ -232,13 +232,13 @@ func (c *MockStockStoreSaveCall) Return(arg0 error) *MockStockStoreSaveCall {
 }
 
 // Do rewrite *gomock.Call.Do
-func (c *MockStockStoreSaveCall) Do(f func(context.Context, ...*inventory.StockItem) error) *MockStockStoreSaveCall {
+func (c *MockStockStoreSaveCall) Do(f func(context.Context, ...*domain.StockItem) error) *MockStockStoreSaveCall {
 	c.Call = c.Call.Do(f)
 	return c
 }
 
 // DoAndReturn rewrite *gomock.Call.DoAndReturn
-func (c *MockStockStoreSaveCall) DoAndReturn(f func(context.Context, ...*inventory.StockItem) error) *MockStockStoreSaveCall {
+func (c *MockStockStoreSaveCall) DoAndReturn(f func(context.Context, ...*domain.StockItem) error) *MockStockStoreSaveCall {
 	c.Call = c.Call.DoAndReturn(f)
 	return c
 }
@@ -392,7 +392,7 @@ func (m *MockEventDispatcher) EXPECT() *MockEventDispatcherMockRecorder {
 }
 
 // Dispatch mocks base method.
-func (m *MockEventDispatcher) Dispatch(ctx context.Context, events ...inventory.DomainEvent) {
+func (m *MockEventDispatcher) Dispatch(ctx context.Context, events ...domain.DomainEvent) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx}
 	for _, a := range events {
@@ -421,13 +421,13 @@ func (c *MockEventDispatcherDispatchCall) Return() *MockEventDispatcherDispatchC
 }
 
 // Do rewrite *gomock.Call.Do
-func (c *MockEventDispatcherDispatchCall) Do(f func(context.Context, ...inventory.DomainEvent)) *MockEventDispatcherDispatchCall {
+func (c *MockEventDispatcherDispatchCall) Do(f func(context.Context, ...domain.DomainEvent)) *MockEventDispatcherDispatchCall {
 	c.Call = c.Call.Do(f)
 	return c
 }
 
 // DoAndReturn rewrite *gomock.Call.DoAndReturn
-func (c *MockEventDispatcherDispatchCall) DoAndReturn(f func(context.Context, ...inventory.DomainEvent)) *MockEventDispatcherDispatchCall {
+func (c *MockEventDispatcherDispatchCall) DoAndReturn(f func(context.Context, ...domain.DomainEvent)) *MockEventDispatcherDispatchCall {
 	c.Call = c.Call.DoAndReturn(f)
 	return c
 }
