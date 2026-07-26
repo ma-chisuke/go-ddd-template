@@ -786,7 +786,15 @@ for i, l := range lines {
 - ドメイン層とアプリケーション層は**行カバレッジ 80% 以上**を維持します
   （`scripts/coverage-gate.sh`、CI のマージ前ゲート）。生成コード（ogen / sqlc / mockgen）と
   アダプタ結線はこの閾値の対象にしません。
-- テスト用の外部依存（testify / gomock）は**本番コードに持ち込みません**。テストファイルと
+- **代数的法則と集約の不変条件には pgregory.net/rapid**（プロパティベーステスト）を使い、
+  **受信アダプタの入口の全域性には Go ネイティブの fuzz**（`testing.F`）を使います。役割が
+  違うので一方には寄せません。詳しくは
+  [docs/testing-conventions.md](docs/testing-conventions.md) の H 群にあります。
+- マージゲートに載るのは、既定回数・既定シードの `rapid.Check` と fuzz の seed corpus
+  （`testdata/fuzz/` にコミット済み。通常のテスト実行で毎回走ります）だけです。**長時間の
+  `-fuzz` は載せません** — 打ち切り時刻でしか止まらず結果が実行ごとに変わるためで、探索は
+  任意実行の `make fuzz` で行います。
+- テスト用の外部依存（testify / gomock / rapid）は**本番コードに持ち込みません**。テストファイルと
   `internal/mock` だけが import してよく、とりわけドメイン層の純粋性を保ちます。
 
 ## 整形・静的解析

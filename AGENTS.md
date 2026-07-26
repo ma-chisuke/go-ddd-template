@@ -337,6 +337,7 @@ make conventions      # 規約ゲート（lint で表現できない規約。scr
 make build            # 統合タグのコンパイル検証を含む
 make test
 make test-race
+make fuzz             # 任意実行の fuzz 探索（時間制限つき。make ci には含まれない）
 
 # 契約ガバナンス・カバレッジのゲート（CI と同じものをローカルで再現）
 make contracts        # OpenAPI + メッセージ契約の後方互換

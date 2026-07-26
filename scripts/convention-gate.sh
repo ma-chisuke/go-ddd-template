@@ -40,10 +40,24 @@ SCAN_DIRS=(shared clients contexts cmd)
 # 検査 1 で対象外にするテスト関数の接頭（Test 以外の 3 種）。
 #   Fuzz / Benchmark / Example は C-1 の 2 形の制約を受けない。
 
-# 検査 4（カタログ的ファイル名）の禁止語幹。<語幹>.go と <語幹>_test.go の両方を禁じる。
+# 検査 4（カタログ的ファイル名）の禁止語幹。
 # identifiers は B-3 則 1（識別子は族でまとめる）の撤回に伴って追加した。「文字列を包む識別子型」は
 # 技術的な種類であって概念ではなく、value_objects と同じ species だからである。
 CATALOG_STEMS=(value_objects types models utils helpers common misc identifiers)
+
+# 検査 4 が禁じるファイル名の形。語幹ごとにこの 3 つを展開する。
+#   1  <語幹>.go
+#   2  <語幹>_test.go
+#   3  <語幹>_<修飾>_test.go   （identifiers_property_test.go / identifiers_fuzz_test.go）
+#
+# 3 番目を **<語幹>*_test.go と書いてはならない**。glob の * は区切り文字を要求しないので、
+# 語幹が語の途中で終わる名前を拾って誤検出する（実測: types*_test.go が typescript_test.go に、
+# common*_test.go が commonly_used_test.go に一致した）。語幹の直後に区切り文字（_ または .）を
+# 要求する 3 形にアンカーすることで、サフィックス付きも捕まえつつ誤検出だけを除く。
+#
+# 形 2 と形 3 は重ならない（identifiers_test.go は identifiers_*_test.go に一致しない）ので、
+# 同じファイルが二重に報告されることはない。
+CATALOG_NAME_FORMS=('%s.go' '%s_test.go' '%s_*_test.go')
 
 # 検査 6（F-3）の対象となる規約系 Markdown。
 DOC_TARGETS=(CONVENTIONS.md docs/testing-conventions.md AGENTS.md CLAUDE.md README.md)
@@ -233,15 +247,27 @@ check_positional_case_literals() {
 #
 # 生成物は除外する。sqlc の models.go のようにツールが出力名を決めるファイルは
 # 改名できず、CONVENTIONS.md の「生成物は手で編集しない」とも衝突するためである。
+# この除外は語幹ごと・形ごとではなく最後にまとめて効かせる（形を増やしても抜けない）。
 check_catalog_filenames() {
-  local stem f
+  local stem form f
+  local -a name_args
   for stem in "${CATALOG_STEMS[@]}"; do
+    # find の -name 引数列を CATALOG_NAME_FORMS から組み立てる。形を 1 つ足すときに
+    # 直すのは配列 1 箇所だけで、この関数は触らなくてよい。
+    name_args=()
+    for form in "${CATALOG_NAME_FORMS[@]}"; do
+      # shellcheck disable=SC2059
+      name_args+=(-o -name "$(printf "$form" "$stem")")
+    done
+    # 先頭の -o を落として \( ... \) に包む。
+    name_args=('(' "${name_args[@]:1}" ')')
+
     while IFS= read -r f; do
       [ -z "$f" ] && continue
       is_generated "$f" && continue
       report_fail "検査 4 カタログ的ファイル名の不在（B-4）" \
         "$f: ファイル名は中身の概念を名指しする（禁止語幹: ${stem}）"
-    done < <(find "${SCAN_DIRS[@]}" -type f \( -name "${stem}.go" -o -name "${stem}_test.go" \) 2>/dev/null || true)
+    done < <(find "${SCAN_DIRS[@]}" -type f "${name_args[@]}" 2>/dev/null || true)
   done
 }
 

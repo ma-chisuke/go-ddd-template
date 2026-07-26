@@ -37,7 +37,13 @@ type stubReserver struct{ err error }
 func (s stubReserver) Reserve(_ context.Context, _ string, _ []port.ReserveLine) error { return s.err }
 func (s stubReserver) Release(_ context.Context, _ string) error                       { return nil }
 
-func newServer(t *testing.T, reserver application.StockReserver) *httptest.Server {
+// newHandler は本番の合成ルート（ordering.go）と同じ結線で HTTP ハンドラを組み立てる。
+//
+// httptest サーバを起こす newServer と、プロセス内で直接 ServeHTTP を呼ぶ fuzz ターゲット
+// （httpapi_fuzz_test.go）の両方がここを使う。fuzz がサーバを経由しないのは、net/http の
+// サーバがハンドラの panic を**回復してログへ落とす**ため、サーバ越しでは panic が
+// テストの失敗として現れないからである（「panic しない」を主張できなくなる）。
+func newHandler(t *testing.T, reserver application.StockReserver) http.Handler {
 	t.Helper()
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	store := memory.NewStore()
@@ -54,7 +60,12 @@ func newServer(t *testing.T, reserver application.StockReserver) *httptest.Serve
 	// テストだけ ogen の既定エラーハンドラで動き、本番の振る舞いを検証できなくなる。
 	server, err := openapi.NewServer(h, h.ServerOptions()...)
 	require.NoError(t, err, "サーバ構築に失敗")
-	ts := httptest.NewServer(corrhttp.Middleware(server))
+	return corrhttp.Middleware(server)
+}
+
+func newServer(t *testing.T, reserver application.StockReserver) *httptest.Server {
+	t.Helper()
+	ts := httptest.NewServer(newHandler(t, reserver))
 	t.Cleanup(ts.Close)
 	return ts
 }

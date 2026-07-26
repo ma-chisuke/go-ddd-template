@@ -10,6 +10,21 @@
 *.out
 coverage.*
 
+# プロパティベーステスト（rapid）の失敗ファイル。
+# 反例を見つけると testdata/rapid/<Test 名>/<タイムスタンプ>-<pid>.fail が書かれるが、
+# 名前に時刻と pid が入るスクラッチであり、実行のたびに別名で積み上がる。
+# 縮約された反例は t.Run("回帰: …") の決定的なケースとしてテストに書き下す。
+#
+# 先頭の ** は省略できない。gitignore のパターンは**途中にセパレータを含むと
+# .gitignore のあるディレクトリ（= ここではリポジトリルート）に錨づけされる**ため、
+# `testdata/rapid/` と書くとルート直下の 1 箇所しか無視せず、実際に書き出される
+# contexts/<ctx>/internal/domain/testdata/rapid/ には当たらない（実測で確認した）。
+**/testdata/rapid/
+
+# 注意: fuzz の seed corpus（testdata/fuzz/）は逆に **コミットする**。非対称は意図的である。
+# seed corpus は Go 公式のワークフローどおり通常の `go test` で毎回実行される回帰テストであり、
+# マージ前ゲートの一部になる。
+
 # エディタ / OS
 .DS_Store
 .idea/
