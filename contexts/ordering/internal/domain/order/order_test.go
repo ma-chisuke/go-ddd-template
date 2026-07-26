@@ -180,7 +180,7 @@ func TestDeriveReservationRef(t *testing.T) {
 	assert.Equal(t, id.String(), r1.String())
 }
 
-func TestIdentifiers_ZeroAndConstructionErrors(t *testing.T) {
+func TestOrder_IdentityConstruction(t *testing.T) {
 	t.Parallel()
 
 	assert.True(t, (order.OrderID{}).IsZero(), "OrderID{} は IsZero であるべき")
