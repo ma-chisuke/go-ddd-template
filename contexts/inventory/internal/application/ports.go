@@ -14,6 +14,11 @@ import (
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
+// --- UoW に束ねられるポート ---------------------------------------------------
+//
+// Repos 経由でのみ取得し、トランザクションの内側で使う。集約の保存とメッセージの
+// Enqueue が同一トランザクションで原子的にコミットされる（二重書き込みを避ける）。
+
 // StockStore は在庫項目の読み書きを抽象化するポート。
 // 実装（アダプタ）は adapter/outbound 層に置く（インメモリ版と PostgreSQL 版）。
 type StockStore interface {
@@ -66,12 +71,30 @@ type Repos interface {
 // 実装は adapter/outbound 層に置く（インメモリ版と pgx 版）。
 type UnitOfWork = uow.UnitOfWork[Repos]
 
-// collectEvents は複数の在庫項目に蓄積されたドメインイベントをまとめて取り出す。
-// 各ユースケースは作業単位の成功後、これで集めたイベントを配信する。
-func collectEvents(items []*domain.StockItem) []domain.DomainEvent {
-	var events []domain.DomainEvent
-	for _, it := range items {
-		events = append(events, it.PullEvents()...)
-	}
-	return events
+// --- UoW の外で呼ぶポート -----------------------------------------------------
+//
+// プロセス内のイベント配信（EventDispatcher）と時刻の供給（Clock）。どちらも
+// トランザクションには載らないので Repos には含めず、ユースケースは UoW の外側で
+// これらを呼ぶ。
+
+// EventDispatcher はドメインイベントをプロセス内で配信するポート。
+// ユースケースは永続化の成功後にのみ、このポートを通じてイベントを配信する。
+// エラーを返さないのは、これが後処理であり、コミット済みのトランザクションを
+// 巻き戻せないためである（ハンドラのエラーは実装側がログに残す）。
+//
+// 実装は共有モジュールの型付きディスパッチャ event.Typed[domain.DomainEvent] が提供し、
+// 合成ルート（inventory.go）で結線する。ポートはこのコンテキストのドメイン型で宣言され、
+// 実装は共有機構 — 機構は共有し、型はコンテキスト固有に保つ、という境界の引き方である。
+//
+// このスライスでは購読側はログ出力／記録が中心で、外部への非同期配信は行わない。
+// より強い配信保証が必要になれば、アウトボックス方式（shared/outbox）へ差し替えられるよう、
+// このポートを挟んでいる。
+type EventDispatcher interface {
+	Dispatch(ctx context.Context, events ...domain.DomainEvent)
+}
+
+// Clock は現在時刻を供給するポート。本番は実時間、テストは擬似時計を注入することで、
+// 時間依存の掃除処理（Reaper）を決定的にテストできるようにする。
+type Clock interface {
+	Now() time.Time
 }

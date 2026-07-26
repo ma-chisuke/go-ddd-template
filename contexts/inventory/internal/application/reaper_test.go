@@ -11,8 +11,8 @@ import (
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
+	"github.com/example/go-ddd-template/shared/clock"
 	"github.com/example/go-ddd-template/shared/event"
-	"github.com/example/go-ddd-template/shared/testutil"
 	"github.com/example/go-ddd-template/shared/uow"
 )
 
@@ -38,7 +38,7 @@ func TestReaper_ReleasesOnlyExpiredPending(t *testing.T) {
 
 	// 擬似時計。予約はこのテスト実行時の実時刻 + TTL で失効時刻が入るため、
 	// 擬似時計を「実時刻より十分未来」に置いて確実に期限切れにする。
-	clock := testutil.NewClock(time.Now().Add(2 * time.Hour))
+	clock := clock.NewManual(time.Now().Add(2 * time.Hour))
 	reaper := application.NewReaper(exec, work, dispatcher, clock, log, 100)
 
 	_, err := replenisher.Replenish(ctx, application.ReplenishInput{SKU: "SKU-A", Quantity: 100})
@@ -79,7 +79,7 @@ func TestReaper_SweepNoopWhenClockBeforeExpiry(t *testing.T) {
 	viewer := application.NewStockViewer(memory.NewReadStockStore(store), log)
 
 	// 擬似時計を「実時刻より前」に置く → いかなる予約も未期限。
-	clock := testutil.NewClock(time.Now().Add(-time.Hour))
+	clock := clock.NewManual(time.Now().Add(-time.Hour))
 	reaper := application.NewReaper(exec, work, dispatcher, clock, log, 100)
 
 	_, _ = replenisher.Replenish(ctx, application.ReplenishInput{SKU: "SKU-A", Quantity: 100})

@@ -34,6 +34,7 @@ import (
 	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/contexts/inventory/port"
+	"github.com/example/go-ddd-template/shared/clock"
 	"github.com/example/go-ddd-template/shared/correlation/corrhttp"
 	"github.com/example/go-ddd-template/shared/event"
 	sharedlog "github.com/example/go-ddd-template/shared/logging"
@@ -162,7 +163,7 @@ func assembleModule(
 	reserver := application.NewReserver(exec, work, dispatcher, log, ttl)
 	confirmer := application.NewConfirmer(exec, work, dispatcher, log)
 	releaser := application.NewReleaser(exec, work, dispatcher, log)
-	reaper := application.NewReaper(exec, work, dispatcher, application.SystemClock{}, log, defaultBatchSize)
+	reaper := application.NewReaper(exec, work, dispatcher, clock.System{}, log, defaultBatchSize)
 	viewer := application.NewStockViewer(readStock, log)
 
 	// 公開サーバ（補充・照会）。

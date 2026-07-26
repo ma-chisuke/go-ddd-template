@@ -3,23 +3,10 @@ package application
 import (
 	"context"
 	"log/slog"
-	"time"
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/uow"
 )
-
-// Clock は現在時刻を供給するポート。本番は実時間、テストは擬似時計を注入することで、
-// 時間依存の掃除処理（Reaper）を決定的にテストできるようにする。
-type Clock interface {
-	Now() time.Time
-}
-
-// SystemClock は実時間（UTC）を返す Clock 実装。
-type SystemClock struct{}
-
-// Now は現在の UTC 時刻を返す。
-func (SystemClock) Now() time.Time { return time.Now().UTC() }
 
 // Reaper は期限切れの pending 予約を掃除するユースケース。「reserve は commit したが
 // 確定に至らなかった」孤児 pending を解放して在庫を healing する。confirmed 予約は
