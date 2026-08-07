@@ -232,6 +232,40 @@ lint ではなく**コンパイル**で固定します。3 メソッドのいず
 顕在化します。そのときに深いコピーか検査の拡張かを判断してください（現ツリーに該当が
 無いので、先んじて縛りません）。
 
+### B-11 集約ストアの実装は `<集約名>_store.go` に置く
+
+> 集約ストアポートのコンパイル時表明（`var _ application.<X>Store = (*<t>)(nil)`）を含む
+> ファイルは、`<集約名>_store.go` と名づけなければならない。
+
+→ `scripts/convention-gate.sh`（検査 14）
+
+期待するファイル名は表明が名指すポート名から機械的に導きます
+（`OrderStore` → `order_store.go`、`StockStore` → `stock_store.go`）。
+
+インメモリアダプタでは、1 つの集約について 3 つの型が同じファイルに同居します。
+
+| 役割 | 型 | ポートの実装か |
+| --- | --- | --- |
+| 確定済みデータの保持（backing store） | `OrderRows` / `StockItemRows` | **いいえ** |
+| トランザクション束縛のポート実装 | `txOrderStore` / `txStockStore` | はい |
+| 読み取り専用のポート実装 | `readOrderStore` / `readStockStore` | はい |
+
+**`Store` の語はポートとその実装にだけ使います。** backing store を素朴に `OrderStore` と
+名づけると `application.OrderStore`（ポート）と同名になり、読み手が「これはポートの実装か」と
+誤読します。`orderRecord`（行）を保持するものが `Rows`（行の集まり）という対応も自然です。
+
+トランザクション機構そのもの（`UnitOfWork` / `txState` / `applyGroup` / `txOutbox`）は
+`uow.go` に残します。これは検査 14 を通すための便宜ではなく**凝集の改善**です — 注文ストアの
+backing・tx 実装・読み取り実装は同じ読み単位に属し、以前は「注文ストアを読むのに `uow.go` と
+`store.go` を行き来する」状態でした。結果として `uow.go` は表明を持たなくなり、
+除外リストなしで検査 14 の対象外になります。
+
+**これは B-1 全体の機械強制ではありません。** 素朴な B-1 検査（ファイル名 = 主要型名）を
+全ツリーに当てると約 90 件が「違反」になり、その大半は真の違反ではありません（生成物・
+パッケージ名と同名の主ファイル・概念を名指ししたファイル）。B-1 の字義は普遍規則ではなく
+一例であり、実際に効いている B-4 の肯定形「ファイル名は中身の概念を名指しする」は機械判定
+できません。検査 14 は集約ストアという 1 つの族だけを対象にします。
+
 ## 命名
 
 ### Go 由来（強制）
@@ -943,6 +977,7 @@ for i, l := range lines {
 | 17 | ポート宣言の全数性（B-5 の `ports.go` (b)。application 層の非テストファイルに `ports.go` 以外の `interface` 宣言が無い） | `scripts/convention-gate.sh` 検査 10 | **fail** |
 | 18 | `ports.go` の純度（B-5 の `ports.go` (a)。`ports.go` に `func` 宣言が無い） | `scripts/convention-gate.sh` 検査 11 | **fail** |
 | 19 | 非ルートのドメイン型をポインタで漏らさない（B-9） | `scripts/convention-gate.sh` 検査 12 | **fail** |
+| 20 | 集約ストア実装のファイル名（B-11） | `scripts/convention-gate.sh` 検査 14 | **fail** |
 
 **ST1003 は追加していません** — `revive` の `var-naming` と重複して二重報告になるためです
 （役割は 1 つの linter に寄せます）。

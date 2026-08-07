@@ -595,6 +595,48 @@ check_child_pointer_leak() {
   done
 }
 
+# --- 検査 14: 集約ストア実装のファイル名（B-11） ------------------------------
+#
+# 集約ストアポートのコンパイル時表明
+#   var _ application.<X>Store = (*<t>)(nil)
+# を含むファイルは <集約名>_store.go と名づける。<集約名> は表明が名指すポート名から機械的に
+# 導く（OrderStore → order_store.go、StockStore → stock_store.go）。
+#
+# **「そのファイルの主要型かどうか」は判定に使わない。** 「主要型 = 最初に宣言された型」という
+# 定義は実ファイルで反証される（B-6 は「定数 → 型 → コンストラクタ」の順序を定めるが、型が
+# 複数あるときどれが主要かは定めていない）。代わりに、表明を持つ型を <集約名>_store.go へ
+# 置くことを規約側で決めた（B-2 の凝集基準にも合う）。これにより memory/uow.go は表明を
+# 持たなくなり、除外リストなしで対象外になる。
+#
+# B-1 全体の機械強制ではない。素朴な B-1 検査（ファイル名 = 主要型名）を全ツリーに当てると
+# 約 90 件が「違反」になり、その大半は真の違反でない（生成物・パッケージ名と同名の主ファイル・
+# 概念を名指ししたファイル）。この検査は集約ストアという 1 つの族だけを対象にする。
+#
+# *_test.go は対象外にする。テストダブル（var _ application.OrderStore = (*fakeStore)(nil)）は
+# 集約ストアの実装ではなく、<集約名>_store.go という名前を強いるのは誤りだからである。
+to_snake_case() {
+  printf '%s' "$1" | sed -E 's/([a-z0-9])([A-Z])/\1_\2/g' | tr '[:upper:]' '[:lower:]'
+}
+
+check_aggregate_store_filename() {
+  local f hits hit n port want base
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    is_generated "$f" && continue
+    hits=$(grep -nE '^var _ application\.[A-Za-z_][A-Za-z0-9_]*Store = \(\*[A-Za-z_][A-Za-z0-9_]*\)\(nil\)' "$f" 2>/dev/null || true)
+    [ -z "$hits" ] && continue
+    base=$(basename "$f")
+    while IFS= read -r hit; do
+      n="${hit%%:*}"
+      port=$(printf '%s' "${hit#*:}" | sed -E 's/^var _ application\.([A-Za-z_][A-Za-z0-9_]*)Store = .*$/\1/')
+      want="$(to_snake_case "$port")_store.go"
+      [ "$base" = "$want" ] && continue
+      report_fail "検査 14 集約ストア実装のファイル名（B-11）" \
+        "$f:$n: application.${port}Store の実装を含むファイルは ${want} と名づける（現在: ${base}）"
+    done <<< "$hits"
+  done < <(find "${SCAN_DIRS[@]}" -type f -name '*.go' ! -name '*_test.go' 2>/dev/null | sort)
+}
+
 # --- 実行 -------------------------------------------------------------------
 
 echo "== 規約ゲート（scripts/convention-gate.sh） =="
@@ -611,6 +653,7 @@ check_file_cohesion
 check_ports_exhaustive
 check_ports_purity
 check_child_pointer_leak
+check_aggregate_store_filename
 
 echo ""
 if [ "$fail_count" -gt 0 ]; then
