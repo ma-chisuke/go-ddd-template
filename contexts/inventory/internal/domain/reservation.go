@@ -54,8 +54,13 @@ type Reservation struct {
 
 // ReconstituteReservation は永続化された状態から予約を復元する。
 // 送信アダプタ（リポジトリ）が保存済みの行から集約を再構築する際に用いる。
-func ReconstituteReservation(ref ReservationRef, qty Quantity, status ReservationStatus, expiresAt time.Time) *Reservation {
-	return &Reservation{ref: ref, qty: qty, status: status, expiresAt: expiresAt}
+//
+// 値を返すのは、Reservation が集約ルートではない（StockItem の子エンティティである）
+// からである。集約の外へ子の実体を指すポインタを出さないことで「集約の操作は集約ルート
+// のみを通じて行われる」を検査ではなく型で保証する（検査 12）。復元した予約は必ず
+// ReconstituteStockItem でルートに束ねられ、そこで初めて集約の内部でポインタになる。
+func ReconstituteReservation(ref ReservationRef, qty Quantity, status ReservationStatus, expiresAt time.Time) Reservation {
+	return Reservation{ref: ref, qty: qty, status: status, expiresAt: expiresAt}
 }
 
 // Ref は予約参照を返す。

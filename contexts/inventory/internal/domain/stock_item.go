@@ -40,6 +40,10 @@ type StockItem struct {
 	events       []DomainEvent
 }
 
+// コンパイル時に集約ルートの契約を満たしていることを確認する。
+// 機械検査（12 / 13 / 14）はこの表明から集約ルートの集合を得る。
+var _ AggregateRoot = (*StockItem)(nil)
+
 // NewStockItem は新しい在庫項目を生成する。利用可能在庫 0、予約なし、version 0（未永続化）で始まる。
 // id が空の場合は不正としてエラーを返す。
 func NewStockItem(id string, sku SKU) (*StockItem, error) {
@@ -59,10 +63,16 @@ func NewStockItem(id string, sku SKU) (*StockItem, error) {
 // リポジトリ（送信アダプタ）が保存済みの行から集約を再構築する際に用いる。
 // すでに検証済みの状態を組み立て直すだけなので、ドメインイベントは発生させない。
 // reservations は復元対象の有効な予約（pending / confirmed）の一覧。
-func ReconstituteStockItem(id string, sku SKU, available Quantity, version int, reservations []*Reservation) *StockItem {
+//
+// 引数が値のスライスなのは、子エンティティの実体を指すポインタを集約の外に出さない
+// ためである（検査 12）。集約の内部表現はポインタのまま保つ — Confirm / Release は
+// 子の状態を直接書き換えるので、内部でコピーを持つと変更が失われる。
+func ReconstituteStockItem(id string, sku SKU, available Quantity, version int, reservations []Reservation) *StockItem {
 	m := make(map[string]*Reservation, len(reservations))
 	for _, r := range reservations {
-		m[r.ref.String()] = r
+		// Go 1.22 以降、range 変数は反復ごとに新しい変数なので &r は各要素の複製を指す。
+		// 呼び出し側が渡したスライスとは記憶を共有しない（集約の内部が外から書き換えられない）。
+		m[r.ref.String()] = &r
 	}
 	return &StockItem{
 		id:           id,
@@ -233,11 +243,15 @@ func (s *StockItem) Reserved() Quantity {
 }
 
 // Reservations は集約が保持する有効な予約の一覧を返す（永続化アダプタが状態を書き出す用）。
-// 返すのはコピーであり、これを変更しても集約の状態には影響しない。
-func (s *StockItem) Reservations() []*Reservation {
-	out := make([]*Reservation, 0, len(s.reservations))
+//
+// 返すのは値のコピーであり、これを変更しても集約の状態には影響しない（防御的コピー）。
+// Order.Lines が []OrderLine を返しているのと同じ形で、集約ルートでない型の実体への
+// ポインタを公開シグネチャに出さない（検査 12）。予約の状態を変えられるのは
+// Confirm / Release / ReapExpired — すなわち集約ルートのメソッド — だけである。
+func (s *StockItem) Reservations() []Reservation {
+	out := make([]Reservation, 0, len(s.reservations))
 	for _, r := range s.reservations {
-		out = append(out, r)
+		out = append(out, *r)
 	}
 	return out
 }

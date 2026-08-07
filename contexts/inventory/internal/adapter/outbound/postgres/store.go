@@ -117,7 +117,7 @@ func (s *stockStore) reconstitute(ctx context.Context, id, sku string, available
 	if err != nil {
 		return nil, fmt.Errorf("予約の読み込みに失敗しました: %w", err)
 	}
-	reservations := make([]*domain.Reservation, 0, len(resRows))
+	reservations := make([]domain.Reservation, 0, len(resRows))
 	for _, rr := range resRows {
 		ref, err := domain.NewReservationRef(rr.Ref)
 		if err != nil {

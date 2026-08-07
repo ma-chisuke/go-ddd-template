@@ -55,7 +55,7 @@ func recordToStockItem(r record) (*domain.StockItem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("永続化された SKU が不正です: %w", err)
 	}
-	reservations := make([]*domain.Reservation, 0, len(r.reservations))
+	reservations := make([]domain.Reservation, 0, len(r.reservations))
 	for _, rr := range r.reservations {
 		ref, err := domain.NewReservationRef(rr.ref)
 		if err != nil {

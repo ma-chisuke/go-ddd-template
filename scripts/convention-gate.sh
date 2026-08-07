@@ -4,7 +4,7 @@
 # 再現できる。規約の本文は CONVENTIONS.md と docs/testing-conventions.md にあり、
 # ここは「その文言のうち機械化できるもの」だけを実装する。
 #
-# 検査は 13 個（fail 12 個 + warn 1 個）。fail は終了コード 1、warn は報告のみで終了コード 0 のまま:
+# 検査は 16 個（fail 15 個 + warn 1 個）。fail は終了コード 1、warn は報告のみで終了コード 0 のまま:
 #   1  テスト関数名の主題の一意性（C-1b）                    fail
 #   2  t.Run の 8 語語彙（D-1 / D-2）                        fail
 #   2' テーブル駆動の name フィールドの 8 語語彙（D-6）        fail
@@ -18,6 +18,18 @@
 #   9  ドメインパッケージの単一性（B-8）                       fail
 #  10  ポート宣言は ports.go にのみ置く（B-5 の (b) 全数性）    fail
 #  11  ports.go はポート宣言だけを含む（B-5 の (a) 純度）       fail
+#  12  非ルートのドメイン型をポインタで漏らさない（B-9）        fail
+#  13  集約ルートとリポジトリの 1 対 1 対応（B-10。双方向）      fail
+#  14  集約ストア実装のファイル名（B-11）                      fail
+#
+# 検査 12 / 13 / 14 はいずれも「集約ルートの集合」を、各コンテキストの internal/domain に
+# 置かれたコンパイル時表明 `var _ AggregateRoot = (*T)(nil)` から得る。表明が唯一の情報源
+# であり、リストを手で持たない。
+#
+# 検査 12 と 13 は表裏である。12 は「公開シグネチャにポインタで現れるドメイン型は集約ルート
+# だけ」を課し、13 は「ストアポートがポインタで扱うドメイン型は集約ルートだけ、かつ集約ルート
+# は必ずどれかのストアポートに扱われる」を課す。両者を合わせると
+# 「ポインタで現れるドメイン型は集約ルートだけ」という 1 つの性質になる。
 #
 # 検査 10 / 11 は B-5 の `ports.go` 行が定める**双方向の約束**を、片側ずつ機械化したものである。
 # 10 だけなら ports.go に何を混ぜてもよくなり、11 だけなら ports.go の外にポートを置ける。
@@ -480,6 +492,109 @@ check_ports_purity() {
   done < <(find contexts -type f -path '*/internal/application/ports.go' 2>/dev/null | sort)
 }
 
+# --- 検査 12 / 13 / 14 の共通部品: 集約ルートの集合 --------------------------
+#
+# 集約ルートの集合は、各コンテキストの internal/domain に置かれたコンパイル時表明
+#   var _ AggregateRoot = (*Order)(nil)
+# だけから得る。CONVENTIONS.md に列挙したリストや doc コメントの語を根拠にしない
+# （リストは集約を足すたびに手で直す必要があり、doc への grep は「実体ではなく主張」を
+# 検証することになる）。表明はコンパイラが検証しているので、嘘をつけない。
+aggregate_roots_in() {
+  grep -hoE '^var _ AggregateRoot = \(\*[A-Za-z_][A-Za-z0-9_]*\)\(nil\)$' "$1"/*.go 2>/dev/null |
+    sed -E 's/^var _ AggregateRoot = \(\*([A-Za-z_][A-Za-z0-9_]*)\)\(nil\)$/\1/' | sort -u
+}
+
+# そのドメインパッケージが宣言する型の集合。単独宣言（type Foo …）とグループ化宣言
+# （type ( Foo … )）の両方を見る。現ツリーにグループ化宣言は無いが、「今は無いから green」は
+# 検証にならないので、取りこぼさない形で書いておく。
+domain_types_in() {
+  local f
+  for f in "$1"/*.go; do
+    [ -f "$f" ] || continue
+    case "$f" in *_test.go) continue ;; esac
+    is_generated "$f" && continue
+    awk '
+      /^type[[:space:]]*\(/            { ingroup = 1; next }
+      ingroup == 1 && /^\)/            { ingroup = 0; next }
+      ingroup == 1 && /^[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]/ { print $1; next }
+      /^type[[:space:]]+[A-Za-z_][A-Za-z0-9_]*/ { print $2 }
+    ' "$f"
+  done | sort -u
+}
+
+# ファイル内の「公開メソッド・公開関数のシグネチャ」を「開始行番号 TAB シグネチャ」で出す。
+#
+# レシーバは落とす（検査 12 はレシーバの種別を判定に使わない）。集約ルートを *Order で
+# 扱うのは正しく、子も**内部では**ポインタでよい。問題は外へポインタが出ることだけである。
+#
+# 複数行に折り返されたシグネチャに対応するため、`func ` で始まる行から本体の開き括弧が
+# 現れるまでを 1 つの論理行として連結する。struct{} / interface{} は本体の開き括弧と
+# 区別できないので、連結前に置き換えて無害化する。
+exported_signatures_in() {
+  awk '
+    function flush(  p) {
+      gsub(/struct[[:space:]]*\{[[:space:]]*\}/, "struct_", buf)
+      gsub(/interface[[:space:]]*\{[[:space:]]*\}/, "any_", buf)
+      p = index(buf, "{")
+      if (p > 0) buf = substr(buf, 1, p - 1)
+      sub(/^func[[:space:]]*\([^)]*\)[[:space:]]*/, "", buf)  # メソッド: レシーバを落とす
+      sub(/^func[[:space:]]+/, "", buf)                        # 関数
+      if (buf ~ /^[A-Z]/) print start "\t" buf
+      buf = ""
+    }
+    /^func[[:space:]]/ {
+      start = FNR
+      buf = $0
+      while (index(buf, "{") == 0) {
+        if ((getline line) <= 0) break
+        buf = buf " " line
+      }
+      flush()
+    }
+  ' "$1"
+}
+
+# --- 検査 12: 非ルートのドメイン型をポインタで漏らさない（B-9） ---------------
+#
+# contexts/*/internal/domain/ の公開メソッド・公開関数のシグネチャ（レシーバを除く引数と
+# 戻り値）に、AggregateRoot を満たさない同パッケージの型へのポインタ（*T / []*T）が
+# 現れてはならない。
+#
+# これは Go の規則ではない。「内部の可変状態への参照を外へ渡さない」という言語非依存の
+# カプセル化の原則を、DDD の「集約の内部は集約ルートを通してのみ」に重ねたものである
+# （出自は CONVENTIONS.md B-9）。
+#
+# 判定に使わないもの: レシーバの種別、引数の個数、戻り値の個数、メソッド本体。
+# **型の構造だけ**を見る。「レシーバの状態を変えるメソッドか」をシグネチャの形から
+# 推測する方式は 3 度失敗し、うち 1 案は Go の一次資料（「迷ったらポインタレシーバ」）と
+# 衝突した。型で保証できるなら検査で推測する必要は無い。
+#
+# 修飾された型（*time.Time / *slog.Logger）は「domain パッケージの型」の集合に入らないので
+# 自然に対象外になる。除外リストは持たない。
+check_child_pointer_leak() {
+  local ctx domain_dir roots types f start sig t
+  for ctx in contexts/*/; do
+    domain_dir="${ctx}internal/domain"
+    [ -d "$domain_dir" ] || continue
+    roots=" $(aggregate_roots_in "$domain_dir" | tr '\n' ' ') "
+    types=" $(domain_types_in "$domain_dir" | tr '\n' ' ') "
+    for f in "$domain_dir"/*.go; do
+      [ -f "$f" ] || continue
+      case "$f" in *_test.go) continue ;; esac
+      is_generated "$f" && continue
+      while IFS=$'\t' read -r start sig; do
+        [ -z "$sig" ] && continue
+        for t in $(printf '%s' "$sig" | grep -oE '\*[A-Za-z_][A-Za-z0-9_]*' | sed 's/^\*//' | sort -u); do
+          case "$types" in *" $t "*) ;; *) continue ;; esac  # domain の型でなければ対象外
+          case "$roots" in *" $t "*) continue ;; esac        # 集約ルートなら正当
+          report_fail "検査 12 非ルートのドメイン型をポインタで漏らさない（B-9）" \
+            "$f:$start: ${t} は集約ルートではない（AggregateRoot の表明が無い）。公開シグネチャからポインタで出さず値で返す: func ${sig}"
+        done
+      done < <(exported_signatures_in "$f")
+    done
+  done
+}
+
 # --- 実行 -------------------------------------------------------------------
 
 echo "== 規約ゲート（scripts/convention-gate.sh） =="
@@ -495,6 +610,7 @@ check_doc_spacing
 check_file_cohesion
 check_ports_exhaustive
 check_ports_purity
+check_child_pointer_leak
 
 echo ""
 if [ "$fail_count" -gt 0 ]; then

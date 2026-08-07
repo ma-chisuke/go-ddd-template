@@ -41,6 +41,10 @@ type Order struct {
 	events         []DomainEvent
 }
 
+// コンパイル時に集約ルートの契約を満たしていることを確認する。
+// 機械検査（12 / 13 / 14）はこの表明から集約ルートの集合を得る。
+var _ AggregateRoot = (*Order)(nil)
+
 // NewOrder は明細から新しい注文を作成する。
 //
 // 規則:
