@@ -1,21 +1,23 @@
 # DDD パターン → このリポジトリでの実装位置
 
 この索引は「**今あるものがどこにあるか**」を引く表です。「**新しいものをどう足すか**」の手順は
-[add-a-use-case.md](./add-a-use-case.md) にあります（索引とレシピで役割を分け、内容を重複させて
-いません）。層の分離そのものの規約は [../CONVENTIONS.md](../CONVENTIONS.md)、境界を割った理由は
+[add-a-use-case.md](./add-a-use-case.md)（ユースケースを 1 つ足す）と
+[add-an-aggregate.md](./add-an-aggregate.md)（集約ルートを 1 つ足す）にあります
+（索引とレシピで役割を分け、内容を重複させていません）。層の分離そのものの規約は [../CONVENTIONS.md](../CONVENTIONS.md)、境界を割った理由は
 [why-these-boundaries.md](./why-these-boundaries.md) を参照してください。
 
 ## 1. 戦術パターン（モデルの構成要素）
 
 | パターン | 一言の定義 | このリポジトリでの実装 |
 | --- | --- | --- |
-| 集約（Aggregate） | 同時に一貫していなければならないオブジェクトの塊。外からは集約ルート経由でのみ操作する | `Order`（[../contexts/ordering/internal/domain.go](../contexts/ordering/internal/domain.go)）／ `StockItem`（[../contexts/inventory/internal/domain/stock_item.go](../contexts/inventory/internal/domain/stock_item.go)） |
+| 集約（Aggregate） | 同時に一貫していなければならないオブジェクトの塊。外からは集約ルート経由でのみ操作する | `Order`（[../contexts/ordering/internal/domain/order.go](../contexts/ordering/internal/domain/order.go)）／ `Shipment`（[../contexts/ordering/internal/domain/shipment.go](../contexts/ordering/internal/domain/shipment.go)）／ `StockItem`（[../contexts/inventory/internal/domain/stock_item.go](../contexts/inventory/internal/domain/stock_item.go)）。**どれが集約ルートかは型で名指す** — 契約 `AggregateRoot`（[../contexts/ordering/internal/domain/aggregate_root.go](../contexts/ordering/internal/domain/aggregate_root.go)）とコンパイル時表明 `var _ AggregateRoot = (*Order)(nil)` が唯一の情報源で、検査 12 / 13 / 14 がここから集約ルートの集合を得る |
+| 集約間の参照（Reference by Identity） | 別の集約は**識別子で**参照し、実体（ポインタ）を保持しない | `Shipment` は `OrderID` だけを持ち `*Order` を持たない（[../contexts/ordering/internal/domain/shipment.go](../contexts/ordering/internal/domain/shipment.go)）。DB 側も `ordering.shipments` から `ordering.orders` へ FK を張らない — 集約間の整合性は DB ではなくアプリケーションが担う |
 | エンティティ（Entity） | 同一性を持ち、状態が時間とともに変わるもの | `Reservation`（[../contexts/inventory/internal/domain/reservation.go](../contexts/inventory/internal/domain/reservation.go)）— 集約 `StockItem` の子 |
 | 値オブジェクト（Value Object） | 同一性を持たず、値そのもので等価性が決まる不変の型 | `SKU` / `Quantity` / `Money` / `ReservationRef` / `CustomerID` / `OrderID`。**境界ごとに独立所有**する（[../contexts/ordering/internal/domain/](../contexts/ordering/internal/domain/) と [../contexts/inventory/internal/domain/](../contexts/inventory/internal/domain/) に同名で別の型がある） |
 | ドメインイベント（Domain Event） | ドメインで起きた「事実」。過去形で名づける | 注文 2 種（[../contexts/ordering/internal/domain/event.go](../contexts/ordering/internal/domain/event.go)）と在庫 5 種（[../contexts/inventory/internal/domain/event.go](../contexts/inventory/internal/domain/event.go)）の計 7 種。集約が記録し、`PullEvents` で取り出す |
 | ドメインサービス（Domain Service） | 1 つの集約に閉じない振る舞い。状態を持たない | `ReservationService`（[../contexts/inventory/internal/domain/reservation_service.go](../contexts/inventory/internal/domain/reservation_service.go)）— マルチ SKU 予約の全か無か。**リポジトリを引かず**、ユースケースから引き当て済みの集約を受け取る |
-| リポジトリ（Repository） | 集約の永続化を抽象化する。**ポートはアプリケーション層**、実装はアダプタ層 | ポート: `StockStore` / `OrderStore`（[../contexts/inventory/internal/application/ports.go](../contexts/inventory/internal/application/ports.go) ／ [../contexts/ordering/internal/application/ports.go](../contexts/ordering/internal/application/ports.go)）。実装: `memory`（[../contexts/inventory/internal/adapter/outbound/memory/stock_store.go](../contexts/inventory/internal/adapter/outbound/memory/stock_store.go)）と `postgres`（[../contexts/inventory/internal/adapter/outbound/postgres/stock_store.go](../contexts/inventory/internal/adapter/outbound/postgres/stock_store.go)） |
-| 再構成（Reconstitution） | 永続化された状態から集約を組み立て直す。検証済みなのでイベントは発生させない | `ReconstituteOrder`（[../contexts/ordering/internal/domain.go](../contexts/ordering/internal/domain.go)）／ `ReconstituteStockItem`・`ReconstituteReservation`（[../contexts/inventory/internal/domain/stock_item.go](../contexts/inventory/internal/domain/stock_item.go)） |
+| リポジトリ（Repository） | 集約の永続化を抽象化する。**ポートはアプリケーション層**、実装はアダプタ層 | ポート: `StockStore` / `OrderStore` / `ShipmentStore`（[../contexts/inventory/internal/application/ports.go](../contexts/inventory/internal/application/ports.go) ／ [../contexts/ordering/internal/application/ports.go](../contexts/ordering/internal/application/ports.go)）。実装: `memory`（[../contexts/inventory/internal/adapter/outbound/memory/stock_store.go](../contexts/inventory/internal/adapter/outbound/memory/stock_store.go)）と `postgres`（[../contexts/inventory/internal/adapter/outbound/postgres/stock_store.go](../contexts/inventory/internal/adapter/outbound/postgres/stock_store.go)）。**集約ルートとリポジトリは 1 対 1** で、その対応は機械強制されている — 検査 13 が `Repos` のアクセサと `AggregateRoot` の双方向対応を、検査 12 が「子にポインタで到達させない」ことを、検査 14 が実装ファイル名 `<集約名>_store.go` を見張る（規約は [../CONVENTIONS.md](../CONVENTIONS.md) の B-9 / B-10 / B-11、足す手順は [add-an-aggregate.md](./add-an-aggregate.md)） |
+| 再構成（Reconstitution） | 永続化された状態から集約を組み立て直す。検証済みなのでイベントは発生させない | `ReconstituteOrder`（[../contexts/ordering/internal/domain/order.go](../contexts/ordering/internal/domain/order.go)）／ `ReconstituteShipment`（[../contexts/ordering/internal/domain/shipment.go](../contexts/ordering/internal/domain/shipment.go)）／ `ReconstituteStockItem`・`ReconstituteReservation`（[../contexts/inventory/internal/domain/stock_item.go](../contexts/inventory/internal/domain/stock_item.go)） |
 
 ## 2. 戦略パターン（大きな構造）
 

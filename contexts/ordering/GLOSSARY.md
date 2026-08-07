@@ -13,7 +13,9 @@
 
 | 語（Go 型） | 業務上の意味 | 種別 | 定義ファイル |
 | --- | --- | --- | --- |
-| `Order` | 顧客からの 1 件の注文。`OrderID` で識別し、明細を子として内包する。合計金額を自ら導出し、取消は Confirmed からのみ許す | 集約ルート | [internal/domain.go](internal/domain.go) |
+| `AggregateRoot` | 集約ルートが満たす契約（`Version` / `MarkPersisted` / `PullEvents`）。どの型が集約ルートかを規約コメントではなく型で名指す | 契約 | [internal/domain/aggregate_root.go](internal/domain/aggregate_root.go) |
+| `Order` | 顧客からの 1 件の注文。`OrderID` で識別し、明細を子として内包する。合計金額を自ら導出し、取消は Confirmed からのみ許す | 集約ルート | [internal/domain/order.go](internal/domain/order.go) |
+| `Shipment` | 1 件の出荷。注文とは別のライフサイクルを持ち、注文を `OrderID` で**参照する**（実体は保持しない）。準備中から発送済みへの一方向 | 集約ルート | [internal/domain/shipment.go](internal/domain/shipment.go) |
 | `OrderLine` | 注文明細の 1 行。SKU・数量・単価の対で、小計（単価 × 数量）を導出する | 子要素（値） | [internal/domain/order_line.go](internal/domain/order_line.go) |
 | `OrderID` | 注文の識別子。採番はアプリケーション層が行い、ドメインは与えられた文字列を検証して包む | 値オブジェクト | [internal/domain/order.go](internal/domain/order.go) |
 | `CustomerID` | 注文した顧客の識別子 | 値オブジェクト | [internal/domain/order.go](internal/domain/order.go) |
@@ -21,10 +23,14 @@
 | `Quantity` | 注文する数量。**1 以上**（注文行に数量 0 は無い）。加減算を持たない | 値オブジェクト | [internal/domain/order_line.go](internal/domain/order_line.go) |
 | `Money` | 金額（最小通貨単位の額 + ISO-4217 の通貨コード）。`Add` / `Mul` / `IsZero` を持ち、通貨をまたぐ加算は失敗する | 値オブジェクト | [internal/domain/money.go](internal/domain/money.go) |
 | `ReservationRef` | 在庫予約の参照（相関 ID）。`OrderID` から**決定的に導出**する（`DeriveReservationRef`）ため、再試行が同じ参照を生む | 値オブジェクト | [internal/domain/order.go](internal/domain/order.go) |
+| `ShipmentID` | 出荷の識別子。採番はアプリケーション層が行う | 値オブジェクト | [internal/domain/shipment.go](internal/domain/shipment.go) |
+| `TrackingNumber` | 配送業者の追跡番号。書式は業者ごとに異なるため「空でない」以上の制約を課さない | 値オブジェクト | [internal/domain/shipment.go](internal/domain/shipment.go) |
 | `Status` | 注文の状態。`StatusConfirmed`（確定）→ `StatusCancelled`（取消）の一方向のみ。v1 に履行（fulfillment）は無い | 状態 | [internal/domain/order.go](internal/domain/order.go) |
+| `ShipmentStatus` | 出荷の状態。`StatusPreparing`（準備中）→ `StatusShipped`（発送済み）の一方向のみ。配送完了と出荷取消は v1 に無い | 状態 | [internal/domain/shipment.go](internal/domain/shipment.go) |
 | `DomainEvent` | このコンテキストのドメインイベントの共通契約（`EventName` と `OccurredAt`）。共有モジュールの型に依存しないためドメイン独自に定義する | イベント契約 | [internal/domain/event.go](internal/domain/event.go) |
 | `OrderPlaced` | 注文が確定した。v1 ではプロセス内イベントで、クロスコンテキストの購読者は持たない | ドメインイベント | [internal/domain/event.go](internal/domain/event.go) |
 | `OrderCancelled` | 注文が取り消された。在庫コンテキストが購読し、非同期に予約を解放する | ドメインイベント | [internal/domain/event.go](internal/domain/event.go) |
+| `ShipmentDispatched` | 出荷が発送された。クロスコンテキストの購読者を持たないプロセス内イベント | ドメインイベント | [internal/domain/event.go](internal/domain/event.go) |
 | `Rule` | 検証規則 1 件。「どのフィールドが / どの `code` で / どの番兵に」対応するかを 1 箇所に束ねる | 検証の表現 | [internal/domain/errors.go](internal/domain/errors.go) |
 | `FieldViolation` | 規則違反。違反したフィールドと固定語彙の `code` を持ち、番兵を `Unwrap` するので `errors.Is` の判定は変わらない | 検証の表現 | [internal/domain/errors.go](internal/domain/errors.go) |
 | `ErrEmptyOrder` | 明細が 1 行も無い注文を作成しようとした | 番兵エラー | [internal/domain/errors.go](internal/domain/errors.go) |
@@ -36,6 +42,10 @@
 | `ErrInvalidQuantity` | 数量が不正（注文行の数量が 1 未満） | 番兵エラー | [internal/domain/errors.go](internal/domain/errors.go) |
 | `ErrInvalidMoney` | 金額が不正（負数・通貨が空・通貨不一致） | 番兵エラー | [internal/domain/errors.go](internal/domain/errors.go) |
 | `ErrInvalidReservationRef` | 予約参照が不正（空文字など） | 番兵エラー | [internal/domain/errors.go](internal/domain/errors.go) |
+| `ErrShipmentNotFound` | 指定した ID の出荷が存在しない | 番兵エラー | [internal/domain/errors.go](internal/domain/errors.go) |
+| `ErrShipmentNotPreparing` | 準備中でない出荷を発送済みにしようとした | 番兵エラー | [internal/domain/errors.go](internal/domain/errors.go) |
+| `ErrInvalidShipmentID` | 出荷 ID が不正（空文字など） | 番兵エラー | [internal/domain/errors.go](internal/domain/errors.go) |
+| `ErrInvalidTrackingNumber` | 追跡番号が不正（空文字など） | 番兵エラー | [internal/domain/errors.go](internal/domain/errors.go) |
 
 > **境界を跨ぐときは翻訳する**: 上の型はどれもこのコンテキストの内部型です。他コンテキストや
 > 外部サービスへ渡すときは、そのまま渡さず翻訳済みの公開型（[port/](port/) の DTO や

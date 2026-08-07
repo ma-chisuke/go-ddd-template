@@ -234,6 +234,7 @@ make test
 - [docs/context-map.md](docs/context-map.md) — seam の 3 フロー（同期予約 / 確定コマンド / 取消イベント）。
 - [docs/copy-a-context.md](docs/copy-a-context.md) — 1 コンテキストを切り出して自分のプロジェクトの出発点にする手順。
 - [docs/add-a-use-case.md](docs/add-a-use-case.md) — 新しいユースケースを足すレシピ。
+- [docs/add-an-aggregate.md](docs/add-an-aggregate.md) — 新しい集約ルートを足すレシピ（縦切り）。
 
 ## ディレクトリ構成
 

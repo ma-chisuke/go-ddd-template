@@ -70,7 +70,7 @@
 | --- | --- |
 | 集約・値オブジェクト・不変条件・ドメインイベント・ドメインサービス | `internal/domain/`（`package domain`。1 コンテキストに 1 つで、サブパッケージへは割らない）。集約ルートと不変条件の要約は同ディレクトリの `doc.go`（package コメントは `stylecheck` の ST1000 で必須化されている） |
 | **その境界のユビキタス言語**（語 → 業務上の意味 → Go 型 → 定義ファイル） | `contexts/<ctx>/GLOSSARY.md`。ドメインに公開型を足したらここにも 1 行足す（`docs/glossary.md` は索引と、境界を跨いで同名の語の対比だけを持つ） |
-| **DDD パターン → 実装位置の索引**（「集約はどこ？ ACL は？」に答える表） | `docs/ddd-patterns.md`（「新しいものをどう足すか」は `docs/add-a-use-case.md`、境界を割った理由は `docs/why-these-boundaries.md`） |
+| **DDD パターン → 実装位置の索引**（「集約はどこ？ ACL は？」に答える表） | `docs/ddd-patterns.md`（「新しいものをどう足すか」は `docs/add-a-use-case.md` と `docs/add-an-aggregate.md`、境界を割った理由は `docs/why-these-boundaries.md`） |
 | ユースケース、ポート（interface）、サブスクライバ、Reaper | `internal/application/` |
 | ポートの実装（DB・インメモリ）＝出口アダプタ | `internal/adapter/outbound/`（`memory` / `postgres`）。構造化ログは `shared/logging`、no-op Publisher は `shared/outbox/logpub` |
 | 公開 HTTP ハンドラ・エラー変換＝入口アダプタ（相関 ID ミドルウェアは共有の `shared/correlation/corrhttp`） | `internal/adapter/inbound/httpapi/` |
@@ -110,6 +110,27 @@
    相互作用（use case がポートを正しい順序・回数で呼ぶか）は `internal/mock` の gomock
    モックで、統合的な振る舞いはインメモリアダプタ（本物のアダプタ）で検証する。詳細は
    `CONVENTIONS.md` の「テスト」を参照。
+
+### 集約ルートを追加する
+
+**手順の全体は `docs/add-an-aggregate.md` にある。** ユースケースを 1 つ足すのとは規模が違い、
+ドメイン・ポート・両アダプタ・スキーマ・契約・テストの縦切りが要る。実物は注文コンテキストの
+`Shipment`（`contexts/ordering/internal/domain/shipment.go`）で、レシピの各ステップが
+その実ファイルを指している。
+
+最低限ここだけは外さない。
+
+1. `AggregateRoot` の 3 メソッドを実装し、**コンパイル時表明**
+   `var _ AggregateRoot = (*X)(nil)` を集約ルートと同じファイルに置く。これが
+   「どの型が集約ルートか」の唯一の情報源で、検査 12 / 13 / 14 がここから集合を得る。
+   書き忘れると検査は**何も報告しない**（集約ルートとして数えられないため）。
+2. `ports.go` に `<集約名>Store` を定義し、`Repos` にアクセサを 1 つ足す（検査 13 が
+   双方向の 1 対 1 を強制する）。
+3. 実装ファイルは `<集約名>_store.go` と名づける（検査 14）。
+4. 他の集約は**識別子で**参照し、DB にも FK を張らない。
+5. 新しい `Rule` は 3 箇所、新しい type URI は 2 箇所、新しい番兵のステータス対応は
+   `errmap.go` の 3 関数、`invalid-params` の位置解決は `locate()` と `jsonNames`。
+   落とし穴の全数は `docs/add-an-aggregate.md` の § 7 にある。
 
 ### 公開 API を変更する
 

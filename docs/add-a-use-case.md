@@ -87,5 +87,9 @@ make ci          # 生成の冪等性 → 整形 → vet → lint → ビルド 
 make contracts   # 契約を変えたなら後方互換も確認する
 ```
 
+**足そうとしているものが新しい集約ルート**（別のライフサイクルと別のトランザクション境界を
+持つもの）なら、このレシピでは足りません。[add-an-aggregate.md](./add-an-aggregate.md) を
+参照してください。
+
 どのパターンがどのファイルにあるかは [ddd-patterns.md](./ddd-patterns.md)、足した語を用語集へ
 反映するときは `contexts/<ctx>/GLOSSARY.md` を参照してください。
