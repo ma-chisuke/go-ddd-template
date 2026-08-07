@@ -595,6 +595,91 @@ check_child_pointer_leak() {
   done
 }
 
+# --- 検査 13: 集約ルートとリポジトリの 1 対 1 対応（B-10。双方向） -------------
+#
+#   (a) application.Repos のアクセサが返すストアポートのメソッドシグネチャに
+#       *domain.T / []*domain.T の形で現れる型は、すべて AggregateRoot を満たすこと。
+#   (b) AggregateRoot を満たす型は、すべて Repos のいずれかのストアポートに
+#       *domain.T / []*domain.T として扱われていること。
+#
+# (a) だけなら「子にリポジトリを与える」違反しか捕まらず、(b) だけなら「集約ルートを
+# 永続化しない」違反しか捕まらない。**両方を課して初めて 1 対 1 が固定される。**
+#
+# **ポインタの形への限定が必須である。** 限定しないと現ツリーで即座に偽陽性が出る —
+# ストアポートは値オブジェクトを**値で**引数に取るからである
+# （OrderStore.Load(ctx, id domain.OrderID) / StockStore.LoadMany(ctx, skus []domain.SKU)）。
+# 集約ルートは必ずポインタで受け渡され、値オブジェクトは値で渡る。これは検査 12 と表裏で、
+# 両者を合わせると「ポインタで現れる domain 型は集約ルートだけ」という 1 つの性質になる。
+#
+# **Outbox() に除外リストは要らない。** MessagePublisher は outbox.Message だけを扱い
+# domain の型を一切扱わないため、(a) の「domain の型がポインタで現れる」条件に自然に
+# 該当しない。名前で除外すると、名前を変えた瞬間に検査が緩む。
+#
+# **ports.go に限定できる根拠**: 検査 10（application 層の interface 宣言は ports.go 以外に
+# 無い）と検査 11（ports.go に func 宣言が無い）が、ポート宣言が ports.go に全数あることを
+# 機械的に保証している。本検査はその保証の上に成り立つ。
+
+# Repos インタフェースのアクセサが返すポート型の一覧。
+repos_accessor_ports() {
+  awk '
+    /^type[[:space:]]+Repos[[:space:]]+interface[[:space:]]*\{/ { inblock = 1; next }
+    inblock == 1 && /^\}/ { inblock = 0; next }
+    inblock == 1 { print }
+  ' "$1" |
+    sed -E 's@//.*$@@' |
+    grep -E '^[[:space:]]*[A-Z][A-Za-z0-9_]*\(\)[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*$' |
+    sed -E 's@^[[:space:]]*[A-Z][A-Za-z0-9_]*\(\)[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*$@\1@' |
+    sort -u
+}
+
+# 指定した interface の本体に **ポインタの形で** 現れる domain 型の一覧。
+# コメントは落とす（doc に書いた *domain.T を宣言と取り違えないため）。
+pointer_domain_types_in() {
+  awk -v iface="$2" '
+    $0 ~ "^type[[:space:]]+" iface "[[:space:]]+interface[[:space:]]*\\{" { inblock = 1; next }
+    inblock == 1 && /^\}/ { inblock = 0; next }
+    inblock == 1 { print }
+  ' "$1" |
+    sed -E 's@//.*$@@' |
+    grep -oE '\*domain\.[A-Z][A-Za-z0-9_]*' |
+    sed -E 's@^\*domain\.@@' |
+    sort -u
+}
+
+check_aggregate_repo_pairing() {
+  local ctx ports_file domain_dir roots covered port t
+  for ctx in contexts/*/; do
+    ports_file="${ctx}internal/application/ports.go"
+    domain_dir="${ctx}internal/domain"
+    [ -f "$ports_file" ] || continue
+    [ -d "$domain_dir" ] || continue
+
+    roots=" $(aggregate_roots_in "$domain_dir" | tr '\n' ' ') "
+    covered=" "
+
+    # (a) ストアポートが扱うポインタ型は、すべて集約ルートであること。
+    for port in $(repos_accessor_ports "$ports_file"); do
+      for t in $(pointer_domain_types_in "$ports_file" "$port"); do
+        covered="${covered}${t} "
+        case "$roots" in
+          *" $t "*) continue ;;
+        esac
+        report_fail "検査 13(a) 集約ルートとリポジトリの 1 対 1 対応（B-10）" \
+          "$ports_file: Repos のアクセサが返す ${port} が domain.${t} をポインタで扱っているが、${t} は AggregateRoot ではない（集約ルートでない型にリポジトリを与えている）"
+      done
+    done
+
+    # (b) 集約ルートは、すべていずれかのストアポートに扱われていること。
+    for t in $(aggregate_roots_in "$domain_dir"); do
+      case "$covered" in
+        *" $t "*) continue ;;
+      esac
+      report_fail "検査 13(b) 集約ルートとリポジトリの 1 対 1 対応（B-10）" \
+        "$ports_file: 集約ルート ${t} を扱うストアポートが Repos に無い（永続化されない集約ルート）"
+    done
+  done
+}
+
 # --- 検査 14: 集約ストア実装のファイル名（B-11） ------------------------------
 #
 # 集約ストアポートのコンパイル時表明
@@ -653,6 +738,7 @@ check_file_cohesion
 check_ports_exhaustive
 check_ports_purity
 check_child_pointer_leak
+check_aggregate_repo_pairing
 check_aggregate_store_filename
 
 echo ""
