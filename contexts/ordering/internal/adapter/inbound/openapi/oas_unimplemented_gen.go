@@ -33,6 +33,30 @@ func (UnimplementedHandler) GetOrder(ctx context.Context, params GetOrderParams)
 	return r, ht.ErrNotImplemented
 }
 
+// GetShipment implements getShipment operation.
+//
+// 指定した出荷 ID の現在の状態を返す。.
+//
+// GET /shipments/{id}
+func (UnimplementedHandler) GetShipment(ctx context.Context, params GetShipmentParams) (r GetShipmentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// MarkShipped implements markShipped operation.
+//
+// 指定した出荷を発送済みにする。発送済みにできるのは preparing
+// 状態の出荷のみで、 追跡番号を伴う。既に shipped
+// の出荷に対する再呼び出しは 409 を返す（冪等ではない） —
+// 追跡番号という新しい情報を伴う状態変更なので、黙って成功させない。
+//
+// 状態遷移をサブリソースへの POST で表す形は、既存の /orders/{id}/cancel
+// に揃えている。.
+//
+// POST /shipments/{id}/ship
+func (UnimplementedHandler) MarkShipped(ctx context.Context, req *MarkShippedRequest, params MarkShippedParams) (r MarkShippedRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // PlaceOrder implements placeOrder operation.
 //
 // 注文明細から注文を作成する。作成時に在庫を同期予約し、予約できたときのみ
@@ -41,6 +65,21 @@ func (UnimplementedHandler) GetOrder(ctx context.Context, params GetOrderParams)
 //
 // POST /orders
 func (UnimplementedHandler) PlaceOrder(ctx context.Context, req *PlaceOrderRequest) (r PlaceOrderRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// PrepareShipment implements prepareShipment operation.
+//
+// 指定した注文に対する出荷を準備する。注文が存在し確定（confirmed）状態のときのみ
+// 出荷を作成し、preparing 状態で返す。
+//
+// パスを /orders/{id}/shipments ではなく /shipments にしているのは、出荷が注文の
+// 子リソースではなく 独立した集約ルート だからである。URL
+// の階層は集約の階層を 反映させ、別の集約への参照は本文の orderId
+// で表す（集約間は識別子で参照する）。.
+//
+// POST /shipments
+func (UnimplementedHandler) PrepareShipment(ctx context.Context, req *PrepareShipmentRequest) (r PrepareShipmentRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

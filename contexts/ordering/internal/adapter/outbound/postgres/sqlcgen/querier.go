@@ -13,6 +13,8 @@ type Querier interface {
 	// 生成物はコミットし、手で編集しない。クエリを変えたいときはこの SQL を編集して再生成する。
 	// ID で注文を 1 件取得する。存在しなければ pgx.ErrNoRows が返る。
 	GetOrderByID(ctx context.Context, id string) (GetOrderByIDRow, error)
+	// ID で出荷を 1 件取得する。存在しなければ pgx.ErrNoRows が返る。
+	GetShipmentByID(ctx context.Context, id string) (GetShipmentByIDRow, error)
 	// 恒久イベントログへ発行メッセージを 1 件記録する（recorded_at は既定値 now()）。
 	// InsertOutboxMessage と同一トランザクションで実行し、原子的に確定させる。
 	InsertEvent(ctx context.Context, arg InsertEventParams) error
@@ -23,6 +25,8 @@ type Querier interface {
 	// アウトボックス（一時的な配送キュー）へメッセージを積む。
 	// 集約書き込み・InsertEvent と同一トランザクションで実行する。
 	InsertOutboxMessage(ctx context.Context, arg InsertOutboxMessageParams) error
+	// 出荷を新規挿入する（version は 1 から始まる）。
+	InsertShipment(ctx context.Context, arg InsertShipmentParams) error
 	// 注文が保持する明細を行番号順に取得する。
 	ListOrderLines(ctx context.Context, orderID string) ([]OrderingOrderLine, error)
 	// 未送信のメッセージを occurred_at 昇順で最大 $1 件取得する。
@@ -34,6 +38,9 @@ type Querier interface {
 	// 楽観的排他制御つきの更新。期待バージョンが一致する行だけを更新し、影響行数を返す。
 	// 0 行なら版が食い違っている（＝衝突）ことを意味する。注文の可変部分は状態のみ。
 	UpdateOrder(ctx context.Context, arg UpdateOrderParams) (int64, error)
+	// 楽観的排他制御つきの更新。期待バージョンが一致する行だけを更新し、影響行数を返す。
+	// 0 行なら版が食い違っている（＝衝突）ことを意味する。出荷の可変部分は状態と追跡番号のみ。
+	UpdateShipment(ctx context.Context, arg UpdateShipmentParams) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)

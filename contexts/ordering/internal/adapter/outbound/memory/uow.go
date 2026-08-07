@@ -19,18 +19,20 @@ import (
 // 別プロセスの送信中継（outbox.Runner）を介さずに決定的にピアへ届けるためのもの。
 // 本番の耐障害な配送は outbox.Runner（ポーリング中継）が担う。
 type UnitOfWork struct {
-	rows   *OrderRows
-	stores *Stores
-	sink   outbox.Publisher
-	log    *slog.Logger
+	orders    *OrderRows
+	shipments *ShipmentRows
+	stores    *Stores
+	sink      outbox.Publisher
+	log       *slog.Logger
 }
 
 // NewUnitOfWork はインメモリの作業単位を生成する。
 // stores は配送キュー（送信後に削除される一時的なもの）と恒久イベントログ（追記のみ）を
 // 束ねた backing store で、コミット時に CommitStaged で両方へ同時に確定される
 // （PostgreSQL 構成で outbox と events を同一トランザクションに書くのと同じ意味論）。
-func NewUnitOfWork(rows *OrderRows, stores *Stores) *UnitOfWork {
-	return &UnitOfWork{rows: rows, stores: stores}
+// 集約を 1 つ足すときに増えるのは backing store の引数 1 つだけで、下の commit は変わらない。
+func NewUnitOfWork(orders *OrderRows, shipments *ShipmentRows, stores *Stores) *UnitOfWork {
+	return &UnitOfWork{orders: orders, shipments: shipments, stores: stores}
 }
 
 // WithSyncDelivery は開発用の同期配送シンクを設定する（本番では使わない）。設定すると、
@@ -53,8 +55,9 @@ var _ application.UnitOfWork = (*UnitOfWork)(nil)
 func (u *UnitOfWork) Within(ctx context.Context, fn func(ctx context.Context, r application.Repos) error) error {
 	tx := &txState{stores: u.stores}
 	r := repos{
-		orders: &txOrderStore{tx: tx, rows: u.rows},
-		outbox: &txOutbox{tx: tx},
+		orders:    &txOrderStore{tx: tx, rows: u.orders},
+		shipments: &txShipmentStore{tx: tx, rows: u.shipments},
+		outbox:    &txOutbox{tx: tx},
 	}
 	if err := fn(ctx, r); err != nil {
 		return err // staging を破棄してロールバック
@@ -90,11 +93,13 @@ func (u *UnitOfWork) deliverSync(ctx context.Context, msgs []outbox.Message) {
 
 // repos は application.Repos の実装。
 type repos struct {
-	orders application.OrderStore
-	outbox application.MessagePublisher
+	orders    application.OrderStore
+	shipments application.ShipmentStore
+	outbox    application.MessagePublisher
 }
 
 func (r repos) Orders() application.OrderStore       { return r.orders }
+func (r repos) Shipments() application.ShipmentStore { return r.shipments }
 func (r repos) Outbox() application.MessagePublisher { return r.outbox }
 
 // applyGroup は「ひとつの backing store に対する書き込みの束」。

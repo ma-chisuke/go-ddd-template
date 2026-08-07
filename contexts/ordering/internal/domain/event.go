@@ -58,3 +58,26 @@ func (OrderCancelled) EventName() string { return "ordering.order_cancelled" }
 
 // OccurredAt はイベント発生時刻を返す。
 func (e OrderCancelled) OccurredAt() time.Time { return e.At }
+
+// ShipmentDispatched は出荷が発送されたときに発生するドメインイベント。
+//
+// クロスコンテキストの購読者を持たないプロセス内イベントであり、アプリケーション層は
+// これを EventDispatcher へ配信する（アウトボックスへは積まない）。在庫コンテキストは
+// 出荷を知る必要がないため、送信の継ぎ目を増やさない。在庫側の StockDepleted と同じ扱いで、
+// 新しいパターンを持ち込まない。
+type ShipmentDispatched struct {
+	// ShipmentID は発送された出荷の識別子（文字列表現）。
+	ShipmentID string
+	// OrderID は出荷が参照する注文の識別子。
+	OrderID string
+	// TrackingNumber は配送業者の追跡番号。
+	TrackingNumber string
+	// At はイベント発生時刻。
+	At time.Time
+}
+
+// EventName はイベント種別名を返す。
+func (ShipmentDispatched) EventName() string { return "ordering.shipment_dispatched" }
+
+// OccurredAt はイベント発生時刻を返す。
+func (e ShipmentDispatched) OccurredAt() time.Time { return e.At }

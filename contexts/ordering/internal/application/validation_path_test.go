@@ -203,8 +203,8 @@ func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
 		rows := memory.NewOrderRows()
 		stores := memory.NewStores()
 		// 再試行上限（既定 3）を超える回数だけ衝突を注入し、UoW を必ず失敗させる。
-		work := &flakyUoW{inner: memory.NewUnitOfWork(rows, stores), failsLeft: 10}
-		f := newMemFixtureWith(t, work, rows, stores)
+		work := &flakyUoW{inner: memory.NewUnitOfWork(rows, memory.NewShipmentRows(), stores), failsLeft: 10}
+		f := newMemFixtureWith(t, work, rows, memory.NewShipmentRows(), stores)
 		f.reserver.EXPECT().Reserve(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 		f.reserver.EXPECT().Release(gomock.Any(), gomock.Any()).Return(nil)
 

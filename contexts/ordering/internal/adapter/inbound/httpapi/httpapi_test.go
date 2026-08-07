@@ -47,15 +47,20 @@ func newHandler(t *testing.T, reserver application.StockReserver) http.Handler {
 	t.Helper()
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	rows := memory.NewOrderRows()
-	work := memory.NewUnitOfWork(rows, memory.NewStores())
+	shipments := memory.NewShipmentRows()
+	work := memory.NewUnitOfWork(rows, shipments, memory.NewStores())
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 	dispatcher := event.NewTyped[domain.DomainEvent](log)
 
-	place := application.NewPlaceOrder(exec, work, reserver, dispatcher, log)
-	get := application.NewGetOrder(memory.NewReadOrderStore(rows), log)
-	cancel := application.NewCancelOrder(exec, work, log)
-
-	h := httpapi.NewHandler(place, get, cancel, log)
+	readOrders := memory.NewReadOrderStore(rows)
+	h := httpapi.NewHandler(httpapi.HandlerDeps{
+		PlaceOrder:      application.NewPlaceOrder(exec, work, reserver, dispatcher, log),
+		GetOrder:        application.NewGetOrder(readOrders, log),
+		CancelOrder:     application.NewCancelOrder(exec, work, log),
+		PrepareShipment: application.NewPrepareShipment(exec, work, readOrders, dispatcher, log),
+		MarkShipped:     application.NewMarkShipped(exec, work, dispatcher, log),
+		GetShipment:     application.NewGetShipment(memory.NewReadShipmentStore(shipments), log),
+	}, log)
 	// 本番の合成ルート（ordering.go）と同じヘルパーでオプションを渡す。ここを省くと
 	// テストだけ ogen の既定エラーハンドラで動き、本番の振る舞いを検証できなくなる。
 	server, err := openapi.NewServer(h, h.ServerOptions()...)

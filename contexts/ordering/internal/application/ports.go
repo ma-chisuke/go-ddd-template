@@ -31,6 +31,18 @@ type OrderStore interface {
 	Save(ctx context.Context, o *domain.Order) error
 }
 
+// ShipmentStore は出荷集約の読み書きを抽象化するポート。
+// 実装（アダプタ）は adapter/outbound 層に置く（インメモリ版と PostgreSQL 版）。
+type ShipmentStore interface {
+	// Load は出荷 ID に対応する出荷を読み込む。存在しない場合は
+	// domain.ErrShipmentNotFound を返す。
+	Load(ctx context.Context, id domain.ShipmentID) (*domain.Shipment, error)
+
+	// Save は出荷を永続化する。楽観的排他制御の版が一致しない場合は
+	// uow.ErrConcurrencyConflict を返す。
+	Save(ctx context.Context, s *domain.Shipment) error
+}
+
 // MessagePublisher は、集約書き込みと同一トランザクションでアウトボックスへメッセージを
 // 積む送信ポート。クロスコンテキストへの送信（コマンド ConfirmReservation / イベント
 // OrderCancelled）に使う。UoW の内側で呼ぶことで、注文の保存とメッセージ Enqueue が
@@ -41,10 +53,20 @@ type MessagePublisher interface {
 
 // Repos はひとつのトランザクションに束ねられたリポジトリの束。
 // ユースケースはこの束からのみリポジトリを取得するため、トランザクション外の
-// 書き込みが構造的に起こり得ない。注文ストアとアウトボックスを、同一トランザクションに
+// 書き込みが構造的に起こり得ない。集約ストアとアウトボックスを、同一トランザクションに
 // 束ねて提供する。
+//
+// **アクセサは集約ルートと 1 対 1 に対応する**（Outbox は集約ではなくメッセージ配送ポート
+// なので対象外）。この対応は検査 13 が双方向に機械強制している — 集約ルートでない型の
+// ストアを足すことも、集約ルートのストアを足し忘れることもできない。
+//
+// **Shipments() が在るのは「Shipment の書き込みとアウトボックス投入を同一トランザクションで
+// 行うため」であって、「Order と Shipment を一緒に書くため」ではない。** 出荷のユースケースは
+// Orders() を使わない（注文はトランザクションの外で読むだけである）。
+// 1 トランザクション 1 集約という指針はこの Repos のもとでも保たれている。
 type Repos interface {
 	Orders() OrderStore
+	Shipments() ShipmentStore
 	Outbox() MessagePublisher
 }
 

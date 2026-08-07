@@ -34,7 +34,7 @@ func TestTraceIDFlowsPlaceToReserve(t *testing.T) {
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	place := application.NewPlaceOrder(
 		uow.NewExecutor(uow.WithBaseBackoff(0)),
-		memory.NewUnitOfWork(rows, memory.NewStores()),
+		memory.NewUnitOfWork(rows, memory.NewShipmentRows(), memory.NewStores()),
 		reserver,
 		event.NewTyped[domain.DomainEvent](log),
 		log,

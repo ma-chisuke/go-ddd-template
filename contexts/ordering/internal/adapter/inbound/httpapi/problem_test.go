@@ -109,6 +109,19 @@ func postJSONBody(t *testing.T, ts *httptest.Server, path, body string) *http.Re
 	return send(t, ts, http.MethodPost, path, "application/json", body)
 }
 
+// decodeOrderID は 201 応答から作成された注文の ID を取り出す（後続操作の前準備用）。
+func decodeOrderID(t *testing.T, resp *http.Response) string {
+	t.Helper()
+	defer func() { require.NoError(t, resp.Body.Close()) }()
+	require.Equal(t, http.StatusCreated, resp.StatusCode, "注文作成")
+	var v struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&v), "注文応答のデコード")
+	require.NotEmpty(t, v.ID, "作成された注文 ID")
+	return v.ID
+}
+
 // orderLine / orderBody はテスト入力を組み立てる（1 箇所だけ壊して振る舞いを見るため）。
 func orderLine(sku string, qty int, amount int64, currency string) string {
 	return fmt.Sprintf(`{"sku":%q,"quantity":%d,"unitPrice":{"amount":%d,"currency":%q}}`, sku, qty, amount, currency)
@@ -278,6 +291,59 @@ func TestProblem_E4_PathParameterUsesHTTPName(t *testing.T) {
 	assert.Equal(t, domain.VOrderID.Code, pb.InvalidParams[0].Code)
 }
 
+// 出荷（2 つ目の集約ルート）の 422 も、既存の 3 段パイプライン
+// （domain.Rule -> application.locate -> httpapi.jsonNames）を通って invalid-params を
+// 埋めることを固定する。パスパラメータは HTTP 名（id）へ、本文のフィールドは機械変換
+// （TrackingNumber -> trackingNumber）へ写る、という非対称も同時に観測する。
+func TestProblem_E4_ShipmentValidationHasInvalidParams(t *testing.T) {
+	ts := newServer(t, stubReserver{})
+
+	t.Run("境界: 出荷 ID が空白のみならパスパラメータの HTTP 名 id を指す", func(t *testing.T) {
+		pb := readProblem(t, send(t, ts, http.MethodGet, "/shipments/%20%20", "", ""),
+			http.StatusUnprocessableEntity, problem.TypeInvalidInput)
+
+		require.Len(t, pb.InvalidParams, 1)
+		assert.Equal(t, "id", pb.InvalidParams[0].Name, "Go 識別子 ShipmentID を露出しない（規則 R-10）")
+		assert.Equal(t, domain.VShipmentID.Code, pb.InvalidParams[0].Code)
+		assert.NotEmpty(t, pb.InvalidParams[0].Reason, "domainReasons の定型文が載る")
+	})
+
+	t.Run("境界: 追跡番号が空白のみなら本文の trackingNumber を指す", func(t *testing.T) {
+		pb := readProblem(t, postJSONBody(t, ts, "/shipments/SHIP-1/ship", `{"trackingNumber":"  "}`),
+			http.StatusUnprocessableEntity, problem.TypeInvalidInput)
+
+		require.Len(t, pb.InvalidParams, 1)
+		assert.Equal(t, "trackingNumber", pb.InvalidParams[0].Name, "機械変換で正しくなる（jsonNames への追加は不要）")
+		assert.Equal(t, domain.VTrackingNumber.Code, pb.InvalidParams[0].Code)
+	})
+
+	t.Run("異常系: 存在しない出荷は resource-not-found（経路が無い not-found とは別種別）", func(t *testing.T) {
+		pb := readProblem(t, send(t, ts, http.MethodGet, "/shipments/SHIP-missing", "", ""),
+			http.StatusNotFound, problem.TypeResourceNotFound)
+		assert.Empty(t, pb.InvalidParams, "対象が無いだけなのでフィールドに帰着しない")
+	})
+}
+
+// 409 の 2 種別（conflict と order-not-confirmed-for-shipment）が type でも title でも
+// 区別できることを 1 回の観測で固定する。type_uri.go の titles への追記を忘れると、
+// title が HTTP の理由句 "Conflict" へ fallback してこのテストが落ちる。
+func TestProblem_E4_OrderNotConfirmedForShipmentIsItsOwnType(t *testing.T) {
+	ts := newServer(t, stubReserver{})
+
+	// 前準備: 注文を作って取り消す（confirmed でない注文を作る）。
+	created := postJSONBody(t, ts, "/orders", placeBody)
+	orderID := decodeOrderID(t, created)
+	cancelled := postJSONBody(t, ts, "/orders/"+orderID+"/cancel", "")
+	require.NoError(t, cancelled.Body.Close())
+
+	pb := readProblem(t, postJSONBody(t, ts, "/shipments", `{"orderId":"`+orderID+`"}`),
+		http.StatusConflict, problem.TypeOrderNotConfirmedForShipment)
+
+	assert.Equal(t, "Order Not Confirmed For Shipment", pb.Title,
+		"409 の 2 種別が同じ title にならない（title から type を逆引きできる）")
+	assert.NotEqual(t, problem.DetailConflict, pb.Detail, "detail も種別ごとに固有である")
+}
+
 // FR-4.3 の中核。番兵が同じ ErrInvalidMoney でも、応答レベルで amount と currency が
 // 区別されることを 1 つのテストで並べて固定する。
 func TestProblem_E4_MoneyAmountAndCurrencyAreDistinguished(t *testing.T) {
@@ -414,6 +480,7 @@ func TestProblem_InvalidParamCodeEnumCoversVocabulary(t *testing.T) {
 		domain.VEmptyOrder.Code, domain.VSKU.Code, domain.VQuantity.Code,
 		domain.VMoneyAmount.Code, domain.VMoneyCurrency.Code, domain.VCustomerID.Code,
 		domain.VOrderID.Code, domain.VReservationRef.Code,
+		domain.VShipmentID.Code, domain.VTrackingNumber.Code,
 	}
 
 	for _, code := range append(contractCodes, domainCodes...) {

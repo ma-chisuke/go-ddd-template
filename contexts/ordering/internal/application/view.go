@@ -25,6 +25,27 @@ type OrderLineView struct {
 	SubtotalCurrency  string
 }
 
+// ShipmentView は出荷の読み取り用 DTO（プリミティブ値のみ）。
+// 参照する注文は識別子（文字列）で持つ。集約をまたいで実体を運ばない。
+type ShipmentView struct {
+	ID             string
+	OrderID        string
+	Status         string
+	TrackingNumber string
+	Version        int
+}
+
+// toShipmentView は出荷集約を読み取り用 DTO へ射影する。
+func toShipmentView(s *domain.Shipment) ShipmentView {
+	return ShipmentView{
+		ID:             s.ID().String(),
+		OrderID:        s.OrderID().String(),
+		Status:         s.Status().String(),
+		TrackingNumber: s.TrackingNumber().String(),
+		Version:        s.Version(),
+	}
+}
+
 // toOrderView は注文集約を読み取り用 DTO へ射影する。
 func toOrderView(o *domain.Order) OrderView {
 	lines := make([]OrderLineView, 0, len(o.Lines()))

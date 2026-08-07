@@ -10,13 +10,15 @@ import (
 )
 
 // repos は application.Repos の実装。ひとつのトランザクションに束ねた
-// リポジトリの束（注文ストアとアウトボックス）を保持する。
+// リポジトリの束（集約ストアとアウトボックス）を保持する。
 type repos struct {
-	orders application.OrderStore
-	outbox application.MessagePublisher
+	orders    application.OrderStore
+	shipments application.ShipmentStore
+	outbox    application.MessagePublisher
 }
 
 func (r repos) Orders() application.OrderStore       { return r.orders }
+func (r repos) Shipments() application.ShipmentStore { return r.shipments }
 func (r repos) Outbox() application.MessagePublisher { return r.outbox }
 
 // UnitOfWork は pgxpool を用いた実トランザクションの作業単位。
@@ -30,11 +32,17 @@ type UnitOfWork = pgxuow.UnitOfWork[application.Repos]
 // NewUnitOfWork は書き込み用の作業単位を生成する。トランザクションに束ねた Queries
 // から注文コンテキストの Repos 束を組み立てる buildRepos クロージャだけを供給する
 // 薄い factory であり、トランザクション境界の所有は pgxuow.Within が担う。
-// 注文ストアとアウトボックスが同一トランザクションに参加する（原子的コミット）。
+// 集約ストアとアウトボックスが同一トランザクションに参加する（原子的コミット）。
+//
+// 集約を 1 つ足すときにここへ増えるのは closure の 1 行だけである。
 func NewUnitOfWork(pool *pgxpool.Pool) *UnitOfWork {
 	return pgxuow.New(pool, func(tx pgx.Tx) application.Repos {
 		q := sqlcgen.New(tx)
-		return repos{orders: newOrderStore(q), outbox: newOutboxStore(q)}
+		return repos{
+			orders:    newOrderStore(q),
+			shipments: newShipmentStore(q),
+			outbox:    newOutboxStore(q),
+		}
 	})
 }
 
@@ -48,4 +56,11 @@ var _ application.UnitOfWork = (*UnitOfWork)(nil)
 // （書き込みは必ず UnitOfWork.Within の内側で行う）。
 func NewReadOrderStore(pool *pgxpool.Pool) application.OrderStore {
 	return newOrderStore(sqlcgen.New(pool))
+}
+
+// NewReadShipmentStore はコネクションプールに直結した読み取り用 ShipmentStore を返す。
+// 読み取り専用ユースケース（出荷照会）で用いる。書き込みには使わないこと
+// （書き込みは必ず UnitOfWork.Within の内側で行う）。
+func NewReadShipmentStore(pool *pgxpool.Pool) application.ShipmentStore {
+	return newShipmentStore(sqlcgen.New(pool))
 }

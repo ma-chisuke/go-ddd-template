@@ -18,8 +18,9 @@ import (
 //
 //   - ErrReservationUnavailable         -> 503 Service Unavailable（在庫サービス不達）
 //   - ErrReservationRejected            -> 409 Conflict（在庫予約の拒否）
-//   - ErrOrderNotFound                  -> 404 Not Found
-//   - ErrOrderNotConfirmed / 版衝突      -> 409 Conflict（現在状態と矛盾）
+//   - ErrOrderNotFound / ErrShipmentNotFound -> 404 Not Found
+//   - ErrOrderNotConfirmed / ErrShipmentNotPreparing / 版衝突 -> 409 Conflict（現在状態と矛盾）
+//   - ErrOrderNotConfirmedForShipment   -> 409 Conflict（下位種別 order-not-confirmed-for-shipment）
 //   - 入力検証（ErrEmptyOrder / ErrInvalid*）-> 422 Unprocessable Entity
 //   - それ以外                            -> 500 Internal Server Error
 //
@@ -59,8 +60,12 @@ func problemTypeSuffix(err error, status int) string {
 		// E2（そのような経路が無い）とは別の種別。ここは「経路はあるが対象が無い」。
 		return problem.TypeResourceNotFound
 	case http.StatusConflict:
+		// より特殊な下位種別を先に判定する（クライアントは type で取るべき行動を変えられる）。
 		if errors.Is(err, application.ErrReservationRejected) {
 			return problem.TypeReservationRejected
+		}
+		if errors.Is(err, application.ErrOrderNotConfirmedForShipment) {
+			return problem.TypeOrderNotConfirmedForShipment
 		}
 		return problem.TypeConflict
 	case http.StatusUnprocessableEntity:
@@ -79,6 +84,8 @@ func detailOf(suffix string) string {
 		return problem.DetailResourceNotFound
 	case problem.TypeConflict, problem.TypeReservationRejected:
 		return problem.DetailConflict
+	case problem.TypeOrderNotConfirmedForShipment:
+		return problem.DetailOrderNotConfirmedForShipment
 	case problem.TypeInvalidInput:
 		return problem.DetailInvalidInput
 	default:
@@ -97,9 +104,12 @@ func classify(err error) (int, string) {
 		return http.StatusServiceUnavailable, "Service Unavailable"
 	case errors.Is(err, application.ErrReservationRejected):
 		return http.StatusConflict, "Conflict"
-	case errors.Is(err, domain.ErrOrderNotFound):
+	case errors.Is(err, domain.ErrOrderNotFound), errors.Is(err, domain.ErrShipmentNotFound):
 		return http.StatusNotFound, "Not Found"
-	case errors.Is(err, domain.ErrOrderNotConfirmed), errors.Is(err, uow.ErrConcurrencyConflict):
+	case errors.Is(err, domain.ErrOrderNotConfirmed),
+		errors.Is(err, domain.ErrShipmentNotPreparing),
+		errors.Is(err, application.ErrOrderNotConfirmedForShipment),
+		errors.Is(err, uow.ErrConcurrencyConflict):
 		return http.StatusConflict, "Conflict"
 	case errors.Is(err, domain.ErrEmptyOrder),
 		errors.Is(err, domain.ErrInvalidSKU),
@@ -107,7 +117,9 @@ func classify(err error) (int, string) {
 		errors.Is(err, domain.ErrInvalidMoney),
 		errors.Is(err, domain.ErrInvalidCustomerID),
 		errors.Is(err, domain.ErrInvalidOrderID),
-		errors.Is(err, domain.ErrInvalidReservationRef):
+		errors.Is(err, domain.ErrInvalidReservationRef),
+		errors.Is(err, domain.ErrInvalidShipmentID),
+		errors.Is(err, domain.ErrInvalidTrackingNumber):
 		return http.StatusUnprocessableEntity, "Unprocessable Entity"
 	default:
 		return http.StatusInternalServerError, "Internal Server Error"

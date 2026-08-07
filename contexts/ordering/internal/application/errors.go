@@ -1,8 +1,20 @@
 package application
 
 import (
+	"errors"
+
 	"github.com/example/go-ddd-template/contexts/ordering/port"
 )
+
+// ErrOrderNotConfirmedForShipment は、確定（confirmed）状態でない注文に対して出荷を
+// 準備しようとしたことを表す番兵。
+//
+// **ドメイン層ではなくここに置く。** 「注文が出荷可能な状態か」は 2 つの集約
+// （Order と Shipment）をまたぐ事前条件であり、Shipment 集約の不変条件ではないからである。
+// Shipment のコンストラクタは Order の状態を知らないし、知る手段も持たない
+// （ドメイン層はリポジトリを import しない）。ドメインサービスが use case から引き当て済みの
+// データを受け取り自分でリポジトリを引かないのと、同じ形の判断である。
+var ErrOrderNotConfirmedForShipment = errors.New("注文が確定状態ではないため出荷を準備できません")
 
 // ErrReservationRejected は、在庫予約が拒否されたことを表す注文コンテキスト自身の番兵。
 //

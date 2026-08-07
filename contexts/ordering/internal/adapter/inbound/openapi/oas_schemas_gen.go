@@ -41,6 +41,18 @@ type GetOrderUnprocessableEntity ProblemResponseStatusCode
 
 func (*GetOrderUnprocessableEntity) getOrderRes() {}
 
+type GetShipmentBadRequest ProblemResponseStatusCode
+
+func (*GetShipmentBadRequest) getShipmentRes() {}
+
+type GetShipmentNotFound ProblemResponseStatusCode
+
+func (*GetShipmentNotFound) getShipmentRes() {}
+
+type GetShipmentUnprocessableEntity ProblemResponseStatusCode
+
+func (*GetShipmentUnprocessableEntity) getShipmentRes() {}
+
 // 1 件のフィールド違反。RFC 9457 の拡張メンバー invalid-params の要素。.
 // Ref: #/components/schemas/InvalidParam
 type InvalidParam struct {
@@ -115,6 +127,8 @@ const (
 	InvalidParamCodeInvalidCustomerID     InvalidParamCode = "invalid_customer_id"
 	InvalidParamCodeInvalidOrderID        InvalidParamCode = "invalid_order_id"
 	InvalidParamCodeInvalidReservationRef InvalidParamCode = "invalid_reservation_ref"
+	InvalidParamCodeInvalidShipmentID     InvalidParamCode = "invalid_shipment_id"
+	InvalidParamCodeInvalidTrackingNumber InvalidParamCode = "invalid_tracking_number"
 )
 
 // AllValues returns all InvalidParamCode values.
@@ -137,6 +151,8 @@ func (InvalidParamCode) AllValues() []InvalidParamCode {
 		InvalidParamCodeInvalidCustomerID,
 		InvalidParamCodeInvalidOrderID,
 		InvalidParamCodeInvalidReservationRef,
+		InvalidParamCodeInvalidShipmentID,
+		InvalidParamCodeInvalidTrackingNumber,
 	}
 }
 
@@ -176,6 +192,10 @@ func (s InvalidParamCode) MarshalText() ([]byte, error) {
 	case InvalidParamCodeInvalidOrderID:
 		return []byte(s), nil
 	case InvalidParamCodeInvalidReservationRef:
+		return []byte(s), nil
+	case InvalidParamCodeInvalidShipmentID:
+		return []byte(s), nil
+	case InvalidParamCodeInvalidTrackingNumber:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -236,10 +256,48 @@ func (s *InvalidParamCode) UnmarshalText(data []byte) error {
 	case InvalidParamCodeInvalidReservationRef:
 		*s = InvalidParamCodeInvalidReservationRef
 		return nil
+	case InvalidParamCodeInvalidShipmentID:
+		*s = InvalidParamCodeInvalidShipmentID
+		return nil
+	case InvalidParamCodeInvalidTrackingNumber:
+		*s = InvalidParamCodeInvalidTrackingNumber
+		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)
 	}
 }
+
+type MarkShippedBadRequest ProblemResponseStatusCode
+
+func (*MarkShippedBadRequest) markShippedRes() {}
+
+type MarkShippedConflict ProblemResponseStatusCode
+
+func (*MarkShippedConflict) markShippedRes() {}
+
+type MarkShippedNotFound ProblemResponseStatusCode
+
+func (*MarkShippedNotFound) markShippedRes() {}
+
+// Ref: #/components/schemas/MarkShippedRequest
+type MarkShippedRequest struct {
+	// 配送業者の追跡番号.
+	TrackingNumber string `json:"trackingNumber"`
+}
+
+// GetTrackingNumber returns the value of TrackingNumber.
+func (s *MarkShippedRequest) GetTrackingNumber() string {
+	return s.TrackingNumber
+}
+
+// SetTrackingNumber sets the value of TrackingNumber.
+func (s *MarkShippedRequest) SetTrackingNumber(val string) {
+	s.TrackingNumber = val
+}
+
+type MarkShippedUnprocessableEntity ProblemResponseStatusCode
+
+func (*MarkShippedUnprocessableEntity) markShippedRes() {}
 
 // 金額。最小通貨単位（例 円・セント）の整数と ISO-4217
 // 通貨コードで表す。.
@@ -269,6 +327,52 @@ func (s *Money) SetAmount(val int64) {
 // SetCurrency sets the value of Currency.
 func (s *Money) SetCurrency(val string) {
 	s.Currency = val
+}
+
+// NewOptInt returns new OptInt with value set to v.
+func NewOptInt(v int) OptInt {
+	return OptInt{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptInt is optional int.
+type OptInt struct {
+	Value int
+	Set   bool
+}
+
+// IsSet returns true if OptInt was set.
+func (o OptInt) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptInt) Reset() {
+	var v int
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptInt) SetTo(v int) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptInt) Get() (v int, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptInt) Or(d int) int {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
 }
 
 // NewOptString returns new OptString with value set to v.
@@ -586,6 +690,38 @@ type PlaceOrderUnprocessableEntity ProblemResponseStatusCode
 
 func (*PlaceOrderUnprocessableEntity) placeOrderRes() {}
 
+type PrepareShipmentBadRequest ProblemResponseStatusCode
+
+func (*PrepareShipmentBadRequest) prepareShipmentRes() {}
+
+type PrepareShipmentConflict ProblemResponseStatusCode
+
+func (*PrepareShipmentConflict) prepareShipmentRes() {}
+
+type PrepareShipmentNotFound ProblemResponseStatusCode
+
+func (*PrepareShipmentNotFound) prepareShipmentRes() {}
+
+// Ref: #/components/schemas/PrepareShipmentRequest
+type PrepareShipmentRequest struct {
+	// 出荷を準備する対象の注文の識別子（別集約への参照は識別子で表す）.
+	OrderId string `json:"orderId"`
+}
+
+// GetOrderId returns the value of OrderId.
+func (s *PrepareShipmentRequest) GetOrderId() string {
+	return s.OrderId
+}
+
+// SetOrderId sets the value of OrderId.
+func (s *PrepareShipmentRequest) SetOrderId(val string) {
+	s.OrderId = val
+}
+
+type PrepareShipmentUnprocessableEntity ProblemResponseStatusCode
+
+func (*PrepareShipmentUnprocessableEntity) prepareShipmentRes() {}
+
 // RFC 9457 (Problem Details for HTTP APIs) に準拠したエラー表現.
 // Ref: #/components/schemas/ProblemDetails
 type ProblemDetails struct {
@@ -692,4 +828,114 @@ func (s *ProblemResponseStatusCode) SetStatusCode(val int) {
 // SetResponse sets the value of Response.
 func (s *ProblemResponseStatusCode) SetResponse(val ProblemDetails) {
 	s.Response = val
+}
+
+// Ref: #/components/schemas/ShipmentView
+type ShipmentView struct {
+	// 出荷の識別子.
+	ID string `json:"id"`
+	// この出荷が参照する注文の識別子.
+	OrderId string `json:"orderId"`
+	// 出荷状態.
+	Status ShipmentViewStatus `json:"status"`
+	// 配送業者の追跡番号（preparing の間は空文字）.
+	TrackingNumber OptString `json:"trackingNumber"`
+	// 楽観的排他制御のためのバージョン番号.
+	Version OptInt `json:"version"`
+}
+
+// GetID returns the value of ID.
+func (s *ShipmentView) GetID() string {
+	return s.ID
+}
+
+// GetOrderId returns the value of OrderId.
+func (s *ShipmentView) GetOrderId() string {
+	return s.OrderId
+}
+
+// GetStatus returns the value of Status.
+func (s *ShipmentView) GetStatus() ShipmentViewStatus {
+	return s.Status
+}
+
+// GetTrackingNumber returns the value of TrackingNumber.
+func (s *ShipmentView) GetTrackingNumber() OptString {
+	return s.TrackingNumber
+}
+
+// GetVersion returns the value of Version.
+func (s *ShipmentView) GetVersion() OptInt {
+	return s.Version
+}
+
+// SetID sets the value of ID.
+func (s *ShipmentView) SetID(val string) {
+	s.ID = val
+}
+
+// SetOrderId sets the value of OrderId.
+func (s *ShipmentView) SetOrderId(val string) {
+	s.OrderId = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ShipmentView) SetStatus(val ShipmentViewStatus) {
+	s.Status = val
+}
+
+// SetTrackingNumber sets the value of TrackingNumber.
+func (s *ShipmentView) SetTrackingNumber(val OptString) {
+	s.TrackingNumber = val
+}
+
+// SetVersion sets the value of Version.
+func (s *ShipmentView) SetVersion(val OptInt) {
+	s.Version = val
+}
+
+func (*ShipmentView) getShipmentRes()     {}
+func (*ShipmentView) markShippedRes()     {}
+func (*ShipmentView) prepareShipmentRes() {}
+
+// 出荷状態.
+type ShipmentViewStatus string
+
+const (
+	ShipmentViewStatusPreparing ShipmentViewStatus = "preparing"
+	ShipmentViewStatusShipped   ShipmentViewStatus = "shipped"
+)
+
+// AllValues returns all ShipmentViewStatus values.
+func (ShipmentViewStatus) AllValues() []ShipmentViewStatus {
+	return []ShipmentViewStatus{
+		ShipmentViewStatusPreparing,
+		ShipmentViewStatusShipped,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s ShipmentViewStatus) MarshalText() ([]byte, error) {
+	switch s {
+	case ShipmentViewStatusPreparing:
+		return []byte(s), nil
+	case ShipmentViewStatusShipped:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *ShipmentViewStatus) UnmarshalText(data []byte) error {
+	switch ShipmentViewStatus(data) {
+	case ShipmentViewStatusPreparing:
+		*s = ShipmentViewStatusPreparing
+		return nil
+	case ShipmentViewStatusShipped:
+		*s = ShipmentViewStatusShipped
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
 }

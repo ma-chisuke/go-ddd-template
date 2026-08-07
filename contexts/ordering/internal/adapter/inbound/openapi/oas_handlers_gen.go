@@ -220,6 +220,217 @@ func (s *Server) handleGetOrderRequest(args [1]string, argsEscaped bool, w http.
 	}
 }
 
+// handleGetShipmentRequest handles getShipment operation.
+//
+// 指定した出荷 ID の現在の状態を返す。.
+//
+// GET /shipments/{id}
+func (s *Server) handleGetShipmentRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	ctx := r.Context()
+
+	var (
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetShipmentOperation,
+			ID:   "getShipment",
+		}
+	)
+	params, err := decodeGetShipmentParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetShipmentRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetShipmentOperation,
+			OperationSummary: "出荷を照会する",
+			OperationID:      "getShipment",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetShipmentParams
+			Response = GetShipmentRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetShipmentParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetShipment(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetShipment(ctx, params)
+	}
+	if err != nil {
+		if errRes, ok := errors.Into[*ProblemResponseStatusCode](err); ok {
+			if err := encodeErrorResponse(errRes, w); err != nil {
+				defer recordError("Internal", err)
+			}
+			return
+		}
+		if errors.Is(err, ht.ErrNotImplemented) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+		if err := encodeErrorResponse(s.h.NewError(ctx, err), w); err != nil {
+			defer recordError("Internal", err)
+		}
+		return
+	}
+
+	if err := encodeGetShipmentResponse(response, w); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleMarkShippedRequest handles markShipped operation.
+//
+// 指定した出荷を発送済みにする。発送済みにできるのは preparing
+// 状態の出荷のみで、 追跡番号を伴う。既に shipped
+// の出荷に対する再呼び出しは 409 を返す（冪等ではない） —
+// 追跡番号という新しい情報を伴う状態変更なので、黙って成功させない。
+//
+// 状態遷移をサブリソースへの POST で表す形は、既存の /orders/{id}/cancel
+// に揃えている。.
+//
+// POST /shipments/{id}/ship
+func (s *Server) handleMarkShippedRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	ctx := r.Context()
+
+	var (
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: MarkShippedOperation,
+			ID:   "markShipped",
+		}
+	)
+	params, err := decodeMarkShippedParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeMarkShippedRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response MarkShippedRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    MarkShippedOperation,
+			OperationSummary: "出荷を発送済みにする",
+			OperationID:      "markShipped",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *MarkShippedRequest
+			Params   = MarkShippedParams
+			Response = MarkShippedRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackMarkShippedParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.MarkShipped(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.MarkShipped(ctx, request, params)
+	}
+	if err != nil {
+		if errRes, ok := errors.Into[*ProblemResponseStatusCode](err); ok {
+			if err := encodeErrorResponse(errRes, w); err != nil {
+				defer recordError("Internal", err)
+			}
+			return
+		}
+		if errors.Is(err, ht.ErrNotImplemented) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+		if err := encodeErrorResponse(s.h.NewError(ctx, err), w); err != nil {
+			defer recordError("Internal", err)
+		}
+		return
+	}
+
+	if err := encodeMarkShippedResponse(response, w); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handlePlaceOrderRequest handles placeOrder operation.
 //
 // 注文明細から注文を作成する。作成時に在庫を同期予約し、予約できたときのみ
@@ -309,6 +520,107 @@ func (s *Server) handlePlaceOrderRequest(args [0]string, argsEscaped bool, w htt
 	}
 
 	if err := encodePlaceOrderResponse(response, w); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handlePrepareShipmentRequest handles prepareShipment operation.
+//
+// 指定した注文に対する出荷を準備する。注文が存在し確定（confirmed）状態のときのみ
+// 出荷を作成し、preparing 状態で返す。
+//
+// パスを /orders/{id}/shipments ではなく /shipments にしているのは、出荷が注文の
+// 子リソースではなく 独立した集約ルート だからである。URL
+// の階層は集約の階層を 反映させ、別の集約への参照は本文の orderId
+// で表す（集約間は識別子で参照する）。.
+//
+// POST /shipments
+func (s *Server) handlePrepareShipmentRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	ctx := r.Context()
+
+	var (
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: PrepareShipmentOperation,
+			ID:   "prepareShipment",
+		}
+	)
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodePrepareShipmentRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response PrepareShipmentRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    PrepareShipmentOperation,
+			OperationSummary: "出荷を準備する",
+			OperationID:      "prepareShipment",
+			Body:             request,
+			RawBody:          rawBody,
+			Params:           middleware.Parameters{},
+			Raw:              r,
+		}
+
+		type (
+			Request  = *PrepareShipmentRequest
+			Params   = struct{}
+			Response = PrepareShipmentRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			nil,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.PrepareShipment(ctx, request)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.PrepareShipment(ctx, request)
+	}
+	if err != nil {
+		if errRes, ok := errors.Into[*ProblemResponseStatusCode](err); ok {
+			if err := encodeErrorResponse(errRes, w); err != nil {
+				defer recordError("Internal", err)
+			}
+			return
+		}
+		if errors.Is(err, ht.ErrNotImplemented) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+		if err := encodeErrorResponse(s.h.NewError(ctx, err), w); err != nil {
+			defer recordError("Internal", err)
+		}
+		return
+	}
+
+	if err := encodePrepareShipmentResponse(response, w); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)

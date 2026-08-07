@@ -40,13 +40,17 @@ func newImmediateExecutor() uow.Executor { return uow.NewExecutor(uow.WithBaseBa
 // 各ユースケースを呼ぶ。gomock.NewController(t) は t.Cleanup で自動 Finish されるため、
 // 期待どおりに呼ばれたかの検証はテスト終了時に自動で走る。
 type memFixture struct {
-	place    *application.PlaceOrder
-	get      *application.GetOrder
-	cancel   *application.CancelOrder
-	rows     *memory.OrderRows
-	stores   *memory.Stores
-	reserver *mock.MockStockReserver
-	captured *[]domain.DomainEvent
+	place       *application.PlaceOrder
+	get         *application.GetOrder
+	cancel      *application.CancelOrder
+	prepareShip *application.PrepareShipment
+	markShipped *application.MarkShipped
+	getShip     *application.GetShipment
+	rows        *memory.OrderRows
+	shipments   *memory.ShipmentRows
+	stores      *memory.Stores
+	reserver    *mock.MockStockReserver
+	captured    *[]domain.DomainEvent
 }
 
 // newMemFixture はインメモリの UoW で束を組み立てる（最も一般的な構成）。
@@ -55,12 +59,13 @@ type memFixture struct {
 func newMemFixture(t *testing.T) memFixture {
 	t.Helper()
 	rows := memory.NewOrderRows()
+	shipments := memory.NewShipmentRows()
 	stores := memory.NewStores()
-	return newMemFixtureWith(t, memory.NewUnitOfWork(rows, stores), rows, stores)
+	return newMemFixtureWith(t, memory.NewUnitOfWork(rows, shipments, stores), rows, shipments, stores)
 }
 
 // newMemFixtureWith は作業単位（UoW）を差し替えて束を組み立てる（衝突再試行の再現用）。
-func newMemFixtureWith(t *testing.T, work application.UnitOfWork, rows *memory.OrderRows, stores *memory.Stores) memFixture {
+func newMemFixtureWith(t *testing.T, work application.UnitOfWork, rows *memory.OrderRows, shipments *memory.ShipmentRows, stores *memory.Stores) memFixture {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	reserver := mock.NewMockStockReserver(ctrl)
@@ -70,14 +75,19 @@ func newMemFixtureWith(t *testing.T, work application.UnitOfWork, rows *memory.O
 	dispatcher := event.NewTyped[domain.DomainEvent](log, func(_ context.Context, e domain.DomainEvent) {
 		*captured = append(*captured, e)
 	})
+	readOrders := memory.NewReadOrderStore(rows)
 	return memFixture{
-		place:    application.NewPlaceOrder(exec, work, reserver, dispatcher, log),
-		get:      application.NewGetOrder(memory.NewReadOrderStore(rows), log),
-		cancel:   application.NewCancelOrder(exec, work, log),
-		rows:     rows,
-		stores:   stores,
-		reserver: reserver,
-		captured: captured,
+		place:       application.NewPlaceOrder(exec, work, reserver, dispatcher, log),
+		get:         application.NewGetOrder(readOrders, log),
+		cancel:      application.NewCancelOrder(exec, work, log),
+		prepareShip: application.NewPrepareShipment(exec, work, readOrders, dispatcher, log),
+		markShipped: application.NewMarkShipped(exec, work, dispatcher, log),
+		getShip:     application.NewGetShipment(memory.NewReadShipmentStore(shipments), log),
+		rows:        rows,
+		shipments:   shipments,
+		stores:      stores,
+		reserver:    reserver,
+		captured:    captured,
 	}
 }
 
