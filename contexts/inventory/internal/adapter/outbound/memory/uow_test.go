@@ -95,6 +95,56 @@ func TestUnitOfWork_ConcurrencyConflict(t *testing.T) {
 	assert.Equal(t, 2, final.Version(), "確定 version")
 }
 
+// buildItems は指定 SKU 群について、補充済み（version 0 = 未永続化）の集約を組み立てる。
+func buildItems(t *testing.T, skus []domain.SKU, qty int) []*domain.StockItem {
+	t.Helper()
+	items := make([]*domain.StockItem, 0, len(skus))
+	for _, sku := range skus {
+		item, err := domain.NewStockItem("id-"+sku.String(), sku)
+		require.NoError(t, err, "StockItem 生成")
+		require.NoError(t, item.Replenish(mustQty(t, qty)), "Replenish")
+		items = append(items, item)
+	}
+	return items
+}
+
+// マルチ SKU 予約（Save に複数の StockItem を渡す経路）が 1 つの束として確定・破棄される
+// ことを、負側（ロールバックで 1 行も残らない）と正側（コミットで全行が確定する）の対で
+// 確認する。片方だけなら「何も書かない実装」「常に書く実装」でも満たせてしまう。
+func TestUnitOfWork_MultiSKUSaveCommitsAsOneBundle(t *testing.T) {
+	ctx := context.Background()
+	rows := memory.NewStockItemRows()
+	work := memory.NewUnitOfWork(rows, memory.NewStores())
+	read := memory.NewReadStockStore(rows)
+	skus := []domain.SKU{mustSKU(t, "MULTI-A"), mustSKU(t, "MULTI-B"), mustSKU(t, "MULTI-C")}
+
+	// 負側: 3 件を 1 回の Save で積んだあとに中断すると、1 行も残らない。
+	sentinel := errors.New("業務都合で中断")
+	err := work.Within(ctx, func(ctx context.Context, r application.Repos) error {
+		if err := r.Stock().Save(ctx, buildItems(t, skus, 7)...); err != nil {
+			return err
+		}
+		return sentinel
+	})
+	require.ErrorIs(t, err, sentinel)
+	for _, sku := range skus {
+		_, err := read.Load(ctx, sku)
+		require.ErrorIs(t, err, domain.ErrStockItemNotFound, "ロールバック後の読み込み: "+sku.String())
+	}
+
+	// 正側: 同じ 3 件をコミットすると、3 行とも確定している。
+	err = work.Within(ctx, func(ctx context.Context, r application.Repos) error {
+		return r.Stock().Save(ctx, buildItems(t, skus, 7)...)
+	})
+	require.NoError(t, err, "コミット")
+	for _, sku := range skus {
+		item, err := read.Load(ctx, sku)
+		require.NoError(t, err, "コミット後の読み込み: "+sku.String())
+		assert.Equal(t, 7, item.Available().Int(), "確定 available: "+sku.String())
+		assert.Equal(t, 1, item.Version(), "確定 version: "+sku.String())
+	}
+}
+
 // エラーを返すコールバックはロールバックされ、確定データが変化しないことを確認する。
 func TestUnitOfWork_RollbackOnError(t *testing.T) {
 	ctx := context.Background()

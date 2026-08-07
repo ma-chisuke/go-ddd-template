@@ -72,6 +72,13 @@ func (r *OrderRows) load(id domain.OrderID) (*domain.Order, error) {
 	return recordToOrder(row)
 }
 
+// putLocked は確定済みデータへ 1 行を書き込む。**呼び出し側が mu を保持していること。**
+// コミット時の適用（txState.commit）は backing store ごとに 1 回だけロックを取り、その内側で
+// このメソッドを繰り返し呼ぶ（複数行の書き込みを不可分に確定させるため）。
+func (r *OrderRows) putLocked(row orderRecord) {
+	r.rows[row.id] = row
+}
+
 // parseOrderStatus は永続化された文字列を注文状態へ変換する。
 func parseOrderStatus(s string) (domain.Status, error) {
 	switch s {
@@ -150,7 +157,8 @@ func orderToRecord(o *domain.Order, version int) orderRecord {
 
 // txOrderStore はトランザクションに束ねた OrderStore。
 type txOrderStore struct {
-	tx *txState
+	tx   *txState
+	rows *OrderRows
 }
 
 // コンパイル時にポートを満たしていることを確認する。
@@ -158,17 +166,17 @@ type txOrderStore struct {
 var _ application.OrderStore = (*txOrderStore)(nil)
 
 func (s *txOrderStore) Load(_ context.Context, id domain.OrderID) (*domain.Order, error) {
-	return s.tx.rows.load(id)
+	return s.rows.load(id)
 }
 
 // Save は集約の版を確定ストアと突き合わせて検証し、集約のバージョンを同期（MarkPersisted）
-// したうえで、確定ストアへ書き込む行を staging に積む。実際の書き込みはコミット時に行う。
+// したうえで、確定ストアへ書き込む操作を staging に積む。実際の書き込みはコミット時に行う。
 // 版が食い違えば uow.ErrConcurrencyConflict を返し、確定ストアは変更しない。
 func (s *txOrderStore) Save(_ context.Context, o *domain.Order) error {
-	s.tx.rows.mu.Lock()
-	defer s.tx.rows.mu.Unlock()
+	s.rows.mu.Lock()
+	defer s.rows.mu.Unlock()
 
-	existing, ok := s.tx.rows.rows[o.ID().String()]
+	existing, ok := s.rows.rows[o.ID().String()]
 	var next int
 	if o.Version() == 0 {
 		// 新規挿入。既に存在するなら衝突。
@@ -184,7 +192,8 @@ func (s *txOrderStore) Save(_ context.Context, o *domain.Order) error {
 		next = o.Version() + 1
 	}
 
-	s.tx.staged = append(s.tx.staged, orderToRecord(o, next))
+	row := orderToRecord(o, next)
+	s.tx.stage(&s.rows.mu, func() { s.rows.putLocked(row) })
 	o.MarkPersisted(next)
 	return nil
 }

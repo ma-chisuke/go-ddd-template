@@ -58,6 +58,14 @@ func NewStockItemRows() *StockItemRows {
 	return &StockItemRows{rows: make(map[string]stockItemRecord)}
 }
 
+// putLocked は確定済みデータへ 1 行を書き込む。**呼び出し側が mu を保持していること。**
+// コミット時の適用（txState.commit）は backing store ごとに 1 回だけロックを取り、その内側で
+// このメソッドを繰り返し呼ぶ（複数行の書き込みを不可分に確定させるため）。マルチ SKU 予約で
+// 複数行が 1 回の Save で保存される経路が、この不可分性の直撃点である。
+func (r *StockItemRows) putLocked(row stockItemRecord) {
+	r.rows[row.sku] = row
+}
+
 // recordToStockItem は確定済みの行から集約を復元する。
 func recordToStockItem(r stockItemRecord) (*domain.StockItem, error) {
 	qty, err := domain.NewQuantity(r.available)
@@ -198,7 +206,8 @@ func itemToRecord(item *domain.StockItem, version int) stockItemRecord {
 
 // txStockStore はトランザクションに束ねた StockStore。
 type txStockStore struct {
-	tx *txState
+	tx   *txState
+	rows *StockItemRows
 }
 
 // コンパイル時にポートを満たしていることを確認する。
@@ -206,30 +215,33 @@ type txStockStore struct {
 var _ application.StockStore = (*txStockStore)(nil)
 
 func (s *txStockStore) Load(_ context.Context, sku domain.SKU) (*domain.StockItem, error) {
-	return s.tx.rows.load(sku)
+	return s.rows.load(sku)
 }
 
 func (s *txStockStore) LoadMany(_ context.Context, skus []domain.SKU) ([]*domain.StockItem, error) {
-	return s.tx.rows.loadMany(skus)
+	return s.rows.loadMany(skus)
 }
 
 func (s *txStockStore) LoadByReservation(_ context.Context, ref domain.ReservationRef) ([]*domain.StockItem, error) {
-	return s.tx.rows.loadByReservation(ref)
+	return s.rows.loadByReservation(ref)
 }
 
 func (s *txStockStore) LoadExpiredPending(_ context.Context, before time.Time, limit int) ([]*domain.StockItem, error) {
-	return s.tx.rows.loadExpiredPending(before, limit)
+	return s.rows.loadExpiredPending(before, limit)
 }
 
 // Save は各集約の版を確定ストアと突き合わせて検証し、集約のバージョンを同期（MarkPersisted）
-// したうえで、確定ストアへ書き込む行（予約状態を含む）を staging に積む。実際の書き込みは
+// したうえで、確定ストアへ書き込む操作（予約状態を含む）を staging に積む。実際の書き込みは
 // コミット時に行う。版が食い違えば uow.ErrConcurrencyConflict を返し、確定ストアは変更しない。
+//
+// items が複数ある場合（マルチ SKU 予約）も、積まれる先は同じ backing store のグループなので
+// コミット時に 1 回のロックでまとめて確定する（束の途中の状態は観測されない）。
 func (s *txStockStore) Save(_ context.Context, items ...*domain.StockItem) error {
-	s.tx.rows.mu.Lock()
-	defer s.tx.rows.mu.Unlock()
+	s.rows.mu.Lock()
+	defer s.rows.mu.Unlock()
 
 	for _, item := range items {
-		existing, ok := s.tx.rows.rows[item.SKU().String()]
+		existing, ok := s.rows.rows[item.SKU().String()]
 		var next int
 		if item.Version() == 0 {
 			// 新規挿入。既に存在するなら衝突。
@@ -245,7 +257,8 @@ func (s *txStockStore) Save(_ context.Context, items ...*domain.StockItem) error
 			next = item.Version() + 1
 		}
 
-		s.tx.staged = append(s.tx.staged, itemToRecord(item, next))
+		row := itemToRecord(item, next)
+		s.tx.stage(&s.rows.mu, func() { s.rows.putLocked(row) })
 		item.MarkPersisted(next)
 	}
 	return nil
