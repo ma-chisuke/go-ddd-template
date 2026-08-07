@@ -34,8 +34,8 @@ import (
 func newInternalHandler(t *testing.T) http.Handler {
 	t.Helper()
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewStores())
+	rows := memory.NewStockItemRows()
+	work := memory.NewUnitOfWork(rows, memory.NewStores())
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 	dispatcher := event.NewTyped[domain.DomainEvent](log)
 

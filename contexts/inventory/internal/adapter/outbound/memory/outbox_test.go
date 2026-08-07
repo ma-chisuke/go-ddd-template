@@ -33,9 +33,9 @@ func (p *recordingPublisher) Publish(_ context.Context, m outbox.Message) error 
 // 恒久イベントログへの記録が同一の作業単位（UoW）で原子的にコミットされることを確認する。
 func TestOutbox_EnqueueCommitsWithSave(t *testing.T) {
 	ctx := context.Background()
-	store := memory.NewStore()
+	rows := memory.NewStockItemRows()
 	stores := memory.NewStores()
-	work := memory.NewUnitOfWork(store, stores)
+	work := memory.NewUnitOfWork(rows, stores)
 
 	// UoW 内で在庫を保存しつつ、同一トランザクションでメッセージを Enqueue する。
 	err := work.Within(ctx, func(ctx context.Context, r application.Repos) error {
@@ -92,9 +92,9 @@ func TestOutbox_EnqueueCommitsWithSave(t *testing.T) {
 // 両方が空のままであること＝両者が同一トランザクションで確定することを示す。
 func TestOutbox_RollbackDiscardsEnqueue(t *testing.T) {
 	ctx := context.Background()
-	store := memory.NewStore()
+	rows := memory.NewStockItemRows()
 	stores := memory.NewStores()
-	work := memory.NewUnitOfWork(store, stores)
+	work := memory.NewUnitOfWork(rows, stores)
 
 	sentinel := errors.New("業務都合で中断")
 	err := work.Within(ctx, func(ctx context.Context, r application.Repos) error {
@@ -116,10 +116,10 @@ func TestOutbox_RollbackDiscardsEnqueue(t *testing.T) {
 // ロールバック時とコミット時の両方で確認する（FR-4 / R-2 の不変条件）。
 func TestEvents_SameTxAsAggregateAndOutbox(t *testing.T) {
 	ctx := context.Background()
-	store := memory.NewStore()
+	rows := memory.NewStockItemRows()
 	stores := memory.NewStores()
-	work := memory.NewUnitOfWork(store, stores)
-	read := memory.NewReadStockStore(store)
+	work := memory.NewUnitOfWork(rows, stores)
+	read := memory.NewReadStockStore(rows)
 	sku := mustSKU(t, "WIDGET-TX")
 
 	// 集約の保存とメッセージ投入を行ってから中断する。3 者すべてが巻き戻る。

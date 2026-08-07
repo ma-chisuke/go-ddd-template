@@ -46,13 +46,13 @@ func (s stubReserver) Release(_ context.Context, _ string) error                
 func newHandler(t *testing.T, reserver application.StockReserver) http.Handler {
 	t.Helper()
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewStores())
+	rows := memory.NewOrderRows()
+	work := memory.NewUnitOfWork(rows, memory.NewStores())
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 	dispatcher := event.NewTyped[domain.DomainEvent](log)
 
 	place := application.NewPlaceOrder(exec, work, reserver, dispatcher, log)
-	get := application.NewGetOrder(memory.NewReadOrderStore(store), log)
+	get := application.NewGetOrder(memory.NewReadOrderStore(rows), log)
 	cancel := application.NewCancelOrder(exec, work, log)
 
 	h := httpapi.NewHandler(place, get, cancel, log)

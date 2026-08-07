@@ -19,9 +19,9 @@ import (
 // newRouterFixture は予約系ユースケースと、購読ポリシを結線した outbox.Router を用意する。
 func newRouterFixture(t *testing.T) (reserveFixture, *outbox.Router) {
 	t.Helper()
-	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewStores())
-	f := newReserveFixture(t, work, store)
+	rows := memory.NewStockItemRows()
+	work := memory.NewUnitOfWork(rows, memory.NewStores())
+	f := newReserveFixture(t, work, rows)
 
 	router := outbox.NewRouter()
 	router.Register(application.MessageTypeConfirmReservation, application.OnConfirmReservation(f.confirmer, testLogger()))
@@ -80,8 +80,8 @@ func TestOnConfirmReservation_BenignNoopWhenNotFound(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewStores())
+	rows := memory.NewStockItemRows()
+	work := memory.NewUnitOfWork(rows, memory.NewStores())
 	log := testLogger()
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 	confirmer := application.NewConfirmer(exec, work, event.NewTyped[domain.DomainEvent](log), log)

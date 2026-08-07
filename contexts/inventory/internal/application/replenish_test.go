@@ -31,9 +31,9 @@ type fixture struct {
 
 func newFixture(t *testing.T) fixture {
 	t.Helper()
-	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewStores())
-	read := memory.NewReadStockStore(store)
+	rows := memory.NewStockItemRows()
+	work := memory.NewUnitOfWork(rows, memory.NewStores())
+	read := memory.NewReadStockStore(rows)
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 	log := testLogger()
 

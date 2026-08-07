@@ -147,11 +147,11 @@ func TestPlaceOrder_RetriesOnConflictReserveOnce(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := memory.NewStore()
+	rows := memory.NewOrderRows()
 	stores := memory.NewStores()
 	// 本物のインメモリ UoW を包み、最初の 1 回だけ ErrConcurrencyConflict を注入する。
-	flaky := &flakyUoW{inner: memory.NewUnitOfWork(store, stores), failsLeft: 1}
-	f := newMemFixtureWith(t, flaky, store, stores)
+	flaky := &flakyUoW{inner: memory.NewUnitOfWork(rows, stores), failsLeft: 1}
+	f := newMemFixtureWith(t, flaky, rows, stores)
 
 	// UoW は再試行されるが、ACL の予約は tx の外なのでちょうど 1 回だけ呼ばれる。
 	f.reserver.EXPECT().

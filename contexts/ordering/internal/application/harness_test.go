@@ -43,7 +43,7 @@ type memFixture struct {
 	place    *application.PlaceOrder
 	get      *application.GetOrder
 	cancel   *application.CancelOrder
-	store    *memory.Store
+	rows     *memory.OrderRows
 	stores   *memory.Stores
 	reserver *mock.MockStockReserver
 	captured *[]domain.DomainEvent
@@ -54,13 +54,13 @@ type memFixture struct {
 // 同一コミットで確定する。
 func newMemFixture(t *testing.T) memFixture {
 	t.Helper()
-	store := memory.NewStore()
+	rows := memory.NewOrderRows()
 	stores := memory.NewStores()
-	return newMemFixtureWith(t, memory.NewUnitOfWork(store, stores), store, stores)
+	return newMemFixtureWith(t, memory.NewUnitOfWork(rows, stores), rows, stores)
 }
 
 // newMemFixtureWith は作業単位（UoW）を差し替えて束を組み立てる（衝突再試行の再現用）。
-func newMemFixtureWith(t *testing.T, work application.UnitOfWork, store *memory.Store, stores *memory.Stores) memFixture {
+func newMemFixtureWith(t *testing.T, work application.UnitOfWork, rows *memory.OrderRows, stores *memory.Stores) memFixture {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	reserver := mock.NewMockStockReserver(ctrl)
@@ -72,9 +72,9 @@ func newMemFixtureWith(t *testing.T, work application.UnitOfWork, store *memory.
 	})
 	return memFixture{
 		place:    application.NewPlaceOrder(exec, work, reserver, dispatcher, log),
-		get:      application.NewGetOrder(memory.NewReadOrderStore(store), log),
+		get:      application.NewGetOrder(memory.NewReadOrderStore(rows), log),
 		cancel:   application.NewCancelOrder(exec, work, log),
-		store:    store,
+		rows:     rows,
 		stores:   stores,
 		reserver: reserver,
 		captured: captured,

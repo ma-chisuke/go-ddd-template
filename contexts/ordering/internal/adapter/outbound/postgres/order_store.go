@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/postgres/sqlcgen"
+	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 	"github.com/example/go-ddd-template/shared/uow"
 )
@@ -26,6 +27,16 @@ const pgUniqueViolation = "23505"
 type orderStore struct {
 	q *sqlcgen.Queries
 }
+
+// コンパイル時にポートを満たしていることを確認する。
+//
+// 表明は型に対して 1 つで足りる。読み取り用（NewReadOrderStore）と書き込み用
+// （NewUnitOfWork の closure）は同じ orderStore 型を使い回すため、生成関数ごとに
+// 表明を重ねる必要はない。
+//
+// この表明は「この型はこのポートの実装である」という読み手への明示であり、同時に
+// 検査 14（集約ストア実装のファイル名）の判定根拠でもある。
+var _ application.OrderStore = (*orderStore)(nil)
 
 func newOrderStore(q *sqlcgen.Queries) *orderStore {
 	return &orderStore{q: q}
@@ -54,7 +65,7 @@ func (s *orderStore) reconstitute(ctx context.Context, row sqlcgen.GetOrderByIDR
 	if err != nil {
 		return nil, fmt.Errorf("永続化された顧客 ID が不正です: %w", err)
 	}
-	status, err := parseStatus(row.Status)
+	status, err := parseOrderStatus(row.Status)
 	if err != nil {
 		return nil, err
 	}
@@ -156,8 +167,8 @@ func (s *orderStore) update(ctx context.Context, o *domain.Order) error {
 	return nil
 }
 
-// parseStatus は永続化された文字列を注文状態へ変換する。
-func parseStatus(s string) (domain.Status, error) {
+// parseOrderStatus は永続化された文字列を注文状態へ変換する。
+func parseOrderStatus(s string) (domain.Status, error) {
 	switch s {
 	case "confirmed":
 		return domain.StatusConfirmed, nil

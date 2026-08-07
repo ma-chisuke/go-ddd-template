@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/adapter/outbound/postgres/sqlcgen"
+	"github.com/example/go-ddd-template/contexts/inventory/internal/application"
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
 	"github.com/example/go-ddd-template/shared/uow"
 )
@@ -28,6 +29,16 @@ const pgUniqueViolation = "23505"
 type stockStore struct {
 	q *sqlcgen.Queries
 }
+
+// コンパイル時にポートを満たしていることを確認する。
+//
+// 表明は型に対して 1 つで足りる。読み取り用（NewReadStockStore）と書き込み用
+// （NewUnitOfWork の closure）は同じ stockStore 型を使い回すため、生成関数ごとに
+// 表明を重ねる必要はない。
+//
+// この表明は「この型はこのポートの実装である」という読み手への明示であり、同時に
+// 検査 14（集約ストア実装のファイル名）の判定根拠でもある。
+var _ application.StockStore = (*stockStore)(nil)
 
 func newStockStore(q *sqlcgen.Queries) *stockStore {
 	return &stockStore{q: q}

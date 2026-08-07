@@ -20,8 +20,8 @@ func TestReaper_ReleasesOnlyExpiredPending(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewStores())
+	rows := memory.NewStockItemRows()
+	work := memory.NewUnitOfWork(rows, memory.NewStores())
 	log := testLogger()
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 
@@ -34,7 +34,7 @@ func TestReaper_ReleasesOnlyExpiredPending(t *testing.T) {
 	// TTL は 1 時間。あとで擬似時計を 2 時間進めて期限切れにする。
 	reserver := application.NewReserver(exec, work, dispatcher, log, time.Hour)
 	confirmer := application.NewConfirmer(exec, work, dispatcher, log)
-	viewer := application.NewStockViewer(memory.NewReadStockStore(store), log)
+	viewer := application.NewStockViewer(memory.NewReadStockStore(rows), log)
 
 	// 擬似時計。予約はこのテスト実行時の実時刻 + TTL で失効時刻が入るため、
 	// 擬似時計を「実時刻より十分未来」に置いて確実に期限切れにする。
@@ -68,15 +68,15 @@ func TestReaper_SweepNoopWhenClockBeforeExpiry(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewStores())
+	rows := memory.NewStockItemRows()
+	work := memory.NewUnitOfWork(rows, memory.NewStores())
 	log := testLogger()
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 	dispatcher := event.NewTyped[domain.DomainEvent](log)
 
 	replenisher := application.NewReplenisher(exec, work, dispatcher, log)
 	reserver := application.NewReserver(exec, work, dispatcher, log, time.Hour)
-	viewer := application.NewStockViewer(memory.NewReadStockStore(store), log)
+	viewer := application.NewStockViewer(memory.NewReadStockStore(rows), log)
 
 	// 擬似時計を「実時刻より前」に置く → いかなる予約も未期限。
 	clock := clock.NewManual(time.Now().Add(-time.Hour))

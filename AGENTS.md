@@ -204,7 +204,7 @@ if n < 1 {
 
 1. `db/schema.sql` または `queries.sql` を編集する。
 2. `go generate ./...` で sqlc を再生成する。
-3. `internal/adapter/outbound/postgres/store.go` を、生成された型・関数に合わせて更新する。
+3. `internal/adapter/outbound/postgres/<集約名>_store.go` を、生成された型・関数に合わせて更新する。
 
 ### コンテキストを跨ぐ呼び出し（ACL / イベント）を扱う
 
@@ -262,7 +262,7 @@ if n < 1 {
 - **`events` は保持ジョブを持たず増え続ける**。採用時はアーカイブ／パーティション／
   保持ジョブを足す（テンプレートは単純さを優先して意図的に持たない）。
 - インメモリ構成では配送キューと恒久ログを `shared/outbox/memory.Stores` が 1 つに束ねる:
-  `memory.NewUnitOfWork(store, memory.NewStores())` の 2 引数で結線し、コミット時に
+  `memory.NewUnitOfWork(rows, memory.NewStores())` の 2 引数で結線し、コミット時に
   `Stores.CommitStaged` が両方へ**同時に**確定させる（片方だけ書く公開 API は無い＝
   「キューに積んだがログに無い」状態が型として起こり得ない）。events を検証したい構成ルート／
   テストは `stores.Events()`、配送キューは `stores.Queued()` を読む（`application.Repos` に

@@ -125,13 +125,13 @@ func New(deps Deps) (*Module, error) {
 func NewInMemory(deps InMemoryDeps) (*Module, error) {
 	log := orLoggerDefault(deps.Logger)
 
-	store := memory.NewStore()
+	rows := memory.NewStockItemRows()
 	// 配送キュー（送信後に削除される一時的なもの）と恒久イベントログ（追記のみ）を
 	// 束ねた Stores を生成し、同一コミットで両方へ確定させる。送信中継へは配送キュー
 	// ビュー（stores.Outbox()）を渡す。
 	stores := memory.NewStores()
-	work := memory.NewUnitOfWork(store, stores)
-	readStock := memory.NewReadStockStore(store)
+	work := memory.NewUnitOfWork(rows, stores)
+	readStock := memory.NewReadStockStore(rows)
 
 	return assembleModule(log, work, readStock, stores.Outbox(), deps.Publisher,
 		deps.ReservationTTL, deps.ReaperInterval, defaultRelayInterval)

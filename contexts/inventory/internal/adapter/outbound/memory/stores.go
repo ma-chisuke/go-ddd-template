@@ -7,8 +7,8 @@ import outboxmem "github.com/example/go-ddd-template/shared/outbox/memory"
 // コミット時に CommitStaged が両方へ同時に確定させる（片方だけ書く API は存在しない）。
 //
 // この別名により、このコンテキストの結線・テストは同一パッケージ修飾 memory.Stores /
-// memory.NewStores() でアウトボックス backing store を扱える（集約ストアの Store /
-// NewStore と対になる）。
+// memory.NewStores() でアウトボックス backing store を扱える（集約ストアの StockItemRows /
+// NewStockItemRows と対になる）。Stores は集約のものではないので、集約名では修飾しない。
 type Stores = outboxmem.Stores
 
 // NewStores は空の配送キューと空の恒久イベントログを持つ Stores を生成する。
