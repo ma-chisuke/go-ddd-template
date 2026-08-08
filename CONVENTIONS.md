@@ -884,6 +884,7 @@ for i, l := range lines {
 | 19 | 内側の型はポインタで現れない（R-1 / INV-1 の外向き。他のドメイン型に含まれる型を `*T` の形で集約の外へ出さない） | `scripts/convention-gate.sh` 検査 12 | **fail** |
 | 20 | 集約ストアポートが運ぶドメイン型は頂点である（R-3 / INV-2。リポジトリを持てるのは集約の頂点だけ。値で書いたポートも捕まる） | `scripts/convention-gate.sh` 検査 13 | **fail** |
 | 21 | 集約ストアの実装は `<x>_store.go` にある（R-4 / INV-3。`<X>` はポート名の語幹であり集約ルートの型名ではない） | `scripts/convention-gate.sh` 検査 15 | **fail** |
+| 22 | 集約ルートは他の集約ルートを保持・受け渡ししない（R-2 / INV-1 の同一パッケージ内。集約間は識別子で参照する） | `scripts/convention-gate.sh` 検査 14 | **fail** |
 
 **ST1003 は追加していません** — `revive` の `var-naming` と重複して二重報告になるためです
 （役割は 1 つの linter に寄せます）。

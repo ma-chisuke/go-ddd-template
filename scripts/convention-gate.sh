@@ -20,6 +20,7 @@
 #  11  ports.go はポート宣言だけを含む（B-5 の (a) 純度）       fail
 #  12  内側の型はポインタで現れない（R-1 / INV-1 外向き）        fail
 #  13  集約ストアポートが運ぶ型は頂点である（R-3 / INV-2）       fail
+#  14  集約ルートは他の集約ルートを持たない（R-2 / INV-1 内向き） fail
 #  15  集約ストアの実装は <x>_store.go にある（R-4 / INV-3）     fail
 #
 # 検査 10 / 11 は B-5 の `ports.go` 行が定める**双方向の約束**を、片側ずつ機械化したものである。
@@ -784,6 +785,69 @@ aggregate_roots() {
   done < <(port_domain_types "$ports" | awk '$2 != "!NESTED" { print $2 }' | sort -u)
 }
 
+# --- 検査 14: 集約ルートは他の集約ルートを持たない（R-2 / INV-1 の同一パッケージ内） ---
+#
+# B-8（検査 9 で機械強制済み）により 1 コンテキストにドメインパッケージは 1 つなので、
+# 2 つの集約ルートは**必ず同じパッケージに同居する**。Go の可視性はパッケージ単位で
+# 型単位ではないため、検査 12（ポインタで外へ出さない）だけでは同一パッケージ内の
+# 集約間の漏洩を防げない。この検査がその半分を埋める。
+#
+# 判定: 集約ルート集合 R の各ルート A について、他のルート B が
+#   (a) `type A struct { … }` のフィールド型に現れる
+#   (b) `func (x *A)` / `func (x A)` で始まるメソッドのシグネチャ（引数・戻り値）に現れる
+# のどちらかで語境界一致したら fail。
+#
+# **識別子による参照は自動的に許される。** Shipment.orderID OrderID の OrderID は
+# ルート型ではないので判定の対象に入らず、加えて語境界規約により OrderID が Order に
+# 前方一致することもない。この 2 段構えが要る — 意味論だけでは字面の誤検出を防げない。
+#
+# (a) は contained_in の出力を「含んでいる型が A のもの」で絞るだけでよい
+# （包含判定を 2 度書かない）。
+check_roots_dont_hold_roots() {
+  local ctx ports dom roots a b hit sig
+  for ctx in $(find contexts -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort); do
+    ports="$ctx/internal/application/ports.go"
+    dom="$ctx/internal/domain"
+    [ -f "$ports" ] || continue
+    [ -d "$dom" ] || continue
+    roots=$(aggregate_roots "$ports" "$dom")
+    [ -z "$roots" ] && continue
+    for a in $roots; do
+      for b in $roots; do
+        [ "$a" = "$b" ] && continue
+        # (a) A の struct フィールドに B が現れる
+        while IFS= read -r hit; do
+          [ -z "$hit" ] && continue
+          report_fail "検査 14 集約ルートは他の集約ルートを持たない（R-2 / INV-1）" \
+            "${hit%% (in *}: 集約ルート ${a} が別の集約ルート ${b} を保持している（集約間は識別子で参照する）"
+        done < <(contained_in "$dom" "$b" | grep " (in ${a})\$" || true)
+        # (b) A のメソッドのシグネチャに B が現れる
+        while IFS= read -r hit; do
+          [ -z "$hit" ] && continue
+          report_fail "検査 14 集約ルートは他の集約ルートを持たない（R-2 / INV-1）" \
+            "$hit: 集約ルート ${a} のメソッドが別の集約ルート ${b} を受け渡ししている（集約間は識別子で参照する）"
+        done < <(
+          # shellcheck disable=SC2086
+          awk -v A="$a" -v B="$b" -v WL="$WORD_L" -v WR="$WORD_R" '
+            {
+              line = $0
+              sub(/\/\/.*/, "", line)
+              # func (x *A) … / func (x A) … で始まるメソッド宣言
+              if (line !~ ("^func[ \t]*\\([ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]+\\*?" A "[ \t]*\\)")) next
+              sig = line
+              sub(/^func[ \t]*\([^)]*\)/, "", sig)   # レシーバを落として残りをシグネチャとする
+              if (sig ~ (WL B WR)) {
+                sub(/^[ \t]+/, "", line)
+                printf "%s:%d: %s\n", FILENAME, FNR, line
+              }
+            }
+          ' $(scan_go_files "$dom")
+        )
+      done
+    done
+  done
+}
+
 # --- 検査 15: 集約ストアの実装は <x>_store.go にある（R-4 / INV-3） -----------
 #
 # 1. 集約ストアポートの名前から `<X>` を取る（OrderStore -> Order、StockStore -> Stock）。
@@ -863,6 +927,7 @@ check_ports_exhaustive
 check_ports_purity
 check_inner_types_not_pointer
 check_repos_are_aggregate_roots
+check_roots_dont_hold_roots
 check_aggregate_store_files
 
 echo ""
