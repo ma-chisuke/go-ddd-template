@@ -458,6 +458,30 @@ seed corpus（`testdata/fuzz/` にコミット済み）だけで、これは `ma
 ベースライン（`*.baseline.*`）を更新するか、メッセージなら新しい `type`（新スキーマファイル）を
 追加してバージョン移行します。
 
+### リリース時にベースラインを更新する
+
+`*.baseline.*` は「**最後にリリースした契約**」のスナップショットです。互換ゲートは
+「前回リリース以降の破壊的変更」を検出するので、**リリース（git タグ + GitHub Release）のたびに**
+その時点の契約でベースラインを更新し、同じコミットに含めてください。
+
+```sh
+# リリース直前に実行する。契約を変えていないリリースなら差分ゼロになる。
+cp contracts/api/inventory/openapi.yaml          contracts/api/inventory/openapi.baseline.yaml
+cp contracts/api/inventory/internal.openapi.yaml contracts/api/inventory/internal.openapi.baseline.yaml
+cp contracts/api/ordering/openapi.yaml           contracts/api/ordering/openapi.baseline.yaml
+cp contracts/events/ordering/confirm_reservation.schema.json \
+   contracts/events/ordering/confirm_reservation.baseline.schema.json
+cp contracts/events/ordering/order_cancelled.schema.json \
+   contracts/events/ordering/order_cancelled.baseline.schema.json
+make contracts
+```
+
+**この手順を飛ばしてもゲートは緑のままです。** 契約への「追加」は非破壊なので
+`oasdiff --fail-on ERR` を通り、ベースラインが古いことは何も報告しません。気づかないまま
+何リリースも進みえます（実際 v0.9.0 以降の 3 リリースで、注文の公開契約のベースラインが
+`/shipments` を欠いたままでした）。ずれている間は、その API に対する**将来の破壊的変更が
+検出されません** — ベースラインにその API が存在しないからです。
+
 ## コード生成
 
 生成ツール（ogen / sqlc / mockgen）は各モジュールの go.mod `tool` ディレクティブで版を固定して
