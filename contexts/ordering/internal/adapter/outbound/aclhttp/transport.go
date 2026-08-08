@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	invclient "github.com/example/go-ddd-template/clients/inventory/invclient"
+	"github.com/example/go-ddd-template/clients/inventory/invclient"
 	"github.com/example/go-ddd-template/shared/correlation"
 )
 

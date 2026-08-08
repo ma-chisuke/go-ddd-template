@@ -33,12 +33,15 @@ linters-settings:
   goimports:
     local-prefixes: github.com/example/go-ddd-template
   revive:
-    # var-naming と receiver-naming の 2 つだけを有効化する。revive の既定セット全体を
-    # 入れると、この規約の範囲を超える指摘（exported コメントの体裁など）が大量に出る。
-    # rules を明示すると revive はそのリストだけを走らせる。
+    # 必要な rule だけを明示的に有効化する。revive の既定セット全体を入れると、この規約の
+    # 範囲を超える指摘（exported コメントの体裁など）が大量に出る。
+    # rules を明示すると revive はそのリストだけを走らせる —— したがって rule 名の綴りを
+    # 誤っても、この版の revive に収録されていない名前を書いても、**現ツリーに違反が
+    # 無ければ lint は緑のまま通る**。追加した rule は必ずカナリア検証する（G-1）。
     rules:
       - name: var-naming    # A-9b MixedCaps（下線で語をつなげない）。テスト関数名は報告しない
       - name: receiver-naming # A-2 同じ型の全メソッドでレシーバ名を一貫させる
+      - name: redundant-import-alias # I-8 import の別名は名前衝突の回避に限る
   godot:
     # 宣言（トップレベルの型・関数・変数）の doc コメントだけを対象にする。
     # 行コメントまで対象にすると、why を書いた説明コメントに句点を強制することになる。

@@ -20,7 +20,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	ordering "github.com/example/go-ddd-template/contexts/ordering"
+	"github.com/example/go-ddd-template/contexts/ordering"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/aclhttp"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/eventhttp"
 	sharedlog "github.com/example/go-ddd-template/shared/logging"

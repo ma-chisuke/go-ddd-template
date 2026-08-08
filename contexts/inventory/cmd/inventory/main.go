@@ -15,7 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	inventory "github.com/example/go-ddd-template/contexts/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory"
 	sharedlog "github.com/example/go-ddd-template/shared/logging"
 	"github.com/example/go-ddd-template/shared/serve"
 )

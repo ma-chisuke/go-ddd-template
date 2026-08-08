@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	invclient "github.com/example/go-ddd-template/clients/inventory/invclient"
+	"github.com/example/go-ddd-template/clients/inventory/invclient"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/aclhttp"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/adapter/outbound/memory"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
