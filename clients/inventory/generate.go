@@ -10,4 +10,4 @@
 // パスはこのファイルのあるディレクトリ（モジュールルート）からの相対。
 package inventory
 
-//go:generate go tool ogen --config ../../contracts/inventory/client.ogen.yaml --target invclient --package invclient --clean ../../contracts/inventory/internal.openapi.yaml
+//go:generate go tool ogen --config ../../contracts/api/inventory/client.ogen.yaml --target invclient --package invclient --clean ../../contracts/api/inventory/internal.openapi.yaml

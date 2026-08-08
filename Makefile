@@ -141,7 +141,7 @@ conventions: ## 規約ゲート（lint で表現できない規約。CONVENTIONS
 	@bash scripts/convention-gate.sh
 
 contracts: ## 契約の後方互換ゲート（OpenAPI + クロスコンテキストのメッセージスキーマ）
-	@bash contracts/check-openapi-compat.sh
+	@bash contracts/api/check-compat.sh
 	@bash contracts/events/check-compat.sh
 
 vuln: ## 依存関係の既知脆弱性をスキャンする（govulncheck）
