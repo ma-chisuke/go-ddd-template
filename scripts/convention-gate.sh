@@ -841,22 +841,32 @@ aggregate_roots() {
 # (a) は contained_in の出力を「含んでいる型が A のもの」で絞るだけでよい
 # （包含判定を 2 度書かない）。
 #
-# **報告で B を「集約ルート」と断定しない。** 対象は R ではなく P なので、B が頂点である
-# 保証はこの検査には無い。実際、内側の型に集約ストアポートを与えると（検査 13 が別途 fail
-# させる形）、その内側の型が P に入って B の位置に現れる。そのとき「集約ルート B」と書くと
-# **偽の主張**になり、しかも名指しするのは正しいコードの側である。P の定義に即して
-# 「集約ストアポートが運ぶ型」と述べる。A 側は P のうち頂点なので「集約ルート」でよい。
+# **A と B で取る集合が違う。** A は R（頂点）、B は P（頂点フィルタなし）である。
+#
+#   - **B に P を使う理由**: B を R から取ると、この検査は (a) について**証明可能に発火しない**。
+#     B が A のフィールドである ⇒ B は含まれる型 ⇒ B は頂点でない ⇒ B は R から落ちる、
+#     と定義が閉じてしまい、組が永久に作れないためである。
+#   - **A に R を使う理由**: A は「他の集約を抱え込んでいる側」であり、報告文で
+#     「集約ルート A」と名乗る。R から取れば**その名乗りが常に真**になる。
+#     A を P にしても (a) は発火するが、内側の型が P に入ったときに A の位置へ現れて
+#     「集約ルート A」が偽になりうる。
+#
+# **報告で B を「集約ルート」と断定しない。** B が頂点である保証はこの検査に無い。
+# 実際、内側の型に集約ストアポートを与えると（検査 13 が別途 fail させる形）、その内側の型が
+# P に入って B の位置に現れる。そのとき「集約ルート B」と書くと**偽の主張**になり、
+# しかも名指しするのは正しいコードの側である。P の定義に即して「集約ストアポートが運ぶ型」と述べる。
 check_roots_dont_hold_roots() {
-  local ctx ports dom roots a b hit sig
+  local ctx ports dom roots carried a b hit sig
   for ctx in $(find contexts -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort); do
     ports="$ctx/internal/application/ports.go"
     dom="$ctx/internal/domain"
     [ -f "$ports" ] || continue
     [ -d "$dom" ] || continue
-    roots=$(aggregate_store_types "$ports")
+    roots=$(aggregate_roots "$ports" "$dom")   # A: R（頂点）。「集約ルート A」の名乗りが真になる
+    carried=$(aggregate_store_types "$ports")  # B: P（頂点フィルタなし）。(a) の発火に要る
     [ -z "$roots" ] && continue
     for a in $roots; do
-      for b in $roots; do
+      for b in $carried; do
         [ "$a" = "$b" ] && continue
         # (a) A の struct フィールドに B が現れる
         while IFS= read -r hit; do
