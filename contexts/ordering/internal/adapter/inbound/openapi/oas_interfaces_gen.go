@@ -9,6 +9,18 @@ type GetOrderRes interface {
 	getOrderRes()
 }
 
+type GetShipmentRes interface {
+	getShipmentRes()
+}
+
+type MarkShippedRes interface {
+	markShippedRes()
+}
+
 type PlaceOrderRes interface {
 	placeOrderRes()
+}
+
+type PrepareShipmentRes interface {
+	prepareShipmentRes()
 }

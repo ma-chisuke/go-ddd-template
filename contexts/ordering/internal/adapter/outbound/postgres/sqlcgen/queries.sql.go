@@ -46,6 +46,34 @@ func (q *Queries) GetOrderByID(ctx context.Context, id string) (GetOrderByIDRow,
 	return i, err
 }
 
+const getShipmentByID = `-- name: GetShipmentByID :one
+SELECT id, order_id, status, tracking_number, version
+FROM ordering.shipments
+WHERE id = $1
+`
+
+type GetShipmentByIDRow struct {
+	ID             string
+	OrderID        string
+	Status         string
+	TrackingNumber string
+	Version        int32
+}
+
+// ID で出荷を 1 件取得する。存在しなければ pgx.ErrNoRows が返る。
+func (q *Queries) GetShipmentByID(ctx context.Context, id string) (GetShipmentByIDRow, error) {
+	row := q.db.QueryRow(ctx, getShipmentByID, id)
+	var i GetShipmentByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrderID,
+		&i.Status,
+		&i.TrackingNumber,
+		&i.Version,
+	)
+	return i, err
+}
+
 const insertEvent = `-- name: InsertEvent :exec
 INSERT INTO ordering.events (id, message_type, payload, trace_id, occurred_at)
 VALUES ($1, $2, $3, $4, $5)
@@ -154,6 +182,31 @@ func (q *Queries) InsertOutboxMessage(ctx context.Context, arg InsertOutboxMessa
 	return err
 }
 
+const insertShipment = `-- name: InsertShipment :exec
+INSERT INTO ordering.shipments (id, order_id, status, tracking_number, version)
+VALUES ($1, $2, $3, $4, $5)
+`
+
+type InsertShipmentParams struct {
+	ID             string
+	OrderID        string
+	Status         string
+	TrackingNumber string
+	Version        int32
+}
+
+// 出荷を新規挿入する（version は 1 から始まる）。
+func (q *Queries) InsertShipment(ctx context.Context, arg InsertShipmentParams) error {
+	_, err := q.db.Exec(ctx, insertShipment,
+		arg.ID,
+		arg.OrderID,
+		arg.Status,
+		arg.TrackingNumber,
+		arg.Version,
+	)
+	return err
+}
+
 const listOrderLines = `-- name: ListOrderLines :many
 SELECT order_id, line_no, sku, quantity, unit_price, currency
 FROM ordering.order_lines
@@ -254,6 +307,36 @@ type UpdateOrderParams struct {
 func (q *Queries) UpdateOrder(ctx context.Context, arg UpdateOrderParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateOrder,
 		arg.Status,
+		arg.Version,
+		arg.ID,
+		arg.Version_2,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateShipment = `-- name: UpdateShipment :execrows
+UPDATE ordering.shipments
+SET status = $1, tracking_number = $2, version = $3, updated_at = now()
+WHERE id = $4 AND version = $5
+`
+
+type UpdateShipmentParams struct {
+	Status         string
+	TrackingNumber string
+	Version        int32
+	ID             string
+	Version_2      int32
+}
+
+// 楽観的排他制御つきの更新。期待バージョンが一致する行だけを更新し、影響行数を返す。
+// 0 行なら版が食い違っている（＝衝突）ことを意味する。出荷の可変部分は状態と追跡番号。
+func (q *Queries) UpdateShipment(ctx context.Context, arg UpdateShipmentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateShipment,
+		arg.Status,
+		arg.TrackingNumber,
 		arg.Version,
 		arg.ID,
 		arg.Version_2,

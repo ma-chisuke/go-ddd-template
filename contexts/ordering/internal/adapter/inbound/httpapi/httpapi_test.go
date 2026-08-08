@@ -47,15 +47,20 @@ func newHandler(t *testing.T, reserver application.StockReserver) http.Handler {
 	t.Helper()
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	orderRows := memory.NewOrderRows()
-	work := memory.NewUnitOfWork(orderRows, memory.NewStores())
+	shipmentRows := memory.NewShipmentRows()
+	work := memory.NewUnitOfWork(orderRows, shipmentRows, memory.NewStores())
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 	dispatcher := event.NewTyped[domain.DomainEvent](log)
+	readOrders := memory.NewReadOrderStore(orderRows)
 
-	place := application.NewPlaceOrder(exec, work, reserver, dispatcher, log)
-	get := application.NewGetOrder(memory.NewReadOrderStore(orderRows), log)
-	cancel := application.NewCancelOrder(exec, work, log)
-
-	h := httpapi.NewHandler(place, get, cancel, log)
+	h := httpapi.NewHandler(httpapi.HandlerDeps{
+		PlaceOrder:      application.NewPlaceOrder(exec, work, reserver, dispatcher, log),
+		GetOrder:        application.NewGetOrder(readOrders, log),
+		CancelOrder:     application.NewCancelOrder(exec, work, log),
+		PrepareShipment: application.NewPrepareShipment(exec, work, readOrders, log),
+		MarkShipped:     application.NewMarkShipped(exec, work, dispatcher, log),
+		GetShipment:     application.NewGetShipment(memory.NewReadShipmentStore(shipmentRows), log),
+	}, log)
 	// 本番の合成ルート（ordering.go）と同じヘルパーでオプションを渡す。ここを省くと
 	// テストだけ ogen の既定エラーハンドラで動き、本番の振る舞いを検証できなくなる。
 	server, err := openapi.NewServer(h, h.ServerOptions()...)
@@ -163,4 +168,96 @@ func assertProblemJSON(t *testing.T, resp *http.Response, wantStatus int) {
 	assert.Equal(t, wantStatus, pd.Status, "problem.status")
 	assert.NotEmpty(t, pd.Title, "problem.title は必須")
 	assert.NotEmpty(t, pd.Type, "problem.type は必須")
+}
+
+// TestHTTP_ShipmentLifecycle は 2 つ目の集約ルート（出荷）の縦切りを、入口から出口まで
+// 通しで検証する。注文とは別のパス（/shipments）に置かれ、注文は本文の orderId で
+// 識別子として参照される — 集約の階層が URL の階層に現れている。
+func TestHTTP_ShipmentLifecycle(t *testing.T) {
+	ts := newServer(t, stubReserver{})
+	c := ts.Client()
+
+	// 前提: confirmed の注文を 1 件作る。
+	placed := post(t, c, ts.URL+"/orders", placeBody)
+	require.Equal(t, http.StatusCreated, placed.StatusCode, "place ステータス")
+	var order struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.NewDecoder(placed.Body).Decode(&order))
+	require.NoError(t, placed.Body.Close())
+
+	// 出荷準備 -> 201・preparing。
+	prepared := post(t, c, ts.URL+"/shipments", `{"orderId":"`+order.ID+`"}`)
+	require.Equal(t, http.StatusCreated, prepared.StatusCode, "prepareShipment ステータス")
+	var shipment struct {
+		ID             string `json:"id"`
+		OrderID        string `json:"orderId"`
+		Status         string `json:"status"`
+		TrackingNumber string `json:"trackingNumber"`
+		Version        int    `json:"version"`
+	}
+	require.NoError(t, json.NewDecoder(prepared.Body).Decode(&shipment))
+	require.NoError(t, prepared.Body.Close())
+	assert.Equal(t, "preparing", shipment.Status, "初期状態")
+	assert.Equal(t, order.ID, shipment.OrderID, "注文を識別子で参照する")
+	assert.Empty(t, shipment.TrackingNumber, "preparing では追跡番号が空")
+	assert.Equal(t, 1, shipment.Version, "初回保存の version")
+
+	// 照会 -> 200。
+	got, err := c.Get(ts.URL + "/shipments/" + shipment.ID)
+	require.NoError(t, err, "照会失敗")
+	assert.Equal(t, http.StatusOK, got.StatusCode, "getShipment ステータス")
+	require.NoError(t, got.Body.Close())
+
+	// 発送 -> 200・shipped・版が進む。
+	shippedResp := post(t, c, ts.URL+"/shipments/"+shipment.ID+"/ship", `{"trackingNumber":"TRACK-1"}`)
+	require.Equal(t, http.StatusOK, shippedResp.StatusCode, "markShipped ステータス")
+	var shipped struct {
+		Status         string `json:"status"`
+		TrackingNumber string `json:"trackingNumber"`
+		Version        int    `json:"version"`
+	}
+	require.NoError(t, json.NewDecoder(shippedResp.Body).Decode(&shipped))
+	require.NoError(t, shippedResp.Body.Close())
+	assert.Equal(t, "shipped", shipped.Status, "遷移後の状態")
+	assert.Equal(t, "TRACK-1", shipped.TrackingNumber, "追跡番号")
+	assert.Equal(t, 2, shipped.Version, "楽観的排他の版が進む")
+}
+
+// 発送済みの出荷を再度発送しようとすると 409 になる（出荷自身の状態との矛盾）。
+func TestHTTP_ReshipIsConflict(t *testing.T) {
+	ts := newServer(t, stubReserver{})
+	c := ts.Client()
+
+	placed := post(t, c, ts.URL+"/orders", placeBody)
+	var order struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.NewDecoder(placed.Body).Decode(&order))
+	require.NoError(t, placed.Body.Close())
+
+	prepared := post(t, c, ts.URL+"/shipments", `{"orderId":"`+order.ID+`"}`)
+	var shipment struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.NewDecoder(prepared.Body).Decode(&shipment))
+	require.NoError(t, prepared.Body.Close())
+
+	first := post(t, c, ts.URL+"/shipments/"+shipment.ID+"/ship", `{"trackingNumber":"TRACK-1"}`)
+	require.Equal(t, http.StatusOK, first.StatusCode, "1 回目")
+	require.NoError(t, first.Body.Close())
+
+	second := post(t, c, ts.URL+"/shipments/"+shipment.ID+"/ship", `{"trackingNumber":"TRACK-2"}`)
+	assert.Equal(t, http.StatusConflict, second.StatusCode, "2 回目は 409")
+	require.NoError(t, second.Body.Close())
+}
+
+// 存在しない出荷の照会は 404（経路はあるが対象が無い）。
+func TestHTTP_GetUnknownShipmentIsNotFound(t *testing.T) {
+	ts := newServer(t, stubReserver{})
+
+	resp, err := ts.Client().Get(ts.URL + "/shipments/NO-SUCH-SHIPMENT")
+	require.NoError(t, err, "照会失敗")
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode, "ステータス")
+	require.NoError(t, resp.Body.Close())
 }

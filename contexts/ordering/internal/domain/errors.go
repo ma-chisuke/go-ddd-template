@@ -38,6 +38,19 @@ var (
 
 	// ErrInvalidReservationRef は、予約参照が不正（空文字など）であることを表す。
 	ErrInvalidReservationRef = errors.New("予約参照が不正です")
+
+	// ErrShipmentNotFound は、指定した ID の出荷が存在しないことを表す。
+	ErrShipmentNotFound = errors.New("出荷が見つかりません")
+
+	// ErrShipmentNotPreparing は、preparing でない出荷を発送済みにしようとしたことを表す。
+	// 発送が許容されるのは preparing 状態の出荷のみ（状態不変条件）。
+	ErrShipmentNotPreparing = errors.New("出荷が準備中ではありません")
+
+	// ErrInvalidShipmentID は、出荷 ID が不正（空文字など）であることを表す。
+	ErrInvalidShipmentID = errors.New("出荷 ID が不正です")
+
+	// ErrInvalidTrackingNumber は、追跡番号が不正（空文字など）であることを表す。
+	ErrInvalidTrackingNumber = errors.New("追跡番号が不正です")
 )
 
 // Rule は検証規則。「どのフィールドが」「どの code で」「どの番兵に」対応するかを
@@ -112,6 +125,9 @@ var (
 	VCustomerID     = Rule{Field: "customerId", Code: "invalid_customer_id", Err: ErrInvalidCustomerID}
 	VOrderID        = Rule{Field: "orderId", Code: "invalid_order_id", Err: ErrInvalidOrderID}
 	VReservationRef = Rule{Field: "reservationRef", Code: "invalid_reservation_ref", Err: ErrInvalidReservationRef}
+
+	VShipmentID     = Rule{Field: "shipmentId", Code: "invalid_shipment_id", Err: ErrInvalidShipmentID}
+	VTrackingNumber = Rule{Field: "trackingNumber", Code: "invalid_tracking_number", Err: ErrInvalidTrackingNumber}
 )
 
 // FieldViolation は規則違反を表す構造化エラー。Rule.Violated / Rule.ViolatedAt が返す。

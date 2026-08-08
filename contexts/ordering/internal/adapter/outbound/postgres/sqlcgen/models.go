@@ -45,3 +45,13 @@ type OrderingOutbox struct {
 	TraceID     string
 	OccurredAt  pgtype.Timestamptz
 }
+
+type OrderingShipment struct {
+	ID             string
+	OrderID        string
+	Status         string
+	TrackingNumber string
+	Version        int32
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}

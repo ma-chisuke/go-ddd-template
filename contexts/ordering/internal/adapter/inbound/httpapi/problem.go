@@ -60,6 +60,9 @@ var domainReasons = map[string]string{
 	domain.VCustomerID.Code:     "顧客 ID を指定してください",
 	domain.VOrderID.Code:        "注文 ID を指定してください",
 	domain.VReservationRef.Code: "予約参照を指定してください",
+
+	domain.VShipmentID.Code:     "出荷 ID を指定してください",
+	domain.VTrackingNumber.Code: "追跡番号を指定してください",
 }
 
 // domainReasonOf はドメイン検証 code に対応する定型文を返す。
@@ -75,14 +78,17 @@ func domainReasonOf(code string) string {
 // jsonNames はアプリケーション層のパス断片（Go / DTO の識別子）を JSON / パラメータの
 // 名前へ写す **上書き表**。機械的な変換（先頭 1 文字を小文字にする）で決まらないものだけを書く。
 //
-//	Quantity -> quantity   … 表に無くても自動で正しくなる
-//	Sku      -> sku        … 同上
-//	OrderId  -> id         … 名前そのものが違う（パスパラメータ /orders/{id}）ので表が要る
+//	Quantity       -> quantity   … 表に無くても自動で正しくなる
+//	Sku            -> sku        … 同上
+//	TrackingNumber -> trackingNumber … 同上（本文フィールド名と一致する）
+//	OrderId        -> id         … 名前そのものが違う（パスパラメータ /orders/{id}）ので表が要る
+//	ShipmentId     -> id         … 同上（/shipments/{id}）
 //
 // Go の識別子を応答に露出させてはならない（規則 R-10）。新しいフィールドを足したときに
 // 自動変換で正しくならないなら、ここに 1 行足す。
 var jsonNames = map[string]string{
-	"OrderId": "id",
+	"OrderId":    "id",
+	"ShipmentId": "id",
 }
 
 // Handler.ServerOptions は ogen サーバへ渡すオプション一式を返す。

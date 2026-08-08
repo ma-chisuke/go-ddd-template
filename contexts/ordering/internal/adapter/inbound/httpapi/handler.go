@@ -18,15 +18,40 @@ import (
 
 // Handler は ogen が生成した openapi.Handler を実装する薄いアダプタ。
 type Handler struct {
-	place  *application.PlaceOrder
-	get    *application.GetOrder
-	cancel *application.CancelOrder
-	log    *slog.Logger
+	place       *application.PlaceOrder
+	get         *application.GetOrder
+	cancel      *application.CancelOrder
+	prepareShip *application.PrepareShipment
+	markShipped *application.MarkShipped
+	getShipment *application.GetShipment
+	log         *slog.Logger
+}
+
+// HandlerDeps は Handler が呼び出すユースケースの束。
+//
+// 引数の位置ではなくフィールド名で結線するのは、集約を 1 つ足すたびにユースケースが
+// 増え、位置引数では取り違えが起きやすくなるためである（同じ *application.Get* 型が
+// 並ぶと、コンパイラは取り違えを検出しない）。
+type HandlerDeps struct {
+	PlaceOrder      *application.PlaceOrder
+	GetOrder        *application.GetOrder
+	CancelOrder     *application.CancelOrder
+	PrepareShipment *application.PrepareShipment
+	MarkShipped     *application.MarkShipped
+	GetShipment     *application.GetShipment
 }
 
 // NewHandler は HTTP ハンドラを生成する。
-func NewHandler(place *application.PlaceOrder, get *application.GetOrder, cancel *application.CancelOrder, log *slog.Logger) *Handler {
-	return &Handler{place: place, get: get, cancel: cancel, log: log}
+func NewHandler(deps HandlerDeps, log *slog.Logger) *Handler {
+	return &Handler{
+		place:       deps.PlaceOrder,
+		get:         deps.GetOrder,
+		cancel:      deps.CancelOrder,
+		prepareShip: deps.PrepareShipment,
+		markShipped: deps.MarkShipped,
+		getShipment: deps.GetShipment,
+		log:         log,
+	}
 }
 
 // コンパイル時に ogen の Handler インターフェースを満たしていることを確認する。
@@ -73,6 +98,42 @@ func (h *Handler) CancelOrder(ctx context.Context, params openapi.CancelOrderPar
 	return toOrderView(view), nil
 }
 
+// PrepareShipment は POST /shipments を処理する。準備後、作成された出荷の現在状態を
+// 射影して返す。戻り値は union（openapi.PrepareShipmentRes。理由は PlaceOrder 参照）。
+func (h *Handler) PrepareShipment(ctx context.Context, req *openapi.PrepareShipmentRequest) (openapi.PrepareShipmentRes, error) {
+	id, err := h.prepareShip.Handle(ctx, req.OrderId)
+	if err != nil {
+		return nil, err
+	}
+	view, err := h.getShipment.Handle(ctx, id.String())
+	if err != nil {
+		return nil, err
+	}
+	return toShipmentView(view), nil
+}
+
+// MarkShipped は POST /shipments/{id}/ship を処理する。発送後、出荷の現在状態を射影して返す。
+// 戻り値は union（openapi.MarkShippedRes。理由は PlaceOrder 参照）。
+func (h *Handler) MarkShipped(ctx context.Context, req *openapi.MarkShippedRequest, params openapi.MarkShippedParams) (openapi.MarkShippedRes, error) {
+	if err := h.markShipped.Handle(ctx, params.ID, req.TrackingNumber); err != nil {
+		return nil, err
+	}
+	view, err := h.getShipment.Handle(ctx, params.ID)
+	if err != nil {
+		return nil, err
+	}
+	return toShipmentView(view), nil
+}
+
+// GetShipment は GET /shipments/{id} を処理する。戻り値は union（openapi.GetShipmentRes）。
+func (h *Handler) GetShipment(ctx context.Context, params openapi.GetShipmentParams) (openapi.GetShipmentRes, error) {
+	view, err := h.getShipment.Handle(ctx, params.ID)
+	if err != nil {
+		return nil, err
+	}
+	return toShipmentView(view), nil
+}
+
 // toPlaceOrderInput は ogen のリクエスト型をアプリケーション層の入力へ変換する。
 func toPlaceOrderInput(req *openapi.PlaceOrderRequest) application.PlaceOrderInput {
 	lines := make([]application.PlaceOrderLine, 0, len(req.Lines))
@@ -105,6 +166,17 @@ func toOrderView(v application.OrderView) *openapi.OrderView {
 		Lines:          lines,
 		Total:          openapi.Money{Amount: v.TotalAmount, Currency: v.TotalCurrency},
 		ReservationRef: v.ReservationRef,
+		Version:        v.Version,
+	}
+}
+
+// toShipmentView はアプリケーション層の DTO を ogen の応答型へ変換する。
+func toShipmentView(v application.ShipmentView) *openapi.ShipmentView {
+	return &openapi.ShipmentView{
+		ID:             v.ID,
+		OrderId:        v.OrderID,
+		Status:         v.Status,
+		TrackingNumber: v.TrackingNumber,
 		Version:        v.Version,
 	}
 }

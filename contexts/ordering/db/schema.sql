@@ -44,6 +44,29 @@ CREATE TABLE IF NOT EXISTS ordering.order_lines (
     PRIMARY KEY (order_id, line_no)
 );
 
+-- 出荷テーブル。集約 Shipment の永続化先。
+--
+-- Order とは別の集約ルートなので、別のテーブルを持つ。order_id には **外部キー制約を
+-- 張らない** — これは意図的な選択である。集約間は識別子で参照し、参照整合性はデータベース
+-- ではなくアプリケーションの事前条件（注文が存在し confirmed であること）で扱う。外部キーを
+-- 張ると 2 つの集約が DB レベルで結合し、将来それぞれを別サービス・別データベースへ
+-- 分けられなくなる。
+CREATE TABLE IF NOT EXISTS ordering.shipments (
+    -- 集約の識別子（アプリケーションが採番する不透明な ID）。
+    id              text        NOT NULL PRIMARY KEY,
+    -- 出荷対象の注文の識別子。**外部キーではない**（上記の理由）。
+    order_id        text        NOT NULL,
+    -- 出荷状態（preparing / shipped）。
+    status          text        NOT NULL CHECK (status = 'preparing' OR status = 'shipped'),
+    -- 配送業者の追跡番号。preparing の間は空文字（shipped のときのみ意味を持つ）。
+    tracking_number text        NOT NULL DEFAULT '',
+    -- 楽観的排他制御のためのバージョン番号。永続化済みは 1 以上。
+    version         integer     NOT NULL CHECK (version >= 1),
+    -- 監査用のタイムスタンプ。
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now()
+);
+
 -- アウトボックステーブル。集約書き込みと同一トランザクションで積まれる送信メッセージ。
 --
 -- これは「一時的な配送キュー」であり、送信履歴ではない。送信中継（Runner）が行を

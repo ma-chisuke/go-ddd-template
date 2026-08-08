@@ -22,6 +22,19 @@ type Handler interface {
 	//
 	// GET /orders/{id}
 	GetOrder(ctx context.Context, params GetOrderParams) (GetOrderRes, error)
+	// GetShipment implements getShipment operation.
+	//
+	// 指定した出荷 ID の現在の状態を返す。.
+	//
+	// GET /shipments/{id}
+	GetShipment(ctx context.Context, params GetShipmentParams) (GetShipmentRes, error)
+	// MarkShipped implements markShipped operation.
+	//
+	// 指定した出荷を発送済み（shipped）にし、追跡番号を確定する。遷移できるのは
+	// preparing 状態の出荷のみで、再発送は無い。更新は楽観的排他制御に従う。.
+	//
+	// POST /shipments/{id}/ship
+	MarkShipped(ctx context.Context, req *MarkShippedRequest, params MarkShippedParams) (MarkShippedRes, error)
 	// PlaceOrder implements placeOrder operation.
 	//
 	// 注文明細から注文を作成する。作成時に在庫を同期予約し、予約できたときのみ
@@ -30,6 +43,19 @@ type Handler interface {
 	//
 	// POST /orders
 	PlaceOrder(ctx context.Context, req *PlaceOrderRequest) (PlaceOrderRes, error)
+	// PrepareShipment implements prepareShipment operation.
+	//
+	// 指定した注文に対する出荷を準備する（preparing
+	// 状態で作成する）。準備できるのは confirmed
+	// 状態の注文に対してのみ。注文の確認は出荷トランザクションの外で行い、
+	// トランザクションの内では出荷だけを書き込む（1 トランザクション 1
+	// 集約ルート）。
+	//
+	// このオペレーションは冪等ではない。同じ注文に対して 2 回呼べば 2
+	// つの出荷ができる。.
+	//
+	// POST /shipments
+	PrepareShipment(ctx context.Context, req *PrepareShipmentRequest) (PrepareShipmentRes, error)
 	// NewError creates *ProblemResponseStatusCode from error returned by handler.
 	//
 	// Used for common default response.

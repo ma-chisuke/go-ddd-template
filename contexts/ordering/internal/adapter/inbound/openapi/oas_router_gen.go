@@ -11,7 +11,13 @@ import (
 )
 
 var (
-	rn4AllowedHeaders = map[string]string{
+	rn8AllowedHeaders = map[string]string{
+		"POST": "Content-Type",
+	}
+	rn9AllowedHeaders = map[string]string{
+		"POST": "Content-Type",
+	}
+	rn7AllowedHeaders = map[string]string{
 		"POST": "Content-Type",
 	}
 )
@@ -55,58 +61,35 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		switch elem[0] {
-		case '/': // Prefix: "/orders"
+		case '/': // Prefix: "/"
 
-			if l := len("/orders"); len(elem) >= l && elem[0:l] == "/orders" {
+			if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
 				elem = elem[l:]
 			} else {
 				break
 			}
 
 			if len(elem) == 0 {
-				switch r.Method {
-				case "POST":
-					s.handlePlaceOrderRequest([0]string{}, elemIsEscaped, w, r)
-				default:
-					s.notAllowed(w, r, notAllowedParams{
-						allowedMethods: "POST",
-						allowedHeaders: rn4AllowedHeaders,
-						acceptPost:     "application/json",
-						acceptPatch:    "",
-					})
-				}
-
-				return
+				break
 			}
 			switch elem[0] {
-			case '/': // Prefix: "/"
+			case 'o': // Prefix: "orders"
 
-				if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
+				if l := len("orders"); len(elem) >= l && elem[0:l] == "orders" {
 					elem = elem[l:]
 				} else {
 					break
 				}
 
-				// Param: "id"
-				// Match until "/"
-				idx := strings.IndexByte(elem, '/')
-				if idx < 0 {
-					idx = len(elem)
-				}
-				args[0] = elem[:idx]
-				elem = elem[idx:]
-
 				if len(elem) == 0 {
 					switch r.Method {
-					case "GET":
-						s.handleGetOrderRequest([1]string{
-							args[0],
-						}, elemIsEscaped, w, r)
+					case "POST":
+						s.handlePlaceOrderRequest([0]string{}, elemIsEscaped, w, r)
 					default:
 						s.notAllowed(w, r, notAllowedParams{
-							allowedMethods: "GET",
-							allowedHeaders: nil,
-							acceptPost:     "",
+							allowedMethods: "POST",
+							allowedHeaders: rn8AllowedHeaders,
+							acceptPost:     "application/json",
 							acceptPatch:    "",
 						})
 					}
@@ -114,24 +97,32 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				switch elem[0] {
-				case '/': // Prefix: "/cancel"
+				case '/': // Prefix: "/"
 
-					if l := len("/cancel"); len(elem) >= l && elem[0:l] == "/cancel" {
+					if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
 						elem = elem[l:]
 					} else {
 						break
 					}
 
+					// Param: "id"
+					// Match until "/"
+					idx := strings.IndexByte(elem, '/')
+					if idx < 0 {
+						idx = len(elem)
+					}
+					args[0] = elem[:idx]
+					elem = elem[idx:]
+
 					if len(elem) == 0 {
-						// Leaf node.
 						switch r.Method {
-						case "POST":
-							s.handleCancelOrderRequest([1]string{
+						case "GET":
+							s.handleGetOrderRequest([1]string{
 								args[0],
 							}, elemIsEscaped, w, r)
 						default:
 							s.notAllowed(w, r, notAllowedParams{
-								allowedMethods: "POST",
+								allowedMethods: "GET",
 								allowedHeaders: nil,
 								acceptPost:     "",
 								acceptPatch:    "",
@@ -139,6 +130,125 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 						}
 
 						return
+					}
+					switch elem[0] {
+					case '/': // Prefix: "/cancel"
+
+						if l := len("/cancel"); len(elem) >= l && elem[0:l] == "/cancel" {
+							elem = elem[l:]
+						} else {
+							break
+						}
+
+						if len(elem) == 0 {
+							// Leaf node.
+							switch r.Method {
+							case "POST":
+								s.handleCancelOrderRequest([1]string{
+									args[0],
+								}, elemIsEscaped, w, r)
+							default:
+								s.notAllowed(w, r, notAllowedParams{
+									allowedMethods: "POST",
+									allowedHeaders: nil,
+									acceptPost:     "",
+									acceptPatch:    "",
+								})
+							}
+
+							return
+						}
+
+					}
+
+				}
+
+			case 's': // Prefix: "shipments"
+
+				if l := len("shipments"); len(elem) >= l && elem[0:l] == "shipments" {
+					elem = elem[l:]
+				} else {
+					break
+				}
+
+				if len(elem) == 0 {
+					switch r.Method {
+					case "POST":
+						s.handlePrepareShipmentRequest([0]string{}, elemIsEscaped, w, r)
+					default:
+						s.notAllowed(w, r, notAllowedParams{
+							allowedMethods: "POST",
+							allowedHeaders: rn9AllowedHeaders,
+							acceptPost:     "application/json",
+							acceptPatch:    "",
+						})
+					}
+
+					return
+				}
+				switch elem[0] {
+				case '/': // Prefix: "/"
+
+					if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
+						elem = elem[l:]
+					} else {
+						break
+					}
+
+					// Param: "id"
+					// Match until "/"
+					idx := strings.IndexByte(elem, '/')
+					if idx < 0 {
+						idx = len(elem)
+					}
+					args[0] = elem[:idx]
+					elem = elem[idx:]
+
+					if len(elem) == 0 {
+						switch r.Method {
+						case "GET":
+							s.handleGetShipmentRequest([1]string{
+								args[0],
+							}, elemIsEscaped, w, r)
+						default:
+							s.notAllowed(w, r, notAllowedParams{
+								allowedMethods: "GET",
+								allowedHeaders: nil,
+								acceptPost:     "",
+								acceptPatch:    "",
+							})
+						}
+
+						return
+					}
+					switch elem[0] {
+					case '/': // Prefix: "/ship"
+
+						if l := len("/ship"); len(elem) >= l && elem[0:l] == "/ship" {
+							elem = elem[l:]
+						} else {
+							break
+						}
+
+						if len(elem) == 0 {
+							// Leaf node.
+							switch r.Method {
+							case "POST":
+								s.handleMarkShippedRequest([1]string{
+									args[0],
+								}, elemIsEscaped, w, r)
+							default:
+								s.notAllowed(w, r, notAllowedParams{
+									allowedMethods: "POST",
+									allowedHeaders: rn7AllowedHeaders,
+									acceptPost:     "application/json",
+									acceptPatch:    "",
+								})
+							}
+
+							return
+						}
+
 					}
 
 				}
@@ -231,86 +341,186 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 			break
 		}
 		switch elem[0] {
-		case '/': // Prefix: "/orders"
+		case '/': // Prefix: "/"
 
-			if l := len("/orders"); len(elem) >= l && elem[0:l] == "/orders" {
+			if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
 				elem = elem[l:]
 			} else {
 				break
 			}
 
 			if len(elem) == 0 {
-				switch method {
-				case "POST":
-					r.name = PlaceOrderOperation
-					r.summary = "注文を作成する"
-					r.operationID = "placeOrder"
-					r.operationGroup = ""
-					r.pathPattern = "/orders"
-					r.args = args
-					r.count = 0
-					return r, true
-				default:
-					return
-				}
+				break
 			}
 			switch elem[0] {
-			case '/': // Prefix: "/"
+			case 'o': // Prefix: "orders"
 
-				if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
+				if l := len("orders"); len(elem) >= l && elem[0:l] == "orders" {
 					elem = elem[l:]
 				} else {
 					break
 				}
 
-				// Param: "id"
-				// Match until "/"
-				idx := strings.IndexByte(elem, '/')
-				if idx < 0 {
-					idx = len(elem)
-				}
-				args[0] = elem[:idx]
-				elem = elem[idx:]
-
 				if len(elem) == 0 {
 					switch method {
-					case "GET":
-						r.name = GetOrderOperation
-						r.summary = "注文を照会する"
-						r.operationID = "getOrder"
+					case "POST":
+						r.name = PlaceOrderOperation
+						r.summary = "注文を作成する"
+						r.operationID = "placeOrder"
 						r.operationGroup = ""
-						r.pathPattern = "/orders/{id}"
+						r.pathPattern = "/orders"
 						r.args = args
-						r.count = 1
+						r.count = 0
 						return r, true
 					default:
 						return
 					}
 				}
 				switch elem[0] {
-				case '/': // Prefix: "/cancel"
+				case '/': // Prefix: "/"
 
-					if l := len("/cancel"); len(elem) >= l && elem[0:l] == "/cancel" {
+					if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
 						elem = elem[l:]
 					} else {
 						break
 					}
 
+					// Param: "id"
+					// Match until "/"
+					idx := strings.IndexByte(elem, '/')
+					if idx < 0 {
+						idx = len(elem)
+					}
+					args[0] = elem[:idx]
+					elem = elem[idx:]
+
 					if len(elem) == 0 {
-						// Leaf node.
 						switch method {
-						case "POST":
-							r.name = CancelOrderOperation
-							r.summary = "注文を取り消す"
-							r.operationID = "cancelOrder"
+						case "GET":
+							r.name = GetOrderOperation
+							r.summary = "注文を照会する"
+							r.operationID = "getOrder"
 							r.operationGroup = ""
-							r.pathPattern = "/orders/{id}/cancel"
+							r.pathPattern = "/orders/{id}"
 							r.args = args
 							r.count = 1
 							return r, true
 						default:
 							return
 						}
+					}
+					switch elem[0] {
+					case '/': // Prefix: "/cancel"
+
+						if l := len("/cancel"); len(elem) >= l && elem[0:l] == "/cancel" {
+							elem = elem[l:]
+						} else {
+							break
+						}
+
+						if len(elem) == 0 {
+							// Leaf node.
+							switch method {
+							case "POST":
+								r.name = CancelOrderOperation
+								r.summary = "注文を取り消す"
+								r.operationID = "cancelOrder"
+								r.operationGroup = ""
+								r.pathPattern = "/orders/{id}/cancel"
+								r.args = args
+								r.count = 1
+								return r, true
+							default:
+								return
+							}
+						}
+
+					}
+
+				}
+
+			case 's': // Prefix: "shipments"
+
+				if l := len("shipments"); len(elem) >= l && elem[0:l] == "shipments" {
+					elem = elem[l:]
+				} else {
+					break
+				}
+
+				if len(elem) == 0 {
+					switch method {
+					case "POST":
+						r.name = PrepareShipmentOperation
+						r.summary = "出荷を準備する"
+						r.operationID = "prepareShipment"
+						r.operationGroup = ""
+						r.pathPattern = "/shipments"
+						r.args = args
+						r.count = 0
+						return r, true
+					default:
+						return
+					}
+				}
+				switch elem[0] {
+				case '/': // Prefix: "/"
+
+					if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
+						elem = elem[l:]
+					} else {
+						break
+					}
+
+					// Param: "id"
+					// Match until "/"
+					idx := strings.IndexByte(elem, '/')
+					if idx < 0 {
+						idx = len(elem)
+					}
+					args[0] = elem[:idx]
+					elem = elem[idx:]
+
+					if len(elem) == 0 {
+						switch method {
+						case "GET":
+							r.name = GetShipmentOperation
+							r.summary = "出荷を照会する"
+							r.operationID = "getShipment"
+							r.operationGroup = ""
+							r.pathPattern = "/shipments/{id}"
+							r.args = args
+							r.count = 1
+							return r, true
+						default:
+							return
+						}
+					}
+					switch elem[0] {
+					case '/': // Prefix: "/ship"
+
+						if l := len("/ship"); len(elem) >= l && elem[0:l] == "/ship" {
+							elem = elem[l:]
+						} else {
+							break
+						}
+
+						if len(elem) == 0 {
+							// Leaf node.
+							switch method {
+							case "POST":
+								r.name = MarkShippedOperation
+								r.summary = "出荷を発送済みにする"
+								r.operationID = "markShipped"
+								r.operationGroup = ""
+								r.pathPattern = "/shipments/{id}/ship"
+								r.args = args
+								r.count = 1
+								return r, true
+							default:
+								return
+							}
+						}
+
 					}
 
 				}

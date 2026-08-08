@@ -41,6 +41,18 @@ type GetOrderUnprocessableEntity ProblemResponseStatusCode
 
 func (*GetOrderUnprocessableEntity) getOrderRes() {}
 
+type GetShipmentBadRequest ProblemResponseStatusCode
+
+func (*GetShipmentBadRequest) getShipmentRes() {}
+
+type GetShipmentNotFound ProblemResponseStatusCode
+
+func (*GetShipmentNotFound) getShipmentRes() {}
+
+type GetShipmentUnprocessableEntity ProblemResponseStatusCode
+
+func (*GetShipmentUnprocessableEntity) getShipmentRes() {}
+
 // 1 件のフィールド違反。RFC 9457 の拡張メンバー invalid-params の要素。.
 // Ref: #/components/schemas/InvalidParam
 type InvalidParam struct {
@@ -115,6 +127,8 @@ const (
 	InvalidParamCodeInvalidCustomerID     InvalidParamCode = "invalid_customer_id"
 	InvalidParamCodeInvalidOrderID        InvalidParamCode = "invalid_order_id"
 	InvalidParamCodeInvalidReservationRef InvalidParamCode = "invalid_reservation_ref"
+	InvalidParamCodeInvalidShipmentID     InvalidParamCode = "invalid_shipment_id"
+	InvalidParamCodeInvalidTrackingNumber InvalidParamCode = "invalid_tracking_number"
 )
 
 // AllValues returns all InvalidParamCode values.
@@ -137,6 +151,8 @@ func (InvalidParamCode) AllValues() []InvalidParamCode {
 		InvalidParamCodeInvalidCustomerID,
 		InvalidParamCodeInvalidOrderID,
 		InvalidParamCodeInvalidReservationRef,
+		InvalidParamCodeInvalidShipmentID,
+		InvalidParamCodeInvalidTrackingNumber,
 	}
 }
 
@@ -176,6 +192,10 @@ func (s InvalidParamCode) MarshalText() ([]byte, error) {
 	case InvalidParamCodeInvalidOrderID:
 		return []byte(s), nil
 	case InvalidParamCodeInvalidReservationRef:
+		return []byte(s), nil
+	case InvalidParamCodeInvalidShipmentID:
+		return []byte(s), nil
+	case InvalidParamCodeInvalidTrackingNumber:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -236,10 +256,48 @@ func (s *InvalidParamCode) UnmarshalText(data []byte) error {
 	case InvalidParamCodeInvalidReservationRef:
 		*s = InvalidParamCodeInvalidReservationRef
 		return nil
+	case InvalidParamCodeInvalidShipmentID:
+		*s = InvalidParamCodeInvalidShipmentID
+		return nil
+	case InvalidParamCodeInvalidTrackingNumber:
+		*s = InvalidParamCodeInvalidTrackingNumber
+		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)
 	}
 }
+
+type MarkShippedBadRequest ProblemResponseStatusCode
+
+func (*MarkShippedBadRequest) markShippedRes() {}
+
+type MarkShippedConflict ProblemResponseStatusCode
+
+func (*MarkShippedConflict) markShippedRes() {}
+
+type MarkShippedNotFound ProblemResponseStatusCode
+
+func (*MarkShippedNotFound) markShippedRes() {}
+
+// Ref: #/components/schemas/MarkShippedRequest
+type MarkShippedRequest struct {
+	// 配送業者の追跡番号。空にはできない（検証はドメイン層）。.
+	TrackingNumber string `json:"trackingNumber"`
+}
+
+// GetTrackingNumber returns the value of TrackingNumber.
+func (s *MarkShippedRequest) GetTrackingNumber() string {
+	return s.TrackingNumber
+}
+
+// SetTrackingNumber sets the value of TrackingNumber.
+func (s *MarkShippedRequest) SetTrackingNumber(val string) {
+	s.TrackingNumber = val
+}
+
+type MarkShippedUnprocessableEntity ProblemResponseStatusCode
+
+func (*MarkShippedUnprocessableEntity) markShippedRes() {}
 
 // 金額。最小通貨単位（例 円・セント）の整数と ISO-4217
 // 通貨コードで表す。.
@@ -586,6 +644,39 @@ type PlaceOrderUnprocessableEntity ProblemResponseStatusCode
 
 func (*PlaceOrderUnprocessableEntity) placeOrderRes() {}
 
+type PrepareShipmentBadRequest ProblemResponseStatusCode
+
+func (*PrepareShipmentBadRequest) prepareShipmentRes() {}
+
+type PrepareShipmentConflict ProblemResponseStatusCode
+
+func (*PrepareShipmentConflict) prepareShipmentRes() {}
+
+type PrepareShipmentNotFound ProblemResponseStatusCode
+
+func (*PrepareShipmentNotFound) prepareShipmentRes() {}
+
+// Ref: #/components/schemas/PrepareShipmentRequest
+type PrepareShipmentRequest struct {
+	// 出荷対象の注文の識別子。集約間は識別子で参照するため、ここに載るのは
+	// 注文の識別子だけであり、注文の明細や状態は載らない。.
+	OrderId string `json:"orderId"`
+}
+
+// GetOrderId returns the value of OrderId.
+func (s *PrepareShipmentRequest) GetOrderId() string {
+	return s.OrderId
+}
+
+// SetOrderId sets the value of OrderId.
+func (s *PrepareShipmentRequest) SetOrderId(val string) {
+	s.OrderId = val
+}
+
+type PrepareShipmentUnprocessableEntity ProblemResponseStatusCode
+
+func (*PrepareShipmentUnprocessableEntity) prepareShipmentRes() {}
+
 // RFC 9457 (Problem Details for HTTP APIs) に準拠したエラー表現.
 // Ref: #/components/schemas/ProblemDetails
 type ProblemDetails struct {
@@ -693,3 +784,71 @@ func (s *ProblemResponseStatusCode) SetStatusCode(val int) {
 func (s *ProblemResponseStatusCode) SetResponse(val ProblemDetails) {
 	s.Response = val
 }
+
+// Ref: #/components/schemas/ShipmentView
+type ShipmentView struct {
+	// 出荷の識別子.
+	ID string `json:"id"`
+	// 出荷対象の注文の識別子（識別子による参照。注文の射影は含まない）.
+	OrderId string `json:"orderId"`
+	// 出荷状態（preparing / shipped）.
+	Status string `json:"status"`
+	// 配送業者の追跡番号。preparing の出荷では空文字。.
+	TrackingNumber string `json:"trackingNumber"`
+	// 楽観的排他制御のためのバージョン番号.
+	Version int `json:"version"`
+}
+
+// GetID returns the value of ID.
+func (s *ShipmentView) GetID() string {
+	return s.ID
+}
+
+// GetOrderId returns the value of OrderId.
+func (s *ShipmentView) GetOrderId() string {
+	return s.OrderId
+}
+
+// GetStatus returns the value of Status.
+func (s *ShipmentView) GetStatus() string {
+	return s.Status
+}
+
+// GetTrackingNumber returns the value of TrackingNumber.
+func (s *ShipmentView) GetTrackingNumber() string {
+	return s.TrackingNumber
+}
+
+// GetVersion returns the value of Version.
+func (s *ShipmentView) GetVersion() int {
+	return s.Version
+}
+
+// SetID sets the value of ID.
+func (s *ShipmentView) SetID(val string) {
+	s.ID = val
+}
+
+// SetOrderId sets the value of OrderId.
+func (s *ShipmentView) SetOrderId(val string) {
+	s.OrderId = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ShipmentView) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetTrackingNumber sets the value of TrackingNumber.
+func (s *ShipmentView) SetTrackingNumber(val string) {
+	s.TrackingNumber = val
+}
+
+// SetVersion sets the value of Version.
+func (s *ShipmentView) SetVersion(val int) {
+	s.Version = val
+}
+
+func (*ShipmentView) getShipmentRes()     {}
+func (*ShipmentView) markShippedRes()     {}
+func (*ShipmentView) prepareShipmentRes() {}

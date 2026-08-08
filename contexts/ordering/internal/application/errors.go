@@ -1,6 +1,8 @@
 package application
 
 import (
+	"errors"
+
 	"github.com/example/go-ddd-template/contexts/ordering/port"
 )
 
@@ -25,3 +27,15 @@ var ErrReservationRejected = port.ErrReservationRejected
 // しなかった」と正しく扱え、HTTP マッパは ErrReservationUnavailable を先に判定して 503 を返す。
 // 実体は port に置き、ここではその別名として参照する。
 var ErrReservationUnavailable = port.ErrReservationUnavailable
+
+// ErrOrderNotConfirmedForShipment は、確定済みでない注文に対して出荷を準備しようとした
+// ことを表す番兵。
+//
+// **これがドメイン層ではなくアプリケーション層に在るのは、2 つの集約に跨る事前条件だから
+// である。**「注文が確定済みか」は出荷（Shipment）の不変条件ではない — 不変条件なら
+// 集約自身が守るべきで、そのためには注文の実体を保持することになり「集約間は識別子で
+// 参照する」を壊す。事前条件は、集約をまたいで調整するアプリケーション層が、
+// トランザクションの外で読んだ注文に対して確かめる。
+//
+// port には置かない。コンテキスト境界を跨がない、注文コンテキスト内部の失敗だからである。
+var ErrOrderNotConfirmedForShipment = errors.New("注文が確定状態ではないため出荷を準備できません")

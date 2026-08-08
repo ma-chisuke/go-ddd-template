@@ -18,18 +18,19 @@ import (
 // 別プロセスの送信中継（outbox.Runner）を介さずに決定的にピアへ届けるためのもの。
 // 本番の耐障害な配送は outbox.Runner（ポーリング中継）が担う。
 type UnitOfWork struct {
-	orderRows *OrderRows
-	stores    *Stores
-	sink      outbox.Publisher
-	log       *slog.Logger
+	orderRows    *OrderRows
+	shipmentRows *ShipmentRows
+	stores       *Stores
+	sink         outbox.Publisher
+	log          *slog.Logger
 }
 
 // NewUnitOfWork はインメモリの作業単位を生成する。
 // stores は配送キュー（送信後に削除される一時的なもの）と恒久イベントログ（追記のみ）を
 // 束ねた backing store で、コミット時に CommitStaged で両方へ同時に確定される
 // （PostgreSQL 構成で outbox と events を同一トランザクションに書くのと同じ意味論）。
-func NewUnitOfWork(orderRows *OrderRows, stores *Stores) *UnitOfWork {
-	return &UnitOfWork{orderRows: orderRows, stores: stores}
+func NewUnitOfWork(orderRows *OrderRows, shipmentRows *ShipmentRows, stores *Stores) *UnitOfWork {
+	return &UnitOfWork{orderRows: orderRows, shipmentRows: shipmentRows, stores: stores}
 }
 
 // WithSyncDelivery は開発用の同期配送シンクを設定する（本番では使わない）。設定すると、
@@ -53,10 +54,12 @@ func (u *UnitOfWork) Within(ctx context.Context, fn func(ctx context.Context, r 
 	// 結線。集約を 1 つ足すときに変わるのはここだけで、rows.go の共通機構と
 	// txState には差分が出ない。
 	orders := &staging[orderRow]{target: u.orderRows}
-	tx := &txState{stores: u.stores, groups: []committer{orders}}
+	shipments := &staging[shipmentRow]{target: u.shipmentRows}
+	tx := &txState{stores: u.stores, groups: []committer{orders, shipments}}
 	r := repos{
-		orders: &orderStore{rows: u.orderRows, staging: orders},
-		outbox: &txOutbox{tx: tx},
+		orders:    &orderStore{rows: u.orderRows, staging: orders},
+		shipments: &shipmentStore{rows: u.shipmentRows, staging: shipments},
+		outbox:    &txOutbox{tx: tx},
 	}
 	if err := fn(ctx, r); err != nil {
 		return err // staging を破棄してロールバック
@@ -92,11 +95,13 @@ func (u *UnitOfWork) deliverSync(ctx context.Context, msgs []outbox.Message) {
 
 // repos は application.Repos の実装。
 type repos struct {
-	orders application.OrderStore
-	outbox application.MessagePublisher
+	orders    application.OrderStore
+	shipments application.ShipmentStore
+	outbox    application.MessagePublisher
 }
 
 func (r repos) Orders() application.OrderStore       { return r.orders }
+func (r repos) Shipments() application.ShipmentStore { return r.shipments }
 func (r repos) Outbox() application.MessagePublisher { return r.outbox }
 
 // committer は「このトランザクションで自分に溜まった書き込みを確定する」もの。

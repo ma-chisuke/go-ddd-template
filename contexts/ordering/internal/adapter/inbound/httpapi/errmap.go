@@ -59,8 +59,13 @@ func problemTypeSuffix(err error, status int) string {
 		// E2（そのような経路が無い）とは別の種別。ここは「経路はあるが対象が無い」。
 		return problem.TypeResourceNotFound
 	case http.StatusConflict:
+		// より特殊な種別を先に判定する。同じ 409 でも「在庫予約の拒否」「注文が確定状態でない」
+		// 「出荷／注文自身の状態との矛盾」は原因が違い、クライアントの取るべき行動も違う。
 		if errors.Is(err, application.ErrReservationRejected) {
 			return problem.TypeReservationRejected
+		}
+		if errors.Is(err, application.ErrOrderNotConfirmedForShipment) {
+			return problem.TypeOrderNotConfirmedForShipment
 		}
 		return problem.TypeConflict
 	case http.StatusUnprocessableEntity:
@@ -79,6 +84,8 @@ func detailOf(suffix string) string {
 		return problem.DetailResourceNotFound
 	case problem.TypeConflict, problem.TypeReservationRejected:
 		return problem.DetailConflict
+	case problem.TypeOrderNotConfirmedForShipment:
+		return problem.DetailOrderNotConfirmedForShipment
 	case problem.TypeInvalidInput:
 		return problem.DetailInvalidInput
 	default:
@@ -97,17 +104,25 @@ func classify(err error) (int, string) {
 		return http.StatusServiceUnavailable, "Service Unavailable"
 	case errors.Is(err, application.ErrReservationRejected):
 		return http.StatusConflict, "Conflict"
-	case errors.Is(err, domain.ErrOrderNotFound):
+	case errors.Is(err, domain.ErrOrderNotFound), errors.Is(err, domain.ErrShipmentNotFound):
 		return http.StatusNotFound, "Not Found"
-	case errors.Is(err, domain.ErrOrderNotConfirmed), errors.Is(err, uow.ErrConcurrencyConflict):
+	case errors.Is(err, domain.ErrOrderNotConfirmed),
+		errors.Is(err, domain.ErrShipmentNotPreparing),
+		errors.Is(err, application.ErrOrderNotConfirmedForShipment),
+		errors.Is(err, uow.ErrConcurrencyConflict):
 		return http.StatusConflict, "Conflict"
+	// 番兵を errors.Is で明示列挙する。型（domain.FieldViolation）で書いてはならない —
+	// 型で判定すると一覧の抜けに気づけず、たとえば空の追跡番号が契約の宣言する 422 ではなく
+	// 500 へ落ちる。番兵を 1 つ足したらこの列挙にも 1 行足す。
 	case errors.Is(err, domain.ErrEmptyOrder),
 		errors.Is(err, domain.ErrInvalidSKU),
 		errors.Is(err, domain.ErrInvalidQuantity),
 		errors.Is(err, domain.ErrInvalidMoney),
 		errors.Is(err, domain.ErrInvalidCustomerID),
 		errors.Is(err, domain.ErrInvalidOrderID),
-		errors.Is(err, domain.ErrInvalidReservationRef):
+		errors.Is(err, domain.ErrInvalidReservationRef),
+		errors.Is(err, domain.ErrInvalidShipmentID),
+		errors.Is(err, domain.ErrInvalidTrackingNumber):
 		return http.StatusUnprocessableEntity, "Unprocessable Entity"
 	default:
 		return http.StatusInternalServerError, "Internal Server Error"
