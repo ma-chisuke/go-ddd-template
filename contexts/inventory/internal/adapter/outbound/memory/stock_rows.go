@@ -11,7 +11,6 @@ package memory
 
 import (
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/example/go-ddd-template/contexts/inventory/internal/domain"
@@ -34,21 +33,23 @@ type stockRow struct {
 	reservations []reservationRow
 }
 
-// StockRows は在庫項目集約の確定済み行を保持するインメモリの backing store。
-// 並行アクセスを mutex で守る。
+// StockRows は在庫項目集約の確定済み行（key: SKU 文字列）を保持するインメモリの
+// backing store。共通機構 rows[R]（rows.go）を stockRow で特殊化したものである。
+//
+// 型エイリアス（= ）であって定義型ではない。Go の定義型は基底型のメソッドを継承しないため、
+// = を落とすと get / withLock / applyGroup がすべて消える。同一パッケージの Stores も
+// 同じ手法（shared/outbox/memory.Stores への別名）を採っており、役割の同じ型に同じ手法を
+// 使うほうが読者に一貫して見える。
 //
 // Store の語をこの型に使わないのは規約である（CONVENTIONS.md）。Store は集約ストアの
 // ポート（application.StockStore）とその実装（stockStore / readStockStore）だけが名乗り、
 // 行を溜めておく容れ物は <X>Rows と名づける。<X> はポート名の語幹であって集約ルートの
 // 型名ではないため、StockItem 集約の backing store は StockItemRows ではなく StockRows である。
-type StockRows struct {
-	mu   sync.Mutex
-	rows map[string]stockRow // key: SKU 文字列
-}
+type StockRows = rows[stockRow]
 
 // NewStockRows は空の在庫行 backing store を生成する。
 func NewStockRows() *StockRows {
-	return &StockRows{rows: make(map[string]stockRow)}
+	return &rows[stockRow]{m: make(map[string]stockRow)}
 }
 
 // stockRowToStockItem は確定済みの行から集約を復元する。
@@ -74,80 +75,6 @@ func stockRowToStockItem(r stockRow) (*domain.StockItem, error) {
 		reservations = append(reservations, domain.ReconstituteReservation(ref, rq, rr.status, rr.expiresAt))
 	}
 	return domain.ReconstituteStockItem(r.id, loadedSKU, qty, r.version, reservations), nil
-}
-
-// load は確定済みデータから在庫項目を読み込み、集約を復元する。
-func (s *StockRows) load(sku domain.SKU) (*domain.StockItem, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	r, ok := s.rows[sku.String()]
-	if !ok {
-		return nil, fmt.Errorf("SKU %q: %w", sku.String(), domain.ErrStockItemNotFound)
-	}
-	return stockRowToStockItem(r)
-}
-
-// loadMany は複数 SKU をまとめて読み込む。見つからない SKU は黙って除外する
-// （存在検査はドメインサービス側の事前検証が担う）。
-func (s *StockRows) loadMany(skus []domain.SKU) ([]*domain.StockItem, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	items := make([]*domain.StockItem, 0, len(skus))
-	for _, sku := range skus {
-		r, ok := s.rows[sku.String()]
-		if !ok {
-			continue
-		}
-		item, err := stockRowToStockItem(r)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, item)
-	}
-	return items, nil
-}
-
-// loadByReservation は指定参照を持つ全ての在庫項目を読み込む。
-func (s *StockRows) loadByReservation(ref domain.ReservationRef) ([]*domain.StockItem, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var items []*domain.StockItem
-	for _, r := range s.rows {
-		if !stockRowHasReservation(r, ref.String()) {
-			continue
-		}
-		item, err := stockRowToStockItem(r)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, item)
-	}
-	return items, nil
-}
-
-// loadExpiredPending は before 時点で期限切れの pending 予約を持つ在庫項目を最大 limit 件返す。
-func (s *StockRows) loadExpiredPending(before time.Time, limit int) ([]*domain.StockItem, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var items []*domain.StockItem
-	for _, r := range s.rows {
-		if !stockRowHasExpiredPending(r, before) {
-			continue
-		}
-		item, err := stockRowToStockItem(r)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, item)
-		if limit > 0 && len(items) >= limit {
-			break
-		}
-	}
-	return items, nil
 }
 
 func stockRowHasReservation(r stockRow, ref string) bool {

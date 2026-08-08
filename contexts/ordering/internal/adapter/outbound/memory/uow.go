@@ -50,9 +50,12 @@ var _ application.UnitOfWork = (*UnitOfWork)(nil)
 // エラーを返せば staging を破棄（ロールバック）する。コミット成功後、同期配送シンクが
 // 設定されていれば、そのトランザクションで積まれたメッセージをその場で送出する。
 func (u *UnitOfWork) Within(ctx context.Context, fn func(ctx context.Context, r application.Repos) error) error {
-	tx := &txState{orderRows: u.orderRows, stores: u.stores}
+	// 結線。集約を 1 つ足すときに変わるのはここだけで、rows.go の共通機構と
+	// txState には差分が出ない。
+	orders := &staging[orderRow]{target: u.orderRows}
+	tx := &txState{stores: u.stores, groups: []committer{orders}}
 	r := repos{
-		orders: &orderStore{tx: tx},
+		orders: &orderStore{rows: u.orderRows, staging: orders},
 		outbox: &txOutbox{tx: tx},
 	}
 	if err := fn(ctx, r); err != nil {
@@ -96,26 +99,34 @@ type repos struct {
 func (r repos) Orders() application.OrderStore       { return r.orders }
 func (r repos) Outbox() application.MessagePublisher { return r.outbox }
 
+// committer は「このトランザクションで自分に溜まった書き込みを確定する」もの。
+// staging[R] が R によらず満たす。txState はこれ以上のことを知らない。
+type committer interface{ commit() }
+
 // txState はトランザクション中の保存要求（staging）を蓄える。
+//
+// 集約の種類を知らない。集約ごとの staging は groups に committer として登録され、
+// txState はそれを順に確定するだけである。集約ルートを 1 つ足しても本型と commit は変わらない。
 type txState struct {
-	orderRows  *OrderRows
 	stores     *Stores
-	staged     []orderRow
 	stagedMsgs []outbox.Message
+	groups     []committer // 登録順に確定する
 }
 
-// commit は staging された注文行とメッセージを確定ストアへ適用する。
+// commit は各 staging とメッセージを確定ストアへ適用する。
 //
 // メッセージは Stores.CommitStaged 一発で配送キューと恒久イベントログの両方へ同じコミットで
 // 積む。PostgreSQL 構成で Enqueue が同一トランザクションに両表を書くのと同じ意味論で、
 // 片方だけ残る状態は型に存在しない。
+//
+// 保証するのは「同一 backing store への複数行が不可分に確定する」ところまでで、
+// backing store を跨ぐ不可分性は保証しない（groups を順に確定する間、他のゴルーチンは
+// 中間状態を観測しうる）。1 つのトランザクションで書き込む集約ルートは 1 つに保つため、
+// 複数の groups が非空になる経路は無い。これはインメモリ擬似トランザクションの既知の限界で、
+// PostgreSQL 構成では実トランザクションが跨ぐ不可分性も保証する。
 func (tx *txState) commit() error {
-	if len(tx.staged) > 0 {
-		tx.orderRows.mu.Lock()
-		for _, r := range tx.staged {
-			tx.orderRows.rows[r.id] = r
-		}
-		tx.orderRows.mu.Unlock()
+	for _, g := range tx.groups {
+		g.commit()
 	}
 	tx.stores.CommitStaged(tx.stagedMsgs)
 	return nil

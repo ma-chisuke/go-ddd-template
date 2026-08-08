@@ -11,7 +11,6 @@ package memory
 
 import (
 	"fmt"
-	"sync"
 
 	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 )
@@ -36,32 +35,22 @@ type orderRow struct {
 	lines          []lineRow
 }
 
-// OrderRows は注文集約の確定済み行を保持するインメモリの backing store。
-// 並行アクセスを mutex で守る。
+// OrderRows は注文集約の確定済み行（key: OrderID 文字列）を保持するインメモリの
+// backing store。共通機構 rows[R]（rows.go）を orderRow で特殊化したものである。
+//
+// 型エイリアス（= ）であって定義型ではない。Go の定義型は基底型のメソッドを継承しないため、
+// = を落とすと get / withLock / applyGroup がすべて消える。同一パッケージの Stores も
+// 同じ手法（shared/outbox/memory.Stores への別名）を採っており、役割の同じ型に同じ手法を
+// 使うほうが読者に一貫して見える。
 //
 // Store の語をこの型に使わないのは規約である（CONVENTIONS.md）。Store は集約ストアの
 // ポート（application.OrderStore）とその実装（orderStore / readOrderStore）だけが名乗り、
 // 行を溜めておく容れ物は <集約名>Rows と名づける。
-type OrderRows struct {
-	mu   sync.Mutex
-	rows map[string]orderRow // key: OrderID 文字列
-}
+type OrderRows = rows[orderRow]
 
 // NewOrderRows は空の注文行 backing store を生成する。
 func NewOrderRows() *OrderRows {
-	return &OrderRows{rows: make(map[string]orderRow)}
-}
-
-// load は確定済みデータから注文を読み込み、集約を復元する。
-func (s *OrderRows) load(id domain.OrderID) (*domain.Order, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	r, ok := s.rows[id.String()]
-	if !ok {
-		return nil, fmt.Errorf("注文 %q: %w", id.String(), domain.ErrOrderNotFound)
-	}
-	return orderRowToOrder(r)
+	return &rows[orderRow]{m: make(map[string]orderRow)}
 }
 
 // parseOrderStatus は永続化された文字列を注文状態へ変換する。
