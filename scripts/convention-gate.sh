@@ -627,11 +627,17 @@ domain_type_names() {
 # 2. 同じドメインパッケージで T ∈ C が `*T` の形で語境界一致する箇所を探す
 # 3. 1 件でもあれば fail。報告には**その型を含んでいる型の名前**を添える
 #
+# **報告は「型 × 含んでいる型」ごとに 1 件にまとめ、原因（包含が生じた行）を位置に置く。**
+# ポインタの出現は件数と一覧で添える。1 出現 1 件で報告すると、直すべき 1 行と、そこから
+# 派生しただけの正しいコード（その型のコンストラクタやメソッド）が同じ重みで並び、
+# 何を直せばよいか読んで分からなくなる。実測: Shipment に order *Order を足すと
+# 出現は 14 箇所になるが、直すのは shipment.go の 1 行だけである。
+#
 # 担保するのは「ポインタ経由の漏洩が不可能」までであって「漏洩が不可能」ではない。
 # 公開フィールド経由・複製せずに返したコレクション経由の漏洩は機械検査していない
 # （CONVENTIONS.md に非担保として名指しで挙げてある）。
 check_inner_types_not_pointer() {
-  local ctx dom files t containment container hit
+  local ctx dom files t containment cause container uses n
   for ctx in $(find contexts -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort); do
     dom="$ctx/internal/domain"
     [ -d "$dom" ] || continue
@@ -641,12 +647,10 @@ check_inner_types_not_pointer() {
       [ -z "$t" ] && continue
       containment=$(contained_in "$dom" "$t")
       [ -z "$containment" ] && continue   # 頂点なので対象外
-      container=$(printf '%s' "$containment" | head -n1 | sed -E 's/^.*\(in ([A-Za-z0-9_]+)\)$/\1/')
-      while IFS= read -r hit; do
-        [ -z "$hit" ] && continue
-        report_fail "検査 12 内側の型はポインタで現れない（R-1 / INV-1）" \
-          "$hit: ${t} は ${container} に含まれる型なので、ポインタで集約の外へ出さない（値で渡す）"
-      done < <(
+      # 原因の 1 行（包含が生じた場所）と、それを含んでいる型の名前。
+      cause=$(printf '%s' "$containment" | head -n1)
+      container=$(printf '%s' "$cause" | sed -E 's/^.*\(in ([A-Za-z0-9_]+)\)$/\1/')
+      uses=$(
         # shellcheck disable=SC2086
         awk -v T="$t" -v WL="$WORD_L" -v WR="$WORD_R" '
           {
@@ -660,6 +664,11 @@ check_inner_types_not_pointer() {
           }
         ' $files
       )
+      [ -z "$uses" ] && continue
+      n=$(printf '%s\n' "$uses" | wc -l | tr -d ' ')
+      report_fail "検査 12 内側の型はポインタで現れない（R-1 / INV-1）" \
+        "${cause%% (in *}: ${t} は ${container} に含まれる型なので、ポインタで集約の外へ出さない（値で渡す）。*${t} の出現 ${n} 箇所"
+      printf '%s\n' "$uses" | sed 's/^/    /'
     done < <(domain_type_names "$dom")
   done
 }
@@ -741,7 +750,10 @@ check_repos_are_aggregate_roots() {
     dom="$ctx/internal/domain"
     [ -f "$ports" ] || continue
     [ -d "$dom" ] || continue
-    pairs=$(port_domain_types "$ports")
+    # 同じ（ポート, 型）は 1 回だけ報告する。1 つのポートが同じ集約を戻り値位置と
+    # ポインタ引数位置の両方で運ぶのは正常な形（Load が返し Save が受け取る）なので、
+    # 収集した組をそのまま報告すると同じ原因が 2 回並ぶ。sort -u は決定性も担保する。
+    pairs=$(port_domain_types "$ports" | sort -u)
     [ -z "$pairs" ] && continue
     while read -r port t _; do
       [ -z "$port" ] && continue
@@ -762,7 +774,10 @@ check_repos_are_aggregate_roots() {
 
 # --- 集約ストアポートが運ぶ型 P と集約ルート集合 R（検査 13 / 14 / 15 が使う） --
 #
-# **定義（business-rules.md § 2.2。ここが唯一の定義箇所である）**
+# **定義の唯一の置き場は CONVENTIONS.md の「集約の境界」節
+#   （集約ストアポート・P・R）である。** ここはその実装であって定義ではない。
+#   規則を変えるときは規約を先に直す。
+#
 #   集約ストアポート = ports.go のポートのうち、**戻り値位置またはポインタ引数位置に**
 #                      ドメイン型を運ぶもの
 #   P（集約ストアポートが運ぶ型）= 集約ストアポートが上記 2 つの位置で運ぶドメイン型。
@@ -825,6 +840,12 @@ aggregate_roots() {
 #
 # (a) は contained_in の出力を「含んでいる型が A のもの」で絞るだけでよい
 # （包含判定を 2 度書かない）。
+#
+# **報告で B を「集約ルート」と断定しない。** 対象は R ではなく P なので、B が頂点である
+# 保証はこの検査には無い。実際、内側の型に集約ストアポートを与えると（検査 13 が別途 fail
+# させる形）、その内側の型が P に入って B の位置に現れる。そのとき「集約ルート B」と書くと
+# **偽の主張**になり、しかも名指しするのは正しいコードの側である。P の定義に即して
+# 「集約ストアポートが運ぶ型」と述べる。A 側は P のうち頂点なので「集約ルート」でよい。
 check_roots_dont_hold_roots() {
   local ctx ports dom roots a b hit sig
   for ctx in $(find contexts -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort); do
@@ -841,13 +862,13 @@ check_roots_dont_hold_roots() {
         while IFS= read -r hit; do
           [ -z "$hit" ] && continue
           report_fail "検査 14 集約ルートは他の集約ルートを持たない（R-2 / INV-1）" \
-            "${hit%% (in *}: 集約ルート ${a} が別の集約ルート ${b} を保持している（集約間は識別子で参照する）"
+            "${hit%% (in *}: 集約ルート ${a} が、集約ストアポートが運ぶ型 ${b} をフィールドに保持している（集約間は識別子で参照する）"
         done < <(contained_in "$dom" "$b" | grep " (in ${a})\$" || true)
         # (b) A のメソッドのシグネチャに B が現れる
         while IFS= read -r hit; do
           [ -z "$hit" ] && continue
           report_fail "検査 14 集約ルートは他の集約ルートを持たない（R-2 / INV-1）" \
-            "$hit: 集約ルート ${a} のメソッドが別の集約ルート ${b} を受け渡ししている（集約間は識別子で参照する）"
+            "$hit: 集約ルート ${a} のメソッドが、集約ストアポートが運ぶ型 ${b} を受け渡ししている（集約間は識別子で参照する）"
         done < <(
           # shellcheck disable=SC2086
           awk -v A="$a" -v B="$b" -v WL="$WORD_L" -v WR="$WORD_R" '
