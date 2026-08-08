@@ -6,7 +6,10 @@ package openapi
 type OperationName = string
 
 const (
-	CancelOrderOperation OperationName = "CancelOrder"
-	GetOrderOperation    OperationName = "GetOrder"
-	PlaceOrderOperation  OperationName = "PlaceOrder"
+	CancelOrderOperation     OperationName = "CancelOrder"
+	GetOrderOperation        OperationName = "GetOrder"
+	GetShipmentOperation     OperationName = "GetShipment"
+	MarkShippedOperation     OperationName = "MarkShipped"
+	PlaceOrderOperation      OperationName = "PlaceOrder"
+	PrepareShipmentOperation OperationName = "PrepareShipment"
 )

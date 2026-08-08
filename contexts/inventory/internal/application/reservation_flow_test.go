@@ -25,9 +25,9 @@ type reserveFixture struct {
 	captured    *[]domain.DomainEvent
 }
 
-func newReserveFixture(t *testing.T, work application.UnitOfWork, store *memory.Store) reserveFixture {
+func newReserveFixture(t *testing.T, work application.UnitOfWork, stockRows *memory.StockRows) reserveFixture {
 	t.Helper()
-	read := memory.NewReadStockStore(store)
+	read := memory.NewReadStockStore(stockRows)
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 	log := testLogger()
 
@@ -58,9 +58,9 @@ func TestReserveConfirmRelease_MultiSKU(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewStores())
-	f := newReserveFixture(t, work, store)
+	stockRows := memory.NewStockRows()
+	work := memory.NewUnitOfWork(stockRows, memory.NewStores())
+	f := newReserveFixture(t, work, stockRows)
 
 	// 2 つの SKU を補充する。
 	for _, sku := range []string{"SKU-A", "SKU-B"} {
@@ -111,9 +111,9 @@ func TestReserve_InsufficientStockIsAllOrNothing(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewStores())
-	f := newReserveFixture(t, work, store)
+	stockRows := memory.NewStockRows()
+	work := memory.NewUnitOfWork(stockRows, memory.NewStores())
+	f := newReserveFixture(t, work, stockRows)
 
 	_, _ = f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: "SKU-A", Quantity: 10})
 	_, _ = f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: "SKU-B", Quantity: 2})
@@ -138,9 +138,9 @@ func TestConfirm_NotFound(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewStores())
-	f := newReserveFixture(t, work, store)
+	stockRows := memory.NewStockRows()
+	work := memory.NewUnitOfWork(stockRows, memory.NewStores())
+	f := newReserveFixture(t, work, stockRows)
 
 	require.ErrorIs(t, f.confirmer.Confirm(ctx, "UNKNOWN"), domain.ErrReservationNotFound)
 }
@@ -149,9 +149,9 @@ func TestRelease_UnknownRefIsIdempotent(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewStores())
-	f := newReserveFixture(t, work, store)
+	stockRows := memory.NewStockRows()
+	work := memory.NewUnitOfWork(stockRows, memory.NewStores())
+	f := newReserveFixture(t, work, stockRows)
 
 	// 未知の ref を解放しても成功（冪等 no-op）。
 	require.NoError(t, f.releaser.Release(ctx, "UNKNOWN"), "未知 ref の Release")
@@ -178,10 +178,10 @@ func TestReserve_RetriesOnConflictThenSucceeds(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := memory.NewStore()
-	inner := memory.NewUnitOfWork(store, memory.NewStores())
+	stockRows := memory.NewStockRows()
+	inner := memory.NewUnitOfWork(stockRows, memory.NewStores())
 	flaky := &flakyUoW{inner: inner, failsLeft: 1}
-	f := newReserveFixture(t, flaky, store)
+	f := newReserveFixture(t, flaky, stockRows)
 
 	_, err := f.replenisher.Replenish(ctx, application.ReplenishInput{SKU: "SKU-A", Quantity: 10})
 	require.NoError(t, err, "補充")
@@ -202,8 +202,8 @@ func TestReserve_GivesUpAfterMaxAttempts(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := memory.NewStore()
-	inner := memory.NewUnitOfWork(store, memory.NewStores())
+	stockRows := memory.NewStockRows()
+	inner := memory.NewUnitOfWork(stockRows, memory.NewStores())
 	log := testLogger()
 
 	// まず非フレーキーな UoW で在庫を用意する。

@@ -15,4 +15,4 @@
 // inventory コンテキストの mock と生成モードを揃えている。
 package mock
 
-//go:generate go tool mockgen -typed -destination mock_application.go -package mock github.com/example/go-ddd-template/contexts/ordering/internal/application StockReserver,OrderStore,MessagePublisher,EventDispatcher,Repos
+//go:generate go tool mockgen -typed -destination mock_application.go -package mock github.com/example/go-ddd-template/contexts/ordering/internal/application StockReserver,OrderStore,ShipmentStore,MessagePublisher,EventDispatcher,Repos

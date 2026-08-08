@@ -212,7 +212,7 @@ func TestStockItem_ReapExpired(t *testing.T) {
 func TestReconstituteStockItem_WithReservations(t *testing.T) {
 	t.Parallel()
 
-	res := []*domain.Reservation{
+	res := []domain.Reservation{
 		domain.ReconstituteReservation(mustRef(t, "RES-1"), mustQuantity(t, 4), domain.ReservationPending, time.Now().Add(time.Hour)),
 		domain.ReconstituteReservation(mustRef(t, "RES-2"), mustQuantity(t, 6), domain.ReservationConfirmed, time.Time{}),
 	}

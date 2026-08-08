@@ -65,6 +65,30 @@ func (s *GetOrderUnprocessableEntity) Validate() error {
 	return nil
 }
 
+func (s *GetShipmentBadRequest) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *GetShipmentNotFound) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *GetShipmentUnprocessableEntity) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *InvalidParam) Validate() error {
 	if s == nil {
 		return validate.ErrNilPointer
@@ -124,9 +148,45 @@ func (s InvalidParamCode) Validate() error {
 		return nil
 	case "invalid_reservation_ref":
 		return nil
+	case "invalid_shipment_id":
+		return nil
+	case "invalid_tracking_number":
+		return nil
 	default:
 		return errors.Errorf("invalid value: %v", s)
 	}
+}
+
+func (s *MarkShippedBadRequest) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *MarkShippedConflict) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *MarkShippedNotFound) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *MarkShippedUnprocessableEntity) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *OrderView) Validate() error {
@@ -200,6 +260,38 @@ func (s *PlaceOrderServiceUnavailable) Validate() error {
 }
 
 func (s *PlaceOrderUnprocessableEntity) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *PrepareShipmentBadRequest) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *PrepareShipmentConflict) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *PrepareShipmentNotFound) Validate() error {
+	alias := (*ProblemResponseStatusCode)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *PrepareShipmentUnprocessableEntity) Validate() error {
 	alias := (*ProblemResponseStatusCode)(s)
 	if err := alias.Validate(); err != nil {
 		return err

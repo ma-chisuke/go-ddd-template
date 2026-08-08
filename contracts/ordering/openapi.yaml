@@ -122,6 +122,117 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  # 出荷（Shipment）は注文とは別の集約ルートである。したがってパスも /orders/{id}/shipments
+  # ではなく /shipments に置く。URL の階層は集約の階層を反映させる。注文への参照は
+  # リクエスト本文の orderId で表す — 「集約間は識別子で参照する」を API の形でも示す。
+  /shipments:
+    post:
+      operationId: prepareShipment
+      summary: 出荷を準備する
+      description: |
+        指定した注文に対する出荷を準備する（preparing 状態で作成する）。準備できるのは
+        confirmed 状態の注文に対してのみ。注文の確認は出荷トランザクションの外で行い、
+        トランザクションの内では出荷だけを書き込む（1 トランザクション 1 集約ルート）。
+
+        このオペレーションは冪等ではない。同じ注文に対して 2 回呼べば 2 つの出荷ができる。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrepareShipmentRequest'
+      responses:
+        '201':
+          description: 準備された出荷
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipmentView'
+        # このオペレーションが実際に返しうる 4xx/5xx（errmap.go の classify に対応）。
+        #   400 契約／本文の検証失敗（ErrorHandler 経由）
+        #   404 注文が存在しない（resource-not-found）
+        #   409 注文が confirmed でない（order-not-confirmed-for-shipment）
+        #   422 注文 ID のドメイン検証失敗（例 空白のみ）
+        # 上記以外の未処理エラーは default（= 500）へ落ちる。
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '422':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /shipments/{id}:
+    get:
+      operationId: getShipment
+      summary: 出荷を照会する
+      description: 指定した出荷 ID の現在の状態を返す。
+      parameters:
+        - $ref: '#/components/parameters/ShipmentIDPath'
+      responses:
+        '200':
+          description: 現在の出荷状態
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipmentView'
+        # このオペレーションが実際に返しうる 4xx/5xx（errmap.go の classify に対応）。
+        #   400 パスパラメータの契約検証失敗
+        #   404 出荷が存在しない（resource-not-found）
+        #   422 出荷 ID のドメイン検証失敗（例 空白のみ）
+        # 上記以外の未処理エラーは default（= 500）へ落ちる。
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '422':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  # 状態遷移をサブリソースへの POST で表す（POST /orders/{id}/cancel と同じ形）。
+  /shipments/{id}/ship:
+    post:
+      operationId: markShipped
+      summary: 出荷を発送済みにする
+      description: |
+        指定した出荷を発送済み（shipped）にし、追跡番号を確定する。遷移できるのは
+        preparing 状態の出荷のみで、再発送は無い。更新は楽観的排他制御に従う。
+      parameters:
+        - $ref: '#/components/parameters/ShipmentIDPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarkShippedRequest'
+      responses:
+        '200':
+          description: 発送後の出荷状態
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipmentView'
+        # このオペレーションが実際に返しうる 4xx/5xx（errmap.go の classify に対応）。
+        #   400 契約／本文・パスパラメータの検証失敗
+        #   404 出荷が存在しない（resource-not-found）
+        #   409 出荷が preparing でない、または楽観的排他の衝突（conflict）
+        #   422 出荷 ID・追跡番号のドメイン検証失敗（例 空白のみ）
+        # 上記以外の未処理エラーは default（= 500）へ落ちる。
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '422':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
 components:
   parameters:
     OrderIDPath:
@@ -129,6 +240,15 @@ components:
       in: path
       required: true
       description: 注文の識別子（不透明な ID）
+      schema:
+        type: string
+        minLength: 1
+
+    ShipmentIDPath:
+      name: id
+      in: path
+      required: true
+      description: 出荷の識別子（不透明な ID）
       schema:
         type: string
         minLength: 1
@@ -280,6 +400,61 @@ components:
         reservationRef: ORDER-abc
         version: 1
 
+    PrepareShipmentRequest:
+      type: object
+      required:
+        - orderId
+      properties:
+        orderId:
+          type: string
+          description: |
+            出荷対象の注文の識別子。集約間は識別子で参照するため、ここに載るのは
+            注文の識別子だけであり、注文の明細や状態は載らない。
+      example:
+        orderId: ORDER-abc
+
+    MarkShippedRequest:
+      type: object
+      required:
+        - trackingNumber
+      properties:
+        trackingNumber:
+          type: string
+          description: 配送業者の追跡番号。空にはできない（検証はドメイン層）。
+      example:
+        trackingNumber: TRACK-0001
+
+    ShipmentView:
+      type: object
+      required:
+        - id
+        - orderId
+        - status
+        - trackingNumber
+        - version
+      properties:
+        id:
+          type: string
+          description: 出荷の識別子
+        orderId:
+          type: string
+          description: 出荷対象の注文の識別子（識別子による参照。注文の射影は含まない）
+        status:
+          type: string
+          description: 出荷状態（preparing / shipped）
+        trackingNumber:
+          type: string
+          description: 配送業者の追跡番号。preparing の出荷では空文字。
+        version:
+          type: integer
+          description: 楽観的排他制御のためのバージョン番号
+      example:
+        id: SHIP-abc
+        orderId: ORDER-abc
+        status: shipped
+        trackingNumber: TRACK-0001
+        version: 2
+
     ProblemDetails:
       type: object
       description: RFC 9457 (Problem Details for HTTP APIs) に準拠したエラー表現
@@ -372,6 +547,8 @@ components:
             - invalid_customer_id
             - invalid_order_id
             - invalid_reservation_ref
+            - invalid_shipment_id
+            - invalid_tracking_number
         reason:
           type: string
           description: 人間可読な説明。code から導出される定型文であり、受信値を含まない。

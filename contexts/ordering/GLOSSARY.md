@@ -13,7 +13,11 @@
 
 | 語（Go 型） | 業務上の意味 | 種別 | 定義ファイル |
 | --- | --- | --- | --- |
-| `Order` | 顧客からの 1 件の注文。`OrderID` で識別し、明細を子として内包する。合計金額を自ら導出し、取消は Confirmed からのみ許す | 集約ルート | [internal/domain.go](internal/domain.go) |
+| `Order` | 顧客からの 1 件の注文。`OrderID` で識別し、明細を子として内包する。合計金額を自ら導出し、取消は Confirmed からのみ許す | 集約ルート | [internal/domain/order.go](internal/domain/order.go) |
+| `Shipment` | 1 件の出荷。`ShipmentID` で識別し、対象の注文を **`OrderID` で参照する**（注文の実体は持たない）。`preparing` から `shipped` へ 1 度だけ遷移する | 集約ルート | [internal/domain/shipment.go](internal/domain/shipment.go) |
+| `ShipmentID` | 出荷の識別子。採番はアプリケーション層が行う | 値オブジェクト | [internal/domain/shipment.go](internal/domain/shipment.go) |
+| `ShipmentStatus` | 出荷の状態（`preparing` / `shipped`）。再発送は無い | 値オブジェクト | [internal/domain/shipment.go](internal/domain/shipment.go) |
+| `TrackingNumber` | 配送業者の追跡番号。`shipped` のときのみ意味を持ち、`preparing` の間はゼロ値 | 値オブジェクト | [internal/domain/shipment.go](internal/domain/shipment.go) |
 | `OrderLine` | 注文明細の 1 行。SKU・数量・単価の対で、小計（単価 × 数量）を導出する | 子要素（値） | [internal/domain/order_line.go](internal/domain/order_line.go) |
 | `OrderID` | 注文の識別子。採番はアプリケーション層が行い、ドメインは与えられた文字列を検証して包む | 値オブジェクト | [internal/domain/order.go](internal/domain/order.go) |
 | `CustomerID` | 注文した顧客の識別子 | 値オブジェクト | [internal/domain/order.go](internal/domain/order.go) |

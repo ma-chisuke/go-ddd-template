@@ -200,11 +200,12 @@ func TestValidationPath_NonValidationErrorsPassThrough(t *testing.T) {
 	t.Run("並行: 版衝突が再試行上限を超えると 409 系になる", func(t *testing.T) {
 		t.Parallel()
 
-		store := memory.NewStore()
+		orderRows := memory.NewOrderRows()
+		shipmentRows := memory.NewShipmentRows()
 		stores := memory.NewStores()
 		// 再試行上限（既定 3）を超える回数だけ衝突を注入し、UoW を必ず失敗させる。
-		work := &flakyUoW{inner: memory.NewUnitOfWork(store, stores), failsLeft: 10}
-		f := newMemFixtureWith(t, work, store, stores)
+		work := &flakyUoW{inner: memory.NewUnitOfWork(orderRows, shipmentRows, stores), failsLeft: 10}
+		f := newMemFixtureWith(t, work, orderRows, shipmentRows, stores)
 		f.reserver.EXPECT().Reserve(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 		f.reserver.EXPECT().Release(gomock.Any(), gomock.Any()).Return(nil)
 

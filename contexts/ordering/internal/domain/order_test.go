@@ -56,7 +56,7 @@ func TestNewOrder(t *testing.T) {
 		}
 		o, err := domain.NewOrder(id, mustCustomerID(t, "CUST-1"), lines)
 		require.NoError(t, err)
-		assert.Equal(t, domain.StatusConfirmed, o.Status())
+		assert.Equal(t, domain.OrderStatusConfirmed, o.Status())
 		assert.Equal(t, int64(4600), o.Total().Amount())
 		assert.Equal(t, "JPY", o.Total().Currency())
 		// 予約参照は注文 ID から決定的に導出される。
@@ -101,7 +101,7 @@ func TestOrderCancel(t *testing.T) {
 
 		o := newConfirmed(t)
 		require.NoError(t, o.Cancel())
-		assert.Equal(t, domain.StatusCancelled, o.Status())
+		assert.Equal(t, domain.OrderStatusCancelled, o.Status())
 		events := o.PullEvents()
 		assert.Equal(t, 1, eventNames(events)["ordering.order_cancelled"])
 		// OrderCancelled は予約参照を運ぶ（在庫解放の駆動用）。
@@ -132,11 +132,11 @@ func TestReconstituteAndGetters(t *testing.T) {
 	ref, err := domain.NewReservationRef("REF-9")
 	require.NoError(t, err, "ReservationRef 生成失敗")
 
-	o := domain.ReconstituteOrder(id, cust, lines, domain.StatusCancelled, total, ref, 3)
+	o := domain.ReconstituteOrder(id, cust, lines, domain.OrderStatusCancelled, total, ref, 3)
 
 	assert.Equal(t, "ORDER-9", o.ID().String())
 	assert.Equal(t, "CUST-9", o.CustomerID().String())
-	assert.Equal(t, domain.StatusCancelled, o.Status())
+	assert.Equal(t, domain.OrderStatusCancelled, o.Status())
 	assert.Equal(t, 3, o.Version())
 	assert.Equal(t, "REF-9", o.ReservationRef().String())
 	got := o.Lines()
@@ -158,13 +158,13 @@ func TestReconstituteAndGetters(t *testing.T) {
 func TestStatusString(t *testing.T) {
 	t.Parallel()
 
-	cases := map[domain.Status]string{
-		domain.StatusConfirmed: "confirmed",
-		domain.StatusCancelled: "cancelled",
-		domain.Status(99):      "unknown",
+	cases := map[domain.OrderStatus]string{
+		domain.OrderStatusConfirmed: "confirmed",
+		domain.OrderStatusCancelled: "cancelled",
+		domain.OrderStatus(99):      "unknown",
 	}
 	for s, want := range cases {
-		assert.Equal(t, want, s.String(), "Status(%d).String()", int(s))
+		assert.Equal(t, want, s.String(), "OrderStatus(%d).String()", int(s))
 	}
 }
 

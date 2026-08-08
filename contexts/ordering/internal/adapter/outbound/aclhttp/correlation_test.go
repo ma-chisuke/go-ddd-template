@@ -30,11 +30,11 @@ func TestTraceIDFlowsPlaceToReserve(t *testing.T) {
 	reserver := aclhttp.NewReserver(mustClient(t, ts.URL))
 
 	// 注文作成ユースケースをインメモリで組み立て、ACL だけ実 HTTP アダプタにする。
-	store := memory.NewStore()
+	orderRows := memory.NewOrderRows()
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	place := application.NewPlaceOrder(
 		uow.NewExecutor(uow.WithBaseBackoff(0)),
-		memory.NewUnitOfWork(store, memory.NewStores()),
+		memory.NewUnitOfWork(orderRows, memory.NewShipmentRows(), memory.NewStores()),
 		reserver,
 		event.NewTyped[domain.DomainEvent](log),
 		log,

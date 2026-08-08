@@ -31,6 +31,24 @@ FROM ordering.order_lines
 WHERE order_id = $1
 ORDER BY line_no ASC;
 
+-- name: GetShipmentByID :one
+-- ID で出荷を 1 件取得する。存在しなければ pgx.ErrNoRows が返る。
+SELECT id, order_id, status, tracking_number, version
+FROM ordering.shipments
+WHERE id = $1;
+
+-- name: InsertShipment :exec
+-- 出荷を新規挿入する（version は 1 から始まる）。
+INSERT INTO ordering.shipments (id, order_id, status, tracking_number, version)
+VALUES ($1, $2, $3, $4, $5);
+
+-- name: UpdateShipment :execrows
+-- 楽観的排他制御つきの更新。期待バージョンが一致する行だけを更新し、影響行数を返す。
+-- 0 行なら版が食い違っている（＝衝突）ことを意味する。出荷の可変部分は状態と追跡番号。
+UPDATE ordering.shipments
+SET status = $1, tracking_number = $2, version = $3, updated_at = now()
+WHERE id = $4 AND version = $5;
+
 -- name: InsertOutboxMessage :exec
 -- アウトボックス（一時的な配送キュー）へメッセージを積む。
 -- 集約書き込み・InsertEvent と同一トランザクションで実行する。

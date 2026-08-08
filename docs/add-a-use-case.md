@@ -43,14 +43,14 @@
 - 新しいポートの実装は**出口アダプタ**（`internal/adapter/outbound/`）に置きます。テンプレートは
   ポートごとに **インメモリ実装** と **PostgreSQL 実装（pgx + sqlc）** の両方を持ちます。両方を
   実装してください（インメモリは擬似トランザクションと楽観ロックを備えた本物のアダプタ）。
-- 永続化が要るなら `db/queries.sql`（必要なら `db/schema.sql`）を編集し、`go generate ./...` で
+- 永続化が要るなら `db/queries.sql`（必要なら `db/schema.sql`）を編集し、`make generate` で
   sqlc を再生成します（**生成物は手編集しない**）。宣言的スキーマは psqldef で適用されます。
 
 ## 4. 入口と契約（公開 API）
 
 - 公開 API に出すなら、**契約を先に**変更します（`contracts/<ctx>/openapi.yaml`）。契約は真実の
   源で、ここから ogen がサーバを生成します。
-- `go generate ./...` で ogen を再生成し、**入口アダプタ**（`internal/adapter/inbound/httpapi/`、
+- `make generate` で ogen を再生成し、**入口アダプタ**（`internal/adapter/inbound/httpapi/`、
   パッケージ `httpapi`）の薄いハンドラを生成型に合わせて更新します。ハンドラは HTTP と
   ユースケースの相互変換だけを行い、業務ロジックは持ちません。
 - エラーの HTTP 変換は `errmap.go` の `NewError` を更新します（センチネル → 404 / 422 / 409 など、

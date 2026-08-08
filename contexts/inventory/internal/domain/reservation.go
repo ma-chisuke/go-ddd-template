@@ -54,24 +54,24 @@ type Reservation struct {
 
 // ReconstituteReservation は永続化された状態から予約を復元する。
 // 送信アダプタ（リポジトリ）が保存済みの行から集約を再構築する際に用いる。
-func ReconstituteReservation(ref ReservationRef, qty Quantity, status ReservationStatus, expiresAt time.Time) *Reservation {
-	return &Reservation{ref: ref, qty: qty, status: status, expiresAt: expiresAt}
+func ReconstituteReservation(ref ReservationRef, qty Quantity, status ReservationStatus, expiresAt time.Time) Reservation {
+	return Reservation{ref: ref, qty: qty, status: status, expiresAt: expiresAt}
 }
 
 // Ref は予約参照を返す。
-func (r *Reservation) Ref() ReservationRef { return r.ref }
+func (r Reservation) Ref() ReservationRef { return r.ref }
 
 // Quantity は予約数量を返す。
-func (r *Reservation) Quantity() Quantity { return r.qty }
+func (r Reservation) Quantity() Quantity { return r.qty }
 
 // Status は予約状態を返す。
-func (r *Reservation) Status() ReservationStatus { return r.status }
+func (r Reservation) Status() ReservationStatus { return r.status }
 
 // ExpiresAt は失効時刻を返す（pending のときのみ有効。confirmed ではゼロ値）。
-func (r *Reservation) ExpiresAt() time.Time { return r.expiresAt }
+func (r Reservation) ExpiresAt() time.Time { return r.expiresAt }
 
 // isExpired は now 時点で失効しているかどうかを返す（pending 判定は呼び出し側で行う）。
-func (r *Reservation) isExpired(now time.Time) bool {
+func (r Reservation) isExpired(now time.Time) bool {
 	return !r.expiresAt.IsZero() && !now.Before(r.expiresAt)
 }
 

@@ -34,9 +34,9 @@ import (
 func newHandler(t *testing.T) http.Handler {
 	t.Helper()
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewStores())
-	read := memory.NewReadStockStore(store)
+	stockRows := memory.NewStockRows()
+	work := memory.NewUnitOfWork(stockRows, memory.NewStores())
+	read := memory.NewReadStockStore(stockRows)
 	exec := uow.NewExecutor(uow.WithBaseBackoff(0))
 	dispatcher := event.NewTyped[domain.DomainEvent](log)
 

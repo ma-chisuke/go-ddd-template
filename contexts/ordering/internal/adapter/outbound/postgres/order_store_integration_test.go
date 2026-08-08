@@ -53,7 +53,7 @@ func setupPool(t *testing.T) *pgxpool.Pool {
 
 	// order_lines は orders を参照するため CASCADE で一括初期化する。
 	// events は恒久ログだがテストの再実行で ID が衝突するため、ここでは併せて初期化する。
-	_, err = pool.Exec(ctx, "TRUNCATE ordering.orders, ordering.outbox, ordering.events CASCADE")
+	_, err = pool.Exec(ctx, "TRUNCATE ordering.orders, ordering.shipments, ordering.outbox, ordering.events CASCADE")
 	require.NoError(t, err, "テーブル初期化に失敗（スキーマ未適用の可能性）")
 	return pool
 }

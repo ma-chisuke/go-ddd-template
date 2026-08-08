@@ -35,7 +35,7 @@ type StockItem struct {
 	id           string
 	sku          SKU
 	available    Quantity
-	reservations map[string]*Reservation // key: ReservationRef.String()。有効な予約のみを保持する。
+	reservations map[string]Reservation // key: ReservationRef.String()。有効な予約のみを保持する。
 	version      int
 	events       []DomainEvent
 }
@@ -50,7 +50,7 @@ func NewStockItem(id string, sku SKU) (*StockItem, error) {
 		id:           id,
 		sku:          sku,
 		available:    Quantity{}, // 数量 0
-		reservations: make(map[string]*Reservation),
+		reservations: make(map[string]Reservation),
 		version:      0,
 	}, nil
 }
@@ -59,8 +59,8 @@ func NewStockItem(id string, sku SKU) (*StockItem, error) {
 // リポジトリ（送信アダプタ）が保存済みの行から集約を再構築する際に用いる。
 // すでに検証済みの状態を組み立て直すだけなので、ドメインイベントは発生させない。
 // reservations は復元対象の有効な予約（pending / confirmed）の一覧。
-func ReconstituteStockItem(id string, sku SKU, available Quantity, version int, reservations []*Reservation) *StockItem {
-	m := make(map[string]*Reservation, len(reservations))
+func ReconstituteStockItem(id string, sku SKU, available Quantity, version int, reservations []Reservation) *StockItem {
+	m := make(map[string]Reservation, len(reservations))
 	for _, r := range reservations {
 		m[r.ref.String()] = r
 	}
@@ -122,7 +122,7 @@ func (s *StockItem) Reserve(ref ReservationRef, qty Quantity, ttl time.Duration)
 		return err
 	}
 	s.available = remaining
-	s.reservations[ref.String()] = &Reservation{
+	s.reservations[ref.String()] = Reservation{
 		ref:       ref,
 		qty:       qty,
 		status:    ReservationPending,
@@ -160,8 +160,11 @@ func (s *StockItem) Confirm(ref ReservationRef) error {
 	if r.status == ReservationConfirmed {
 		return nil // 冪等 no-op
 	}
+	// Reservation は値型なので、マップから取り出した r への代入は集約に反映されない。
+	// 変更した値をマップへ書き戻す（read-modify-write）。
 	r.status = ReservationConfirmed
 	r.expiresAt = time.Time{} // TTL をクリア
+	s.reservations[ref.String()] = r
 	s.recordEvent(StockReservationConfirmed{
 		SKU:            s.sku.String(),
 		ReservationRef: ref.String(),
@@ -234,8 +237,8 @@ func (s *StockItem) Reserved() Quantity {
 
 // Reservations は集約が保持する有効な予約の一覧を返す（永続化アダプタが状態を書き出す用）。
 // 返すのはコピーであり、これを変更しても集約の状態には影響しない。
-func (s *StockItem) Reservations() []*Reservation {
-	out := make([]*Reservation, 0, len(s.reservations))
+func (s *StockItem) Reservations() []Reservation {
+	out := make([]Reservation, 0, len(s.reservations))
 	for _, r := range s.reservations {
 		out = append(out, r)
 	}

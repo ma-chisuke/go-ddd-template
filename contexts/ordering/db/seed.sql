@@ -1,7 +1,8 @@
 -- 注文コンテキストの「本番参照データ」（production reference data）。冪等な upsert。
 --
--- 注文コンテキストのテーブル（orders / order_lines / outbox）はいずれも実行時に作られる
--- トランザクションデータであり、事前に投入すべき参照データ（マスタ）は存在しない。
+-- 注文コンテキストのテーブル（orders / order_lines / shipments / outbox / events）は
+-- いずれも実行時に作られるトランザクションデータであり、事前に投入すべき参照データ
+-- （マスタ）は存在しない。
 -- したがってこの seed は現時点で空である。
 --
 -- このファイルを空でも用意しておくのは、各コンテキストが「schema / roles / seed / fixtures」

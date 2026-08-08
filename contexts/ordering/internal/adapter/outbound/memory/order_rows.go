@@ -11,7 +11,6 @@ package memory
 
 import (
 	"fmt"
-	"sync"
 
 	"github.com/example/go-ddd-template/contexts/ordering/internal/domain"
 )
@@ -24,8 +23,8 @@ type lineRow struct {
 	currency  string
 }
 
-// record は確定済み（コミット済み）の注文行（明細を含む）。
-type record struct {
+// orderRow は確定済み（コミット済み）の注文行（明細を含む）。
+type orderRow struct {
 	id             string
 	customerID     string
 	status         string
@@ -36,43 +35,38 @@ type record struct {
 	lines          []lineRow
 }
 
-// Store はインメモリの確定済みデータを保持する。並行アクセスを mutex で守る。
-type Store struct {
-	mu   sync.Mutex
-	rows map[string]record // key: OrderID 文字列
+// OrderRows は注文集約の確定済み行（key: OrderID 文字列）を保持するインメモリの
+// backing store。共通機構 rows[R]（rows.go）を orderRow で特殊化したものである。
+//
+// 型エイリアス（= ）であって定義型ではない。Go の定義型は基底型のメソッドを継承しないため、
+// = を落とすと get / withLock / applyGroup がすべて消える。同一パッケージの Stores も
+// 同じ手法（shared/outbox/memory.Stores への別名）を採っており、役割の同じ型に同じ手法を
+// 使うほうが読者に一貫して見える。
+//
+// Store の語をこの型に使わないのは規約である（CONVENTIONS.md）。Store は集約ストアの
+// ポート（application.OrderStore）とその実装（orderStore / readOrderStore）だけが名乗り、
+// 行を溜めておく容れ物は <集約名>Rows と名づける。
+type OrderRows = rows[orderRow]
+
+// NewOrderRows は空の注文行 backing store を生成する。
+func NewOrderRows() *OrderRows {
+	return &rows[orderRow]{m: make(map[string]orderRow)}
 }
 
-// NewStore は空の注文ストアを生成する。
-func NewStore() *Store {
-	return &Store{rows: make(map[string]record)}
-}
-
-// load は確定済みデータから注文を読み込み、集約を復元する。
-func (s *Store) load(id domain.OrderID) (*domain.Order, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	r, ok := s.rows[id.String()]
-	if !ok {
-		return nil, fmt.Errorf("注文 %q: %w", id.String(), domain.ErrOrderNotFound)
-	}
-	return recordToOrder(r)
-}
-
-// parseStatus は永続化された文字列を注文状態へ変換する。
-func parseStatus(s string) (domain.Status, error) {
+// parseOrderStatus は永続化された文字列を注文状態へ変換する。
+func parseOrderStatus(s string) (domain.OrderStatus, error) {
 	switch s {
 	case "confirmed":
-		return domain.StatusConfirmed, nil
+		return domain.OrderStatusConfirmed, nil
 	case "cancelled":
-		return domain.StatusCancelled, nil
+		return domain.OrderStatusCancelled, nil
 	default:
-		return domain.StatusConfirmed, fmt.Errorf("永続化された注文状態が不正です: %q", s)
+		return domain.OrderStatusConfirmed, fmt.Errorf("永続化された注文状態が不正です: %q", s)
 	}
 }
 
-// recordToOrder は確定済みの行から集約を復元する。
-func recordToOrder(r record) (*domain.Order, error) {
+// orderRowToOrder は確定済みの行から集約を復元する。
+func orderRowToOrder(r orderRow) (*domain.Order, error) {
 	orderID, err := domain.NewOrderID(r.id)
 	if err != nil {
 		return nil, fmt.Errorf("永続化された注文 ID が不正です: %w", err)
@@ -81,7 +75,7 @@ func recordToOrder(r record) (*domain.Order, error) {
 	if err != nil {
 		return nil, fmt.Errorf("永続化された顧客 ID が不正です: %w", err)
 	}
-	status, err := parseStatus(r.status)
+	status, err := parseOrderStatus(r.status)
 	if err != nil {
 		return nil, err
 	}
@@ -112,8 +106,8 @@ func recordToOrder(r record) (*domain.Order, error) {
 	return domain.ReconstituteOrder(orderID, customer, lines, status, total, ref, r.version), nil
 }
 
-// orderToRecord は集約を、指定バージョンで確定行へ変換する（明細を含む）。
-func orderToRecord(o *domain.Order, version int) record {
+// orderToOrderRow は集約を、指定バージョンで確定行へ変換する（明細を含む）。
+func orderToOrderRow(o *domain.Order, version int) orderRow {
 	lines := make([]lineRow, 0, len(o.Lines()))
 	for _, l := range o.Lines() {
 		lines = append(lines, lineRow{
@@ -123,7 +117,7 @@ func orderToRecord(o *domain.Order, version int) record {
 			currency:  l.UnitPrice().Currency(),
 		})
 	}
-	return record{
+	return orderRow{
 		id:             o.ID().String(),
 		customerID:     o.CustomerID().String(),
 		status:         o.Status().String(),

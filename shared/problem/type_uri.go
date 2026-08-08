@@ -27,6 +27,10 @@ const (
 	TypeConflict = "conflict"
 	// TypeReservationRejected は 409。在庫予約の拒否（E4。注文コンテキストのみ）。
 	TypeReservationRejected = "reservation-rejected"
+	// TypeOrderNotConfirmedForShipment は 409。confirmed でない注文に対する出荷準備
+	// （E4。注文コンテキストのみ）。同じ 409 でも TypeConflict（出荷自身の状態との矛盾）
+	// とは原因が違うため別の種別を与える（規則 R-2）。
+	TypeOrderNotConfirmedForShipment = "order-not-confirmed-for-shipment"
 	// TypeServiceUnavailable は 503。依存サービス不達（E4。注文コンテキストのみ）。
 	TypeServiceUnavailable = "service-unavailable"
 	// TypeInternalError は 500。予期しないエラー（全経路）。
@@ -45,6 +49,9 @@ const (
 	DetailResourceNotFound = "要求されたリソースは存在しません"
 	DetailConflict         = "現在の状態ではこの操作を実行できません"
 	DetailInvalidInput     = "入力値がドメインの規則を満たしていません"
+	// DetailOrderNotConfirmedForShipment は 409 のうち「注文が確定状態でない」経路。
+	// TypeConflict と別の種別を与えたので detail も分ける（種別ごとに 1 つの定型文）。
+	DetailOrderNotConfirmedForShipment = "注文が確定状態ではないため出荷を準備できません"
 	// DetailInternalError は 5xx 全般に使う（既存の NewError の文言を維持する）。
 	DetailInternalError = "予期しないエラーが発生しました"
 )
@@ -65,8 +72,11 @@ var titles = map[string]string{
 	TypeResourceNotFound:     "Resource Not Found",
 	TypeConflict:             "Conflict",
 	TypeReservationRejected:  "Reservation Rejected",
-	TypeServiceUnavailable:   "Service Unavailable",
-	TypeInternalError:        "Internal Server Error",
+	// title を足さないと TitleOf が理由句 "Conflict" へ fallback し、409 の 3 種別が
+	// 同じ title になって「title は type と 1 対 1」（規則 R-3）が壊れる。
+	TypeOrderNotConfirmedForShipment: "Order Not Confirmed For Shipment",
+	TypeServiceUnavailable:           "Service Unavailable",
+	TypeInternalError:                "Internal Server Error",
 }
 
 // TitleOf は type サフィックスに対応する title を返す。台帳に無いサフィックスでは

@@ -54,7 +54,7 @@ func (s *orderStore) reconstitute(ctx context.Context, row sqlcgen.GetOrderByIDR
 	if err != nil {
 		return nil, fmt.Errorf("永続化された顧客 ID が不正です: %w", err)
 	}
-	status, err := parseStatus(row.Status)
+	status, err := parseOrderStatus(row.Status)
 	if err != nil {
 		return nil, err
 	}
@@ -156,14 +156,14 @@ func (s *orderStore) update(ctx context.Context, o *domain.Order) error {
 	return nil
 }
 
-// parseStatus は永続化された文字列を注文状態へ変換する。
-func parseStatus(s string) (domain.Status, error) {
+// parseOrderStatus は永続化された文字列を注文状態へ変換する。
+func parseOrderStatus(s string) (domain.OrderStatus, error) {
 	switch s {
 	case "confirmed":
-		return domain.StatusConfirmed, nil
+		return domain.OrderStatusConfirmed, nil
 	case "cancelled":
-		return domain.StatusCancelled, nil
+		return domain.OrderStatusCancelled, nil
 	default:
-		return domain.StatusConfirmed, fmt.Errorf("永続化された注文状態が不正です: %q", s)
+		return domain.OrderStatusConfirmed, fmt.Errorf("永続化された注文状態が不正です: %q", s)
 	}
 }

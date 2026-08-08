@@ -101,6 +101,7 @@ func New(deps Deps) (*Module, error) {
 	work := postgres.NewUnitOfWork(deps.Pool)
 	// 読み取り経路: 書き込み用の作業単位を使わず、プール直結の読み取りストアを注入する。
 	readStore := postgres.NewReadOrderStore(deps.Pool)
+	readShipments := postgres.NewReadShipmentStore(deps.Pool)
 
 	// アウトボックス送信中継。Publisher が未指定なら開発用 no-op を使う。
 	publisher := deps.Publisher
@@ -115,7 +116,7 @@ func New(deps Deps) (*Module, error) {
 		outbox.WithBatch(defaultBatchSize),
 	)
 
-	return build(log, work, readStore, deps.Reserver, runner)
+	return build(log, work, readStore, readShipments, deps.Reserver, runner)
 }
 
 // NewInMemory は Docker/DB を使わない開発・テスト構成でモジュールを構築する。
@@ -128,16 +129,18 @@ func NewInMemory(deps InMemoryDeps) (*Module, error) {
 	}
 	log := orLoggerDefault(deps.Logger)
 
-	store := memory.NewStore()
+	orderRows := memory.NewOrderRows()
+	shipmentRows := memory.NewShipmentRows()
 	// 配送キュー（送信後に削除される一時的なもの）と恒久イベントログ（追記のみ）を
 	// 束ねた Stores を生成し、同一コミットで両方へ確定させる。
 	stores := memory.NewStores()
 	// コミット時にその場でピアへ配送する同期シンクを結線する（store/poll なし・決定的）。
-	work := memory.NewUnitOfWork(store, stores).WithSyncDelivery(deps.Publisher, log)
-	readStore := memory.NewReadOrderStore(store)
+	work := memory.NewUnitOfWork(orderRows, shipmentRows, stores).WithSyncDelivery(deps.Publisher, log)
+	readStore := memory.NewReadOrderStore(orderRows)
+	readShipments := memory.NewReadShipmentStore(shipmentRows)
 
 	// 同期配送が送信を担うため、背景の送信中継（Runner）は起動しない（runner = nil）。
-	return build(log, work, readStore, deps.Reserver, nil)
+	return build(log, work, readStore, readShipments, deps.Reserver, nil)
 }
 
 // build は結線済みのアダプタ（作業単位・読み取りストア・ACL・送信中継）を受け取り、
@@ -147,6 +150,7 @@ func build(
 	log *slog.Logger,
 	work application.UnitOfWork,
 	readStore application.OrderStore,
+	readShipments application.ShipmentStore,
 	reserver application.StockReserver,
 	runner *outbox.Runner,
 ) (*Module, error) {
@@ -163,13 +167,27 @@ func build(
 	cancel := application.NewCancelOrder(exec, work, log)
 	get := application.NewGetOrder(readStore, log)
 
+	// 出荷（2 つ目の集約ルート）。既存の注文ユースケースには一切触れずに足せている。
+	// PrepareShipment は注文をトランザクションの外で読むため、読み取り専用の注文ストアを
+	// 受け取る（書き込み用の UoW からは注文を触らない）。
+	prepareShipment := application.NewPrepareShipment(exec, work, readStore, log)
+	markShipped := application.NewMarkShipped(exec, work, dispatcher, log)
+	getShipment := application.NewGetShipment(readShipments, log)
+
 	// 公開サーバ（作成・照会・取消）。
 	//
 	// ServerOptions() を必ず渡す。渡さないと ogen の既定エラーハンドラが使われ、
 	// デコード失敗・未定義パス・メソッド不許可が problem+json ではなく
 	// {"error_message": "operation placeOrder: decode request: ..."} で返る（FR-1）。
 	// テストも同じヘルパー経由で組み立て、本番とエラー経路を一致させる（NFR-6）。
-	handler := httpapi.NewHandler(place, get, cancel, log)
+	handler := httpapi.NewHandler(httpapi.HandlerDeps{
+		PlaceOrder:      place,
+		GetOrder:        get,
+		CancelOrder:     cancel,
+		PrepareShipment: prepareShipment,
+		MarkShipped:     markShipped,
+		GetShipment:     getShipment,
+	}, log)
 	server, err := openapi.NewServer(handler, handler.ServerOptions()...)
 	if err != nil {
 		return nil, fmt.Errorf("ordering: 公開 HTTP サーバの構築に失敗しました: %w", err)

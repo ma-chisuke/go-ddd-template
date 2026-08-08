@@ -50,3 +50,27 @@ func toOrderView(o *domain.Order) OrderView {
 		Version:        o.Version(),
 	}
 }
+
+// ShipmentView は出荷の読み取り用 DTO（プリミティブ値のみ）。
+//
+// OrderID は注文の識別子であって注文の射影ではない。集約間は識別子で参照するという規則が、
+// 読み取り用 DTO にもそのまま現れる（出荷の照会で注文の明細が返ることはない）。
+type ShipmentView struct {
+	ID      string
+	OrderID string
+	Status  string
+	// TrackingNumber は preparing の出荷では空文字。
+	TrackingNumber string
+	Version        int
+}
+
+// toShipmentView は出荷集約を読み取り用 DTO へ射影する。
+func toShipmentView(s *domain.Shipment) ShipmentView {
+	return ShipmentView{
+		ID:             s.ID().String(),
+		OrderID:        s.OrderID().String(),
+		Status:         s.Status().String(),
+		TrackingNumber: s.TrackingNumber().String(),
+		Version:        s.Version(),
+	}
+}

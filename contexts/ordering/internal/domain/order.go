@@ -34,7 +34,7 @@ type Order struct {
 	id             OrderID
 	customer       CustomerID
 	lines          []OrderLine
-	status         Status
+	status         OrderStatus
 	total          Money
 	reservationRef ReservationRef
 	version        int
@@ -72,7 +72,7 @@ func NewOrder(id OrderID, customer CustomerID, lines []OrderLine) (*Order, error
 		id:             id,
 		customer:       customer,
 		lines:          lines,
-		status:         StatusConfirmed,
+		status:         OrderStatusConfirmed,
 		total:          total,
 		reservationRef: ref,
 		version:        0,
@@ -91,7 +91,7 @@ func NewOrder(id OrderID, customer CustomerID, lines []OrderLine) (*Order, error
 // ReconstituteOrder は永続化された状態から集約を復元する。
 // リポジトリ（送信アダプタ）が保存済みの行から集約を再構築する際に用いる。
 // すでに検証済みの状態を組み立て直すだけなので、ドメインイベントは発生させない。
-func ReconstituteOrder(id OrderID, customer CustomerID, lines []OrderLine, status Status, total Money, ref ReservationRef, version int) *Order {
+func ReconstituteOrder(id OrderID, customer CustomerID, lines []OrderLine, status OrderStatus, total Money, ref ReservationRef, version int) *Order {
 	return &Order{
 		id:             id,
 		customer:       customer,
@@ -107,10 +107,10 @@ func ReconstituteOrder(id OrderID, customer CustomerID, lines []OrderLine, statu
 // それ以外は ErrOrderNotConfirmed を返す。成功すると Cancelled へ遷移し、
 // OrderCancelled イベントを記録する（在庫解放は在庫側が非同期に購読して行う）。
 func (o *Order) Cancel() error {
-	if o.status != StatusConfirmed {
+	if o.status != OrderStatusConfirmed {
 		return ErrOrderNotConfirmed
 	}
-	o.status = StatusCancelled
+	o.status = OrderStatusCancelled
 	o.recordEvent(OrderCancelled{
 		OrderID:        o.id.String(),
 		ReservationRef: o.reservationRef.String(),
@@ -143,7 +143,7 @@ func (o *Order) Total() Money {
 }
 
 // Status は注文状態を返す。
-func (o *Order) Status() Status {
+func (o *Order) Status() OrderStatus {
 	return o.status
 }
 
@@ -180,23 +180,23 @@ func (o *Order) recordEvent(e DomainEvent) {
 	o.events = append(o.events, e)
 }
 
-// Status は注文の状態を表す。v1 の状態モデルは Confirmed -> Cancelled のみで、
+// OrderStatus は注文の状態を表す。v1 の状態モデルは Confirmed -> Cancelled のみで、
 // fulfillment（履行）は範囲外のため Fulfilled 状態は無い。
-type Status int
+type OrderStatus int
 
 const (
-	// StatusConfirmed は確定済みの注文。作成（place）時に在庫予約が成立するとこの状態になる。
-	StatusConfirmed Status = iota
-	// StatusCancelled は取り消された注文。Confirmed からのみ遷移できる。
-	StatusCancelled
+	// OrderStatusConfirmed は確定済みの注文。作成（place）時に在庫予約が成立するとこの状態になる。
+	OrderStatusConfirmed OrderStatus = iota
+	// OrderStatusCancelled は取り消された注文。Confirmed からのみ遷移できる。
+	OrderStatusCancelled
 )
 
 // String は状態の文字列表現を返す（永続化・ログ・API 表示用）。
-func (s Status) String() string {
+func (s OrderStatus) String() string {
 	switch s {
-	case StatusConfirmed:
+	case OrderStatusConfirmed:
 		return "confirmed"
-	case StatusCancelled:
+	case OrderStatusCancelled:
 		return "cancelled"
 	default:
 		return "unknown"

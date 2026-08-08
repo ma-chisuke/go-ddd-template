@@ -414,10 +414,99 @@ func TestProblem_InvalidParamCodeEnumCoversVocabulary(t *testing.T) {
 		domain.VEmptyOrder.Code, domain.VSKU.Code, domain.VQuantity.Code,
 		domain.VMoneyAmount.Code, domain.VMoneyCurrency.Code, domain.VCustomerID.Code,
 		domain.VOrderID.Code, domain.VReservationRef.Code,
+		domain.VShipmentID.Code, domain.VTrackingNumber.Code,
 	}
 
 	for _, code := range append(contractCodes, domainCodes...) {
 		assert.NoErrorf(t, openapi.InvalidParamCode(code).Validate(),
 			"code %q は契約（openapi.yaml）の InvalidParam.code enum に含まれる必要がある", code)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// E4: 2 つ目の集約ルート（出荷）の問題種別
+// ---------------------------------------------------------------------------
+
+// prepareShipmentFor は confirmed の注文を 1 件作り、その出荷を 1 件用意して ID を返す。
+func prepareShipmentFor(t *testing.T, ts *httptest.Server) (orderID, shipmentID string) {
+	t.Helper()
+
+	placed := postJSONBody(t, ts, "/orders", placeBody)
+	var order struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.NewDecoder(placed.Body).Decode(&order), "注文の復号")
+	require.NoError(t, placed.Body.Close())
+
+	prepared := postJSONBody(t, ts, "/shipments", `{"orderId":"`+order.ID+`"}`)
+	var shipment struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.NewDecoder(prepared.Body).Decode(&shipment), "出荷の復号")
+	require.NoError(t, prepared.Body.Close())
+
+	return order.ID, shipment.ID
+}
+
+// 「注文が確定状態でない」は同じ 409 でも conflict とは別の種別を持つ（規則 R-2）。
+// 種別を分けないとクライアントは「出荷の状態が悪い」のか「注文の状態が悪い」のか
+// 区別できず、取るべき行動を選べない。
+func TestProblem_E4_OrderNotConfirmedForShipmentHasOwnType(t *testing.T) {
+	ts := newServer(t, stubReserver{})
+	orderID, shipmentID := prepareShipmentFor(t, ts)
+
+	// 注文を取り消してから、同じ注文で出荷を準備しようとする。
+	require.NoError(t, postJSONBody(t, ts, "/orders/"+orderID+"/cancel", "").Body.Close())
+	notConfirmed := readProblem(t, postJSONBody(t, ts, "/shipments", `{"orderId":"`+orderID+`"}`),
+		http.StatusConflict, problem.TypeOrderNotConfirmedForShipment)
+
+	// 発送済みの出荷を再発送しようとすると、こちらは素の conflict になる。
+	require.NoError(t, postJSONBody(t, ts, "/shipments/"+shipmentID+"/ship", `{"trackingNumber":"TRACK-1"}`).Body.Close())
+	conflict := readProblem(t, postJSONBody(t, ts, "/shipments/"+shipmentID+"/ship", `{"trackingNumber":"TRACK-2"}`),
+		http.StatusConflict, problem.TypeConflict)
+
+	assert.Equal(t, notConfirmed.Status, conflict.Status, "status は同じ")
+	assert.NotEqual(t, notConfirmed.Type, conflict.Type, "type は異なる（クライアントはこれで分岐できる）")
+	assert.NotEqual(t, notConfirmed.Title, conflict.Title, "title も type と 1 対 1（規則 R-3）")
+	// detail 表への追加を忘れると 5xx 用の一般文言へ落ちる。
+	assert.NotEqual(t, problem.DetailInternalError, notConfirmed.Detail, "detail が 5xx 文言へ落ちていない")
+	assert.Equal(t, problem.DetailOrderNotConfirmedForShipment, notConfirmed.Detail, "種別ごとの定型文")
+}
+
+// 出荷の 422 は invalid-params に HTTP 上の名前で載る。パスパラメータ {id} は
+// jsonNames の上書きが要り（ShipmentId -> id）、本文の trackingNumber は機械変換で足りる。
+func TestProblem_E4_ShipmentInvalidParamsUseHTTPNames(t *testing.T) {
+	ts := newServer(t, stubReserver{})
+
+	t.Run("異常系: パスの出荷 ID が空白のみなら id を指す", func(t *testing.T) {
+		pb := readProblem(t, postJSONBody(t, ts, "/shipments/%20/ship", `{"trackingNumber":"TRACK-1"}`),
+			http.StatusUnprocessableEntity, problem.TypeInvalidInput)
+
+		require.Len(t, pb.InvalidParams, 1, "違反は 1 件")
+		assert.Equal(t, "id", pb.InvalidParams[0].Name, "Go の識別子 ShipmentId ではなく HTTP の名前")
+		assert.Equal(t, "invalid_shipment_id", pb.InvalidParams[0].Code, "code")
+		assert.NotEmpty(t, pb.InvalidParams[0].Reason, "reason は domainReasons から引く")
+	})
+
+	t.Run("異常系: 追跡番号が空白のみなら trackingNumber を指す", func(t *testing.T) {
+		_, shipmentID := prepareShipmentFor(t, ts)
+
+		pb := readProblem(t, postJSONBody(t, ts, "/shipments/"+shipmentID+"/ship", `{"trackingNumber":"  "}`),
+			http.StatusUnprocessableEntity, problem.TypeInvalidInput)
+
+		require.Len(t, pb.InvalidParams, 1, "違反は 1 件")
+		assert.Equal(t, "trackingNumber", pb.InvalidParams[0].Name, "機械変換で正しくなるので上書き表は不要")
+		assert.Equal(t, "invalid_tracking_number", pb.InvalidParams[0].Code, "code")
+		assert.NotEmpty(t, pb.InvalidParams[0].Reason, "reason は domainReasons から引く")
+	})
+}
+
+// 存在しない出荷は「経路はあるが対象が無い」種別になる（E2 の not-found とは別）。
+func TestProblem_E4_ShipmentNotFoundIsResourceNotFound(t *testing.T) {
+	ts := newServer(t, stubReserver{})
+
+	pb := readProblem(t, send(t, ts, http.MethodGet, "/shipments/NO-SUCH-SHIPMENT", "", ""),
+		http.StatusNotFound, problem.TypeResourceNotFound)
+
+	assert.Empty(t, pb.InvalidParams, "ID の形式は正しいのでフィールドに帰着しない")
 }
