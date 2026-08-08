@@ -179,7 +179,7 @@ func TestOrder_CancelStateMachine(t *testing.T) {
 			wantAmount += l.UnitPrice().Amount() * int64(l.Quantity().Int())
 		}
 
-		require.Equal(t, domain.StatusConfirmed, order.Status(), "NewOrder は Confirmed で始まる")
+		require.Equal(t, domain.OrderStatusConfirmed, order.Status(), "NewOrder は Confirmed で始まる")
 		cancelled := false
 
 		t.Repeat(map[string]func(*rapid.T){
@@ -194,12 +194,12 @@ func TestOrder_CancelStateMachine(t *testing.T) {
 				if cancelled {
 					// R-23（負）: 2 回目以降は Confirmed でないので拒否される。
 					require.ErrorIs(t, err, domain.ErrOrderNotConfirmed, "2 回目以降の Cancel は拒否される")
-					assert.Equal(t, domain.StatusCancelled, order.Status(), "拒否された Cancel は状態を変えない")
+					assert.Equal(t, domain.OrderStatusCancelled, order.Status(), "拒否された Cancel は状態を変えない")
 					return
 				}
 				// R-23（正）: 1 回目は成功して Cancelled へ遷移する。
 				require.NoError(t, err, "Confirmed からの 1 回目の Cancel は成功する")
-				assert.Equal(t, domain.StatusCancelled, order.Status(), "Cancel は Cancelled へ遷移させる")
+				assert.Equal(t, domain.OrderStatusCancelled, order.Status(), "Cancel は Cancelled へ遷移させる")
 				cancelled = true
 			},
 		})

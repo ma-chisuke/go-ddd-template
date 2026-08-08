@@ -65,8 +65,8 @@ func loadItem(t *testing.T, work *memory.UnitOfWork, sku domain.SKU) *domain.Sto
 // もう片方（version 1 のまま）を保存しようとすると衝突する。
 func TestUnitOfWork_ConcurrencyConflict(t *testing.T) {
 	ctx := context.Background()
-	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewStores())
+	stockRows := memory.NewStockRows()
+	work := memory.NewUnitOfWork(stockRows, memory.NewStores())
 	sku := mustSKU(t, "WIDGET-001")
 
 	seedItem(t, work, sku, mustQty(t, 5)) // version 1
@@ -98,8 +98,8 @@ func TestUnitOfWork_ConcurrencyConflict(t *testing.T) {
 // エラーを返すコールバックはロールバックされ、確定データが変化しないことを確認する。
 func TestUnitOfWork_RollbackOnError(t *testing.T) {
 	ctx := context.Background()
-	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewStores())
+	stockRows := memory.NewStockRows()
+	work := memory.NewUnitOfWork(stockRows, memory.NewStores())
 	sku := mustSKU(t, "GADGET-1")
 
 	sentinel := errors.New("業務都合で中断")
@@ -114,6 +114,6 @@ func TestUnitOfWork_RollbackOnError(t *testing.T) {
 	require.ErrorIs(t, err, sentinel)
 
 	// ロールバックされたので在庫は存在しない。
-	_, err = memory.NewReadStockStore(store).Load(ctx, sku)
+	_, err = memory.NewReadStockStore(stockRows).Load(ctx, sku)
 	require.ErrorIs(t, err, domain.ErrStockItemNotFound, "ロールバック後の読み込み")
 }

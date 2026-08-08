@@ -40,13 +40,13 @@ func newImmediateExecutor() uow.Executor { return uow.NewExecutor(uow.WithBaseBa
 // 各ユースケースを呼ぶ。gomock.NewController(t) は t.Cleanup で自動 Finish されるため、
 // 期待どおりに呼ばれたかの検証はテスト終了時に自動で走る。
 type memFixture struct {
-	place    *application.PlaceOrder
-	get      *application.GetOrder
-	cancel   *application.CancelOrder
-	store    *memory.Store
-	stores   *memory.Stores
-	reserver *mock.MockStockReserver
-	captured *[]domain.DomainEvent
+	place     *application.PlaceOrder
+	get       *application.GetOrder
+	cancel    *application.CancelOrder
+	orderRows *memory.OrderRows
+	stores    *memory.Stores
+	reserver  *mock.MockStockReserver
+	captured  *[]domain.DomainEvent
 }
 
 // newMemFixture はインメモリの UoW で束を組み立てる（最も一般的な構成）。
@@ -54,13 +54,13 @@ type memFixture struct {
 // 同一コミットで確定する。
 func newMemFixture(t *testing.T) memFixture {
 	t.Helper()
-	store := memory.NewStore()
+	orderRows := memory.NewOrderRows()
 	stores := memory.NewStores()
-	return newMemFixtureWith(t, memory.NewUnitOfWork(store, stores), store, stores)
+	return newMemFixtureWith(t, memory.NewUnitOfWork(orderRows, stores), orderRows, stores)
 }
 
 // newMemFixtureWith は作業単位（UoW）を差し替えて束を組み立てる（衝突再試行の再現用）。
-func newMemFixtureWith(t *testing.T, work application.UnitOfWork, store *memory.Store, stores *memory.Stores) memFixture {
+func newMemFixtureWith(t *testing.T, work application.UnitOfWork, orderRows *memory.OrderRows, stores *memory.Stores) memFixture {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	reserver := mock.NewMockStockReserver(ctrl)
@@ -71,13 +71,13 @@ func newMemFixtureWith(t *testing.T, work application.UnitOfWork, store *memory.
 		*captured = append(*captured, e)
 	})
 	return memFixture{
-		place:    application.NewPlaceOrder(exec, work, reserver, dispatcher, log),
-		get:      application.NewGetOrder(memory.NewReadOrderStore(store), log),
-		cancel:   application.NewCancelOrder(exec, work, log),
-		store:    store,
-		stores:   stores,
-		reserver: reserver,
-		captured: captured,
+		place:     application.NewPlaceOrder(exec, work, reserver, dispatcher, log),
+		get:       application.NewGetOrder(memory.NewReadOrderStore(orderRows), log),
+		cancel:    application.NewCancelOrder(exec, work, log),
+		orderRows: orderRows,
+		stores:    stores,
+		reserver:  reserver,
+		captured:  captured,
 	}
 }
 

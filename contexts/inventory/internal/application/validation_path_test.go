@@ -31,9 +31,9 @@ func requireSingle(t *testing.T, err error) application.FieldViolation {
 // newReserveOnlyFixture は予約系ユースケース一式をインメモリで組み立てる（在庫は空）。
 func newReserveOnlyFixture(t *testing.T) reserveFixture {
 	t.Helper()
-	store := memory.NewStore()
-	work := memory.NewUnitOfWork(store, memory.NewStores())
-	return newReserveFixture(t, work, store)
+	stockRows := memory.NewStockRows()
+	work := memory.NewUnitOfWork(stockRows, memory.NewStores())
+	return newReserveFixture(t, work, stockRows)
 }
 
 func TestValidationPath_SingleValueUseCases(t *testing.T) {

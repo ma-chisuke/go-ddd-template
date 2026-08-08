@@ -25,8 +25,8 @@ type reservationRow struct {
 	expiresAt time.Time
 }
 
-// record は確定済み（コミット済み）の在庫行（予約を含む）。
-type record struct {
+// stockRow は確定済み（コミット済み）の在庫行（予約を含む）。
+type stockRow struct {
 	id           string
 	sku          string
 	available    int
@@ -34,19 +34,25 @@ type record struct {
 	reservations []reservationRow
 }
 
-// Store はインメモリの確定済みデータを保持する。並行アクセスを mutex で守る。
-type Store struct {
+// StockRows は在庫項目集約の確定済み行を保持するインメモリの backing store。
+// 並行アクセスを mutex で守る。
+//
+// Store の語をこの型に使わないのは規約である（CONVENTIONS.md）。Store は集約ストアの
+// ポート（application.StockStore）とその実装（stockStore / readStockStore）だけが名乗り、
+// 行を溜めておく容れ物は <X>Rows と名づける。<X> はポート名の語幹であって集約ルートの
+// 型名ではないため、StockItem 集約の backing store は StockItemRows ではなく StockRows である。
+type StockRows struct {
 	mu   sync.Mutex
-	rows map[string]record // key: SKU 文字列
+	rows map[string]stockRow // key: SKU 文字列
 }
 
-// NewStore は空の在庫ストアを生成する。
-func NewStore() *Store {
-	return &Store{rows: make(map[string]record)}
+// NewStockRows は空の在庫行 backing store を生成する。
+func NewStockRows() *StockRows {
+	return &StockRows{rows: make(map[string]stockRow)}
 }
 
-// recordToStockItem は確定済みの行から集約を復元する。
-func recordToStockItem(r record) (*domain.StockItem, error) {
+// stockRowToStockItem は確定済みの行から集約を復元する。
+func stockRowToStockItem(r stockRow) (*domain.StockItem, error) {
 	qty, err := domain.NewQuantity(r.available)
 	if err != nil {
 		return nil, fmt.Errorf("永続化された数量が不正です（SKU=%q）: %w", r.sku, err)
@@ -71,7 +77,7 @@ func recordToStockItem(r record) (*domain.StockItem, error) {
 }
 
 // load は確定済みデータから在庫項目を読み込み、集約を復元する。
-func (s *Store) load(sku domain.SKU) (*domain.StockItem, error) {
+func (s *StockRows) load(sku domain.SKU) (*domain.StockItem, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -79,12 +85,12 @@ func (s *Store) load(sku domain.SKU) (*domain.StockItem, error) {
 	if !ok {
 		return nil, fmt.Errorf("SKU %q: %w", sku.String(), domain.ErrStockItemNotFound)
 	}
-	return recordToStockItem(r)
+	return stockRowToStockItem(r)
 }
 
 // loadMany は複数 SKU をまとめて読み込む。見つからない SKU は黙って除外する
 // （存在検査はドメインサービス側の事前検証が担う）。
-func (s *Store) loadMany(skus []domain.SKU) ([]*domain.StockItem, error) {
+func (s *StockRows) loadMany(skus []domain.SKU) ([]*domain.StockItem, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -94,7 +100,7 @@ func (s *Store) loadMany(skus []domain.SKU) ([]*domain.StockItem, error) {
 		if !ok {
 			continue
 		}
-		item, err := recordToStockItem(r)
+		item, err := stockRowToStockItem(r)
 		if err != nil {
 			return nil, err
 		}
@@ -104,16 +110,16 @@ func (s *Store) loadMany(skus []domain.SKU) ([]*domain.StockItem, error) {
 }
 
 // loadByReservation は指定参照を持つ全ての在庫項目を読み込む。
-func (s *Store) loadByReservation(ref domain.ReservationRef) ([]*domain.StockItem, error) {
+func (s *StockRows) loadByReservation(ref domain.ReservationRef) ([]*domain.StockItem, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	var items []*domain.StockItem
 	for _, r := range s.rows {
-		if !recordHasReservation(r, ref.String()) {
+		if !stockRowHasReservation(r, ref.String()) {
 			continue
 		}
-		item, err := recordToStockItem(r)
+		item, err := stockRowToStockItem(r)
 		if err != nil {
 			return nil, err
 		}
@@ -123,16 +129,16 @@ func (s *Store) loadByReservation(ref domain.ReservationRef) ([]*domain.StockIte
 }
 
 // loadExpiredPending は before 時点で期限切れの pending 予約を持つ在庫項目を最大 limit 件返す。
-func (s *Store) loadExpiredPending(before time.Time, limit int) ([]*domain.StockItem, error) {
+func (s *StockRows) loadExpiredPending(before time.Time, limit int) ([]*domain.StockItem, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	var items []*domain.StockItem
 	for _, r := range s.rows {
-		if !recordHasExpiredPending(r, before) {
+		if !stockRowHasExpiredPending(r, before) {
 			continue
 		}
-		item, err := recordToStockItem(r)
+		item, err := stockRowToStockItem(r)
 		if err != nil {
 			return nil, err
 		}
@@ -144,7 +150,7 @@ func (s *Store) loadExpiredPending(before time.Time, limit int) ([]*domain.Stock
 	return items, nil
 }
 
-func recordHasReservation(r record, ref string) bool {
+func stockRowHasReservation(r stockRow, ref string) bool {
 	for _, rr := range r.reservations {
 		if rr.ref == ref {
 			return true
@@ -153,7 +159,7 @@ func recordHasReservation(r record, ref string) bool {
 	return false
 }
 
-func recordHasExpiredPending(r record, before time.Time) bool {
+func stockRowHasExpiredPending(r stockRow, before time.Time) bool {
 	for _, rr := range r.reservations {
 		if rr.status == domain.ReservationPending && !rr.expiresAt.IsZero() && !before.Before(rr.expiresAt) {
 			return true
@@ -162,23 +168,23 @@ func recordHasExpiredPending(r record, before time.Time) bool {
 	return false
 }
 
-// itemToRecord は集約を、指定バージョンで確定行へ変換する（予約状態を含む）。
-func itemToRecord(item *domain.StockItem, version int) record {
+// stockItemToRow は集約を、指定バージョンで確定行へ変換する（予約状態を含む）。
+func stockItemToRow(item *domain.StockItem, version int) stockRow {
 	res := item.Reservations()
-	rows := make([]reservationRow, 0, len(res))
+	resRows := make([]reservationRow, 0, len(res))
 	for _, r := range res {
-		rows = append(rows, reservationRow{
+		resRows = append(resRows, reservationRow{
 			ref:       r.Ref().String(),
 			quantity:  r.Quantity().Int(),
 			status:    r.Status(),
 			expiresAt: r.ExpiresAt(),
 		})
 	}
-	return record{
+	return stockRow{
 		id:           item.ID(),
 		sku:          item.SKU().String(),
 		available:    item.Available().Int(),
 		version:      version,
-		reservations: rows,
+		reservations: resRows,
 	}
 }
