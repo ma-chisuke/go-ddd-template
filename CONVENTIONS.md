@@ -881,6 +881,9 @@ for i, l := range lines {
 | 16 | CI 時間 | **計測して記録するだけ** | なし |
 | 17 | ポート宣言の全数性（B-5 の `ports.go` (b)。application 層の非テストファイルに `ports.go` 以外の `interface` 宣言が無い） | `scripts/convention-gate.sh` 検査 10 | **fail** |
 | 18 | `ports.go` の純度（B-5 の `ports.go` (a)。`ports.go` に `func` 宣言が無い） | `scripts/convention-gate.sh` 検査 11 | **fail** |
+| 19 | 内側の型はポインタで現れない（R-1 / INV-1 の外向き。他のドメイン型に含まれる型を `*T` の形で集約の外へ出さない） | `scripts/convention-gate.sh` 検査 12 | **fail** |
+| 20 | 集約ストアポートが運ぶドメイン型は頂点である（R-3 / INV-2。リポジトリを持てるのは集約の頂点だけ。値で書いたポートも捕まる） | `scripts/convention-gate.sh` 検査 13 | **fail** |
+| 21 | 集約ストアの実装は `<x>_store.go` にある（R-4 / INV-3。`<X>` はポート名の語幹であり集約ルートの型名ではない） | `scripts/convention-gate.sh` 検査 15 | **fail** |
 
 **ST1003 は追加していません** — `revive` の `var-naming` と重複して二重報告になるためです
 （役割は 1 つの linter に寄せます）。
