@@ -15,7 +15,7 @@
 
 1. **生成コードを手で編集しない。** ogen（`internal/adapter/inbound/openapi/`）と
    sqlc（`internal/adapter/outbound/postgres/sqlcgen/`）の出力は生成物です。挙動を変えたい
-   ときは、元の契約（`contracts/inventory/openapi.yaml`）や SQL（`contexts/inventory/db/`）を
+   ときは、元の契約（`contracts/api/inventory/openapi.yaml`）や SQL（`contexts/inventory/db/`）を
    編集して `make generate` で再生成し、生成物をコミットします。
 2. **業務ルールはドメイン層に置く。** adapter（inbound / outbound）層には業務ロジックを
    置きません。オーケストレーションはアプリケーション層です。
@@ -87,16 +87,23 @@
 | bring-up オーケストレーション（schema → roles → seed → fixtures） | `deploy/migrate.Dockerfile`, `deploy/apply.sh`, `docker-compose.yml` |
 | **テストの名前・サブテスト名・日本語コメントの規約**（C 群 / D 群 / E 群） | `docs/testing-conventions.md`（識別子・ファイル・言語ポリシーの規約は `CONVENTIONS.md`） |
 | **lint で表現できない規約の機械強制**（サブテスト名の 8 語語彙、package 名 = ディレクトリ名、規約系 Markdown の半角スペース境界など） | `scripts/convention-gate.sh`（`make conventions` で実行。`make ci` と CI の step にも入っている） |
-| 契約ガバナンスゲート（後方互換・カバレッジ） | `contracts/check-openapi-compat.sh`, `contracts/events/check-compat.sh`, `scripts/coverage-gate.sh` |
+| 契約ガバナンスゲート（後方互換・カバレッジ） | `contracts/api/check-compat.sh`（守る対象の宣言は `contracts/api/protected.txt`）, `contracts/events/check-compat.sh`, `scripts/coverage-gate.sh` |
 | **腐敗防止層（ACL）ポート** `StockReserver`（注文） | `contexts/ordering/internal/application/ports.go`（全 outbound ポートの唯一の置き場。B-5） |
 | **ACL の番兵** `ErrReservationRejected` / `ErrReservationUnavailable`（注文） | `contexts/ordering/internal/application/errors.go` |
 | **ACL の HTTP 実装**（生成クライアントで在庫を予約・解放 + trace 伝播）（注文） | `contexts/ordering/internal/adapter/outbound/aclhttp/` |
 | **アウトボックス送信トランスポート**（在庫の `/events` へ HTTP push）（注文） | `contexts/ordering/internal/adapter/outbound/eventhttp/` |
 | **公開の翻訳済み DTO**（境界を跨ぐ型） | `contexts/<ctx>/port/` |
-| 公開 HTTP 契約 / 在庫の内部 HTTP 契約（= ACL サーフェス） | `contracts/inventory/{openapi,internal.openapi}.yaml`, `contracts/ordering/openapi.yaml` |
-| **クロスコンテキストのメッセージ契約**（コマンド / イベント） | `contracts/events/*.schema.json` |
+| 公開 HTTP 契約 / 在庫の内部 HTTP 契約（= ACL サーフェス） | `contracts/api/inventory/{openapi,internal.openapi}.yaml`, `contracts/api/ordering/openapi.yaml` |
+| **クロスコンテキストのメッセージ契約**（コマンド / イベント） | `contracts/events/<発行元ctx>/*.schema.json`（現状は `ordering/` のみ） |
 | **共有の生成クライアント**（消費側が import・手編集しない） | `clients/inventory/invclient/` |
 | コンテキスト横断の汎用機構（純インフラ） | `shared/`（`uow`〔+`pgxuow`〕 / `event` / `serve` / `outbox`〔+`memory`,+`logpub`〕 / `id` / `correlation`〔+`corrhttp`〕 / `logging` / `problem`〔+`ogenproblem`〕 / `worker` / `clock`） |
+
+> **`contracts/` の階層は「第 1 階層 = 契約の種別、第 2 階層 = コンテキスト」です。**
+> 直下の子は `api/`（同期 HTTP）と `events/`（非同期メッセージ）の 2 つだけで、
+> コンテキスト名が第 1 階層に現れることはありません。`events/` の第 2 階層は
+> **発行元**コンテキストで、`type` の const の接頭辞と一致します（ゲートが機械検査）。
+> 新しい契約を置くときはこの軸に従ってください。ogen の生成設定は
+> `<対象の契約名>.ogen.yaml` の形で契約と同じディレクトリに並びます（隠しファイルにしない）。
 
 ## よくある作業のレシピ
 
@@ -115,7 +122,7 @@
 
 ### 公開 API を変更する
 
-1. `contracts/inventory/openapi.yaml` を編集する。
+1. `contracts/api/inventory/openapi.yaml` を編集する。
 2. `make generate` で ogen を再生成する。
 3. `internal/adapter/inbound/httpapi/handler.go` の薄いハンドラを、生成された型に合わせて
    更新する。エラーの HTTP 変換は `internal/adapter/inbound/httpapi/errmap.go` の
@@ -130,7 +137,7 @@
    明示コードを宣言すると ogen はハンドラ戻り型を `<Op>Res` union にするので、`handler.go`
    の戻り型を union へ変える（成功応答型はマーカーで union を満たすので本体は変えない。エラーは
    `return nil, err` のまま `NewError` へ委譲）。**内部契約
-   `contracts/inventory/internal.openapi.yaml` は `default` のみに保つ**（この契約は生成
+   `contracts/api/inventory/internal.openapi.yaml` は `default` のみに保つ**（この契約は生成
    クライアント経由で ACL に消費され、ACL はステータス区分だけを見る＝規則 R-16。明示コードを
    足すと宣言済みコードが union の値としてクライアントに返り ACL の非 2xx 翻訳が壊れる）。
    詳細は `CONVENTIONS.md` の「契約に宣言するステータスコード」。
@@ -160,8 +167,8 @@
    受信値も閾値も書かない（FR-2.3 / FR-2.4）。キーを `Rule` から引いているので、
    `code` の綴りがドメイン側とずれることは構造的に起こらない。
 
-3. **契約（OpenAPI）** `contracts/<ctx>/openapi.yaml`（在庫コンテキストは内部 API の
-   `contracts/inventory/internal.openapi.yaml` も）の `InvalidParam.code` の `enum` に、その
+3. **契約（OpenAPI）** `contracts/api/<ctx>/openapi.yaml`（在庫コンテキストは内部 API の
+   `contracts/api/inventory/internal.openapi.yaml` も）の `InvalidParam.code` の `enum` に、その
    `code` を 1 行足す。
 
    ```yaml
@@ -219,9 +226,9 @@ if n < 1 {
   コマンド。ドメインイベントの `PullEvents` 経路は通らない。作成の成功時に `Save` と同一 `uow.Run`
   クロージャ内で `repos.Outbox().Enqueue(...)` する。
 - **クロスコンテキストイベント（`OrderCancelled`）**: ドメインが append したイベントを取消の
-  `uow.Run` 内で `PullEvents()` して収集し、`contracts/events/` の契約へ翻訳してアウトボックスへ積む
+  `uow.Run` 内で `PullEvents()` して収集し、`contracts/events/ordering/` の契約へ翻訳してアウトボックスへ積む
   （保存と同一トランザクション）。在庫側が購読して非同期に解放する。
-- **メッセージ契約を変える**: `contracts/events/*.schema.json`（`type` 文字列 = 契約識別子）を編集し、
+- **メッセージ契約を変える**: `contracts/events/<発行元ctx>/*.schema.json`（`type` 文字列 = 契約識別子）を編集し、
   送信側（注文の `messages.go`）と受信側（在庫の `subscriber.go`）の双方を整合させる。破壊的変更は
   `type` を新設してバージョン移行する。
 - **trace 相関**: 入口ミドルウェアが W3C traceparent / X-Correlation-ID を受理（無ければ採番）し、
@@ -230,10 +237,10 @@ if n < 1 {
 
 ## 機械可読な契約（真実の源）
 
-- 在庫の公開 HTTP 契約: `contracts/inventory/openapi.yaml`（RFC 9457 の ProblemDetails を含む）
-- 在庫の内部 HTTP 契約（= ACL サーフェス）: `contracts/inventory/internal.openapi.yaml`
-- 注文の公開 HTTP 契約: `contracts/ordering/openapi.yaml`（作成・照会・取消）
-- クロスコンテキストのメッセージ契約: `contracts/events/{confirm_reservation,order_cancelled}.schema.json`
+- 在庫の公開 HTTP 契約: `contracts/api/inventory/openapi.yaml`（RFC 9457 の ProblemDetails を含む）
+- 在庫の内部 HTTP 契約（= ACL サーフェス）: `contracts/api/inventory/internal.openapi.yaml`
+- 注文の公開 HTTP 契約: `contracts/api/ordering/openapi.yaml`（作成・照会・取消）
+- クロスコンテキストのメッセージ契約: `contracts/events/ordering/{confirm_reservation,order_cancelled}.schema.json`
 - エラー応答の共通部品: `shared/problem/`（`type` URI 台帳・契約検証の `code` 語彙・
   パス表記）と `shared/problem/ogenproblem/`（ogen のエラーからフィールドを抽出する）。
   後者はテスト専用のフィクスチャ契約

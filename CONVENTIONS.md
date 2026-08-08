@@ -245,8 +245,10 @@ package doc → import → 定数 → 型 → コンストラクタ → 公開�
   【Go: Effective Go の "Data > Allocation with `new`" 節】
   このテンプレートでは `Quantity{}` が数量 0 として機能している例がこれに当たります。
 - **I-8 import の別名は名前衝突の回避に限る** — それ以外の目的で import をリネームしません。
-  【Go: Go Code Review Comments "Imports"】**このルールが `http/` ではなく `httpapi/` という
+  とくに**パッケージ名と同じ別名**（`inventory "…/contexts/inventory"`）は何も足さない冗長な
+  記述です。【Go: Go Code Review Comments "Imports"】**このルールが `http/` ではなく `httpapi/` という
   ディレクトリ名を支持します**（別名で回避するのではなく、衝突しない名前を最初から与える）。
+  → `revive`（`redundant-import-alias`。下の一覧表の #23）
 - **I-9 doc コメントの網羅** — 公開されている全てのトップレベル名と、非自明な非公開の型・関数宣言に
   doc コメントを付けます。【Go: 同 "Doc Comments"】
 - **I-10 レシーバ型** — 迷ったらポインタレシーバ。小さく不変な struct や基本型は値レシーバ。
@@ -975,6 +977,9 @@ R-1 が担保するのは「**ポインタ経由の**漏洩が不可能」まで
 
 `make lint`（golangci-lint）と `make conventions`（`scripts/convention-gate.sh`）の 2 つが
 規約を強制します。両方とも `make ci` に含まれ、CI も同じターゲットを呼びます。
+**契約（`contracts/`）の配置と後方互換だけは第 3 のゲート `make contracts` が強制します**
+（#24 / #25）。契約は Go のコードではないので golangci-lint の射程外であり、CI は
+`make ci` とは別のジョブでこれを呼びます。
 
 | # | 検査 | 実装 | 重大度 |
 | --- | --- | --- | --- |
@@ -1003,6 +1008,9 @@ R-1 が担保するのは「**ポインタ経由の**漏洩が不可能」まで
 | 20 | 集約ストアポートが運ぶドメイン型は頂点である（R-3 / INV-2。リポジトリを持てるのは集約の頂点だけ。値で書いたポートも捕まる） | `scripts/convention-gate.sh` 検査 13 | **fail** |
 | 21 | 集約ストアの実装は `<x>_store.go` にある（R-4 / INV-3。`<X>` はポート名の語幹であり集約ルートの型名ではない） | `scripts/convention-gate.sh` 検査 15 | **fail** |
 | 22 | 集約ルートは他の集約ルートを保持・受け渡ししない（R-2 / INV-1 の同一パッケージ内。集約間は識別子で参照する） | `scripts/convention-gate.sh` 検査 14 | **fail** |
+| 23 | 冗長な import 別名の不在（I-8。パッケージ名と同じ別名を書かない。衝突回避の別名は報告されない） | `revive`（`redundant-import-alias`） | **fail** |
+| 24 | OpenAPI 契約の宣言と実体の一致（`protected.txt` と自動探索の差分が空。**検出 0 件は失敗**） | `contracts/api/check-compat.sh`（`make contracts`） | **fail** |
+| 25 | メッセージ契約の配置（発行元ディレクトリ名と `type` の接頭辞の一致、`$id` と置き場所の一致。**検出 0 件は失敗**） | `contracts/events/check-compat.sh`（`make contracts`） | **fail** |
 
 **ST1003 は追加していません** — `revive` の `var-naming` と重複して二重報告になるためです
 （役割は 1 つの linter に寄せます）。

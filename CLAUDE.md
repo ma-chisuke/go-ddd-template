@@ -3,8 +3,11 @@
 このリポジトリでの作業ガイドは `AGENTS.md` にまとめています。まずそちらを読んでください。
 あわせて `README.md`（全体像）と `CONVENTIONS.md`（Go / DDD の規約）を参照してください。
 
-機械可読な契約（真実の源）は `contracts/`（OpenAPI 公開/内部 + イベントスキーマ）と各
-コンテキストの `db/`（SQL）にあります。散文ドキュメントはこれらを**複製せず参照**します。
+機械可読な契約（真実の源）は `contracts/` と各コンテキストの `db/`（SQL）にあります。
+散文ドキュメントはこれらを**複製せず参照**します。`contracts/` の階層は
+**第 1 階層 = 契約の種別**（`api/` = 同期 HTTP、`events/` = 非同期メッセージ）、
+**第 2 階層 = 境界づけられたコンテキスト**（`events/` では**発行元**）です。直下の子は
+この 2 つだけで、コンテキスト名は第 1 階層に現れません。
 
 要点だけ再掲します（詳細と根拠は `AGENTS.md`）。
 
@@ -32,7 +35,7 @@
   CI が落ちる。番兵は消さない（`errors.Is` の判定単位）。公開契約のオペレーションは返しうる
   4xx/5xx を明示ステータス + `default`（未処理 → 500）で宣言し、`handler.go` の戻り型は生成
   される `<Op>Res` union になる（本体は変えない）。内部契約
-  `contracts/inventory/internal.openapi.yaml` は `default` のみに保つ（生成クライアント経由の
+  `contracts/api/inventory/internal.openapi.yaml` は `default` のみに保つ（生成クライアント経由の
   ACL がステータス区分だけを見る＝規則 R-16。明示コードは union の値を返し ACL 翻訳を壊す）。
   `type` は `code` と違い OpenAPI の `enum` にしない（`format: uri` のまま。台帳は
   `shared/problem/type_uri.go`）。詳細は

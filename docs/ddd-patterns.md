@@ -27,7 +27,7 @@
 | ユビキタス言語（Ubiquitous Language） | 境界の内側で開発者と業務担当が共有する語彙 | [../contexts/inventory/GLOSSARY.md](../contexts/inventory/GLOSSARY.md) ／ [../contexts/ordering/GLOSSARY.md](../contexts/ordering/GLOSSARY.md)、境界を跨ぐ同名語の対比は [glossary.md](./glossary.md) |
 | コンテキストマップ（Context Map） | コンテキスト間の関係（上流／下流、供給者／顧客）と、その連携の形 | [context-map.md](./context-map.md) — 在庫が上流／供給者、注文が下流／顧客で ACL を持つ側 |
 | 腐敗防止層（Anti-Corruption Layer） | 相手のモデルを自分のモデルへ翻訳し、相手の概念が漏れ込むのを防ぐ層 | [../contexts/ordering/internal/adapter/outbound/aclhttp/](../contexts/ordering/internal/adapter/outbound/aclhttp/) — ポートは [../contexts/ordering/internal/application/ports.go](../contexts/ordering/internal/application/ports.go) の `StockReserver`、番兵は [../contexts/ordering/internal/application/errors.go](../contexts/ordering/internal/application/errors.go)。在庫の 409 / 5xx を注文側の番兵へ翻訳する |
-| 公表された言語（Published Language） | 境界を跨ぐやりとりのために公開された、実装から独立した契約 | [../contracts/](../contracts/) — OpenAPI（公開・内部）とクロスコンテキストのメッセージスキーマ。コード生成の入力を兼ねる |
+| 公表された言語（Published Language） | 境界を跨ぐやりとりのために公開された、実装から独立した契約 | [../contracts/](../contracts/) — 第 1 階層が契約の**種別**（[api/](../contracts/api/) = 同期 HTTP の OpenAPI、[events/](../contracts/events/) = 非同期メッセージのスキーマ）、第 2 階層が**コンテキスト**。コード生成の入力を兼ねる |
 | 共有カーネル（Shared Kernel）の**不採用** | 複数コンテキストで同じモデルを共有する形。採らない選択も設計判断である | ドメイン値オブジェクトは共有しない。[../shared/](../shared/) に置くのはドメイン非依存の機構だけで、`shared-purity` rule が `shared/` からコンテキストへの import を禁じている |
 
 ## 3. 支援機構（DDD を実装で成立させる配管）

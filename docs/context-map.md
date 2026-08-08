@@ -74,7 +74,7 @@ sequenceDiagram
   （→ HTTP 409）、不達・タイムアウト・5xx → `ErrReservationUnavailable`（→ HTTP 503）。
   在庫側の番兵名は漏らしません。
 - 実装: `contexts/ordering/internal/application/place_order.go`、`.../adapter/outbound/aclhttp/`、
-  契約は `contracts/inventory/internal.openapi.yaml`。
+  契約は `contracts/api/inventory/internal.openapi.yaml`。
 
 ## (b) 信頼できる確定コマンド（reliable `ConfirmReservation`）
 
@@ -85,7 +85,7 @@ sequenceDiagram
 - 受信は冪等（既に confirmed なら no-op、速い取消で解放済みなら良性の警告ログ）です。遅延／消失した
   確定の整合は、注文側にコード分岐や `Failed` 状態を持たせず、両サービスのログを共有 `trace_id`
   （W3C traceparent）で相関して**運用レベル**で行います。
-- 契約: `contracts/events/confirm_reservation.schema.json`。送信は注文の `messages.go`、受信は
+- 契約: `contracts/events/ordering/confirm_reservation.schema.json`。送信は注文の `messages.go`、受信は
   在庫の `subscriber.go`（`OnConfirmReservation`）。
 
 ## (c) 非同期の取消イベント（asynchronous `OrderCancelled`）
@@ -94,7 +94,7 @@ sequenceDiagram
   アウトボックスへ積みます。在庫はそれを購読して**非同期に予約を解放**します。
 - 下流（注文）から上流（在庫）への同期呼び出しはしません（上流は下流を知らないまま、イベント契約
   だけで反応する）。
-- 契約: `contracts/events/order_cancelled.schema.json`。受信は在庫の `subscriber.go`
+- 契約: `contracts/events/ordering/order_cancelled.schema.json`。受信は在庫の `subscriber.go`
   （`OnOrderCancelled` → `Release`）。冪等なので再配送のもとでも安全です。
 
 ## 共通の機構と注意

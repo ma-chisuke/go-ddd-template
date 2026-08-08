@@ -113,7 +113,7 @@ make test
 - **非同期の在庫解放** — 取消は `OrderCancelled` を（保存と同一トランザクションで）アウトボックスへ
   積み、在庫側が購読して非同期に解放します。下流から上流への同期呼び出しはしません。
 - **契約の正本** — クロスコンテキストのメッセージ契約は `contracts/events/` に、在庫の内部 API
-  契約は `contracts/inventory/internal.openapi.yaml` に集中管理します。サーバはコンテキストごとに、
+  契約は `contracts/api/inventory/internal.openapi.yaml` に集中管理します。サーバはコンテキストごとに、
   クライアントは共有モジュール `clients/inventory` に生成します（生成物はコミット）。
 - **遅延／消失した確定の整合** — 分散トポロジでは、注文側に照会用のコード分岐や `Failed` 状態は
   持たせません。整合は運用レベルで、両サービスのログを共有 `trace_id`（W3C traceparent）で
@@ -234,6 +234,8 @@ make test
 - [docs/context-map.md](docs/context-map.md) — seam の 3 フロー（同期予約 / 確定コマンド / 取消イベント）。
 - [docs/copy-a-context.md](docs/copy-a-context.md) — 1 コンテキストを切り出して自分のプロジェクトの出発点にする手順。
 - [docs/add-a-use-case.md](docs/add-a-use-case.md) — 新しいユースケースを足すレシピ。
+- [clients/README.md](clients/README.md) — 生成クライアントがどの契約から来て、なぜ
+  `contexts/` の外にいるのか（同じ契約からサーバとクライアントが別の場所へ生成される）。
 
 ## ディレクトリ構成
 
@@ -252,20 +254,31 @@ make test
 │   ├── coverage-gate.sh          … カバレッジゲート（domain + application >= 80%）
 │   └── rename-module.sh          … module path と problem type URI の名前空間を一括置換
 ├── contracts/                  … コード生成の入力（契約 = 真実の源。集中管理）
-│   ├── check-openapi-compat.sh   … OpenAPI 後方互換ゲート（oasdiff）
-│   ├── inventory/
-│   │   ├── openapi.yaml          … 公開 OpenAPI（補充・照会）
-│   │   ├── internal.openapi.yaml … 内部 OpenAPI（予約・確定・解放・取り込み = ACL サーフェス）
-│   │   ├── *.baseline.yaml       … リリース済み契約のベースライン（互換ゲートの基準）
-│   │   └── client.ogen.yaml      … 上記内部 API から「クライアントのみ」を生成する設定
-│   ├── ordering/
-│   │   └── openapi.yaml          … 公開 OpenAPI（作成・照会・取消）
-│   └── events/                  … クロスコンテキストのメッセージ契約（JSON スキーマ）
-│       ├── confirm_reservation.schema.json … 予約確定コマンド
-│       ├── order_cancelled.schema.json     … 注文取消イベント
-│       ├── *.baseline.schema.json          … ベースライン（互換ゲートの基準）
-│       └── check-compat.sh                 … メッセージ契約の後方互換ゲート
+│                                 第 1 階層は**契約の種別**、第 2 階層は**境界づけられた
+│                                 コンテキスト**。直下の子は api/ と events/ の 2 つだけ
+│   ├── api/                    … 種別: 同期 HTTP 契約（OpenAPI）
+│   │   ├── check-compat.sh       … 後方互換ゲート（oasdiff）+ 宣言と実体の突き合わせ
+│   │   ├── protected.txt         … 守ると宣言した契約の一覧（ゲートが実体と突き合わせる）
+│   │   ├── inventory/
+│   │   │   ├── openapi.yaml          … 公開 OpenAPI（補充・照会）
+│   │   │   ├── internal.openapi.yaml … 内部 OpenAPI（予約・確定・解放・取り込み = ACL サーフェス）
+│   │   │   ├── *.baseline.yaml       … リリース済み契約のベースライン（互換ゲートの基準）
+│   │   │   ├── openapi.ogen.yaml     … 公開 API から「サーバのみ」を生成する設定
+│   │   │   ├── internal.ogen.yaml    … 内部 API から「サーバのみ」を生成する設定
+│   │   │   └── client.ogen.yaml      … 上記内部 API から「クライアントのみ」を生成する設定
+│   │   └── ordering/
+│   │       ├── openapi.yaml          … 公開 OpenAPI（作成・照会・取消）
+│   │       ├── openapi.baseline.yaml … ベースライン（互換ゲートの基準）
+│   │       └── openapi.ogen.yaml     … 「サーバのみ」を生成する設定
+│   └── events/                 … 種別: 非同期メッセージ契約（JSON スキーマ）
+│       ├── check-compat.sh       … 後方互換ゲート + 配置の検査（発行元と type / $id の一致）
+│       ├── ordering/            … 第 2 階層 = **発行元**コンテキスト
+│       │   ├── confirm_reservation.schema.json … 予約確定コマンド
+│       │   ├── order_cancelled.schema.json     … 注文取消イベント
+│       │   └── *.baseline.schema.json          … ベースライン（互換ゲートの基準）
+│       └── inventory/           … 在庫は現在メッセージを発行しない（意図された空。README のみ）
 ├── clients/                    … 共有の生成クライアント（消費側が import・コミット・手編集しない）
+│   ├── README.md               … どの契約から生成され、なぜ contexts/ の外にいるのか
 │   └── inventory/              … 在庫の内部 API から生成した Go クライアント（invclient）
 ├── cmd/dev/                    … Docker 不要の開発ハーネス（両コンテキストを 1 プロセスで結線）
 ├── shared/                     … ドメイン非依存の共有モジュール（uow / event / serve / outbox / id / correlation / problem / clock）

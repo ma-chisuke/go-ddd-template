@@ -13,14 +13,14 @@
 #   2. **RFC 9457 problem type URI の名前空間** — エラー応答の "type" に載る
 #      https://<module-path>/problems/<種別> という公開契約の値。実装側
 #      （各コンテキストの inbound アダプタの problem.go とそのテスト）と、
-#      契約側（contracts/**/openapi.yaml と *.baseline.yaml）の**両方**にある。
+#      契約側（contracts/api/**/*.openapi.yaml・openapi.yaml と *.baseline.yaml）の**両方**にある。
 #
 # なぜ専用スクリプトが要るのか（素朴な go mod edit + import 置換では危険な理由）:
 #
 #   - depguard の deny リストは pkg: "<module-path>/contexts/..." という**完全パス**で
 #     層と seam の境界を指定している。ここを取りこぼすと deny が「存在しないパッケージ」を
 #     指すようになり、**lint は green のまま、層の純粋性の強制だけが黙って無効化される**。
-#   - contracts/**/*.baseline.yaml は「このテンプレートがリリースした契約」のスナップショット
+#   - contracts/api/**/*.baseline.yaml は「このテンプレートがリリースした契約」のスナップショット
 #     であり、後方互換ゲート（oasdiff）の比較対象である。spec と baseline を同時に置換すれば
 #     差分ゼロで通り、以後は採用者自身のリリース基準として機能しはじめる。片方だけ置換すると
 #     type 値に差が生じてゲートが誤検出する。
