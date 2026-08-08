@@ -3,7 +3,8 @@
 このリポジトリで AI コーディングアシスタント（および人間の開発者）が、設計を崩さずに
 作業するためのガイドです。まず `README.md` と `CONVENTIONS.md` を読んでから着手してください。
 語彙は `contexts/<ctx>/GLOSSARY.md`、パターンの実装位置は `docs/ddd-patterns.md`、
-境界を割った理由は `docs/why-these-boundaries.md` にあります。
+境界を割った理由は `docs/why-these-boundaries.md` にあります。ユースケースを足す手順は
+`docs/add-a-use-case.md`、**集約ルートを足す手順**は `docs/add-an-aggregate.md` です。
 コマンドはすべてルートの `Makefile` が入口です（引数なしの `make` で一覧が出ます）。
 
 このリポジトリは、構造・規約・機械可読な契約によって「AI 支援開発が DDD 設計に
@@ -15,7 +16,7 @@
 1. **生成コードを手で編集しない。** ogen（`internal/adapter/inbound/openapi/`）と
    sqlc（`internal/adapter/outbound/postgres/sqlcgen/`）の出力は生成物です。挙動を変えたい
    ときは、元の契約（`contracts/inventory/openapi.yaml`）や SQL（`contexts/inventory/db/`）を
-   編集して `go generate ./...` で再生成し、生成物をコミットします。
+   編集して `make generate` で再生成し、生成物をコミットします。
 2. **業務ルールはドメイン層に置く。** adapter（inbound / outbound）層には業務ロジックを
    置きません。オーケストレーションはアプリケーション層です。
 3. **ドメイン層を純粋に保つ。** `internal/domain/**` から永続化・HTTP・IO・フレームワーク・
@@ -70,7 +71,8 @@
 | --- | --- |
 | 集約・値オブジェクト・不変条件・ドメインイベント・ドメインサービス | `internal/domain/`（`package domain`。1 コンテキストに 1 つで、サブパッケージへは割らない）。集約ルートと不変条件の要約は同ディレクトリの `doc.go`（package コメントは `stylecheck` の ST1000 で必須化されている） |
 | **その境界のユビキタス言語**（語 → 業務上の意味 → Go 型 → 定義ファイル） | `contexts/<ctx>/GLOSSARY.md`。ドメインに公開型を足したらここにも 1 行足す（`docs/glossary.md` は索引と、境界を跨いで同名の語の対比だけを持つ） |
-| **DDD パターン → 実装位置の索引**（「集約はどこ？ ACL は？」に答える表） | `docs/ddd-patterns.md`（「新しいものをどう足すか」は `docs/add-a-use-case.md`、境界を割った理由は `docs/why-these-boundaries.md`） |
+| **DDD パターン → 実装位置の索引**（「集約はどこ？ ACL は？」に答える表） | `docs/ddd-patterns.md`（「新しいものをどう足すか」は `docs/add-a-use-case.md` と `docs/add-an-aggregate.md`、境界を割った理由は `docs/why-these-boundaries.md`） |
+| **集約ルートを 1 つ足す手順**（触る箇所の全数・問題種別の 4 系統・外部キーを張らない理由） | `docs/add-an-aggregate.md`。実物は `Shipment`。集約境界の規約そのものは `CONVENTIONS.md` の「集約の境界」節（R-1 / R-2 / R-2b / R-3 / R-4 / R-5 と、機械検査していない 6 項目） |
 | ユースケース、ポート（interface）、サブスクライバ、Reaper | `internal/application/` |
 | ポートの実装（DB・インメモリ）＝出口アダプタ | `internal/adapter/outbound/`（`memory` / `postgres`）。構造化ログは `shared/logging`、no-op Publisher は `shared/outbox/logpub` |
 | 公開 HTTP ハンドラ・エラー変換＝入口アダプタ（相関 ID ミドルウェアは共有の `shared/correlation/corrhttp`） | `internal/adapter/inbound/httpapi/` |
@@ -114,7 +116,7 @@
 ### 公開 API を変更する
 
 1. `contracts/inventory/openapi.yaml` を編集する。
-2. `cd contexts/inventory && go generate ./...` で ogen を再生成する。
+2. `make generate` で ogen を再生成する。
 3. `internal/adapter/inbound/httpapi/handler.go` の薄いハンドラを、生成された型に合わせて
    更新する。エラーの HTTP 変換は `internal/adapter/inbound/httpapi/errmap.go` の
    `NewError` を更新する。
@@ -169,7 +171,7 @@
    `code` は契約で `enum` 化されており、ogen が `InvalidParamCode`（`string` の別名）を生成する。
    契約は機械可読な語彙台帳を兼ねる（契約を読むだけで取りうる `code` が分かる）。足し忘れると、
    その `code` を載せた応答が生成型 `ProblemDetails.Validate()` で弾かれ CI が落ちる
-   （`problem_test.go` の網羅テストと `readProblem` の Validate が二重に守る）。`go generate`
+   （`problem_test.go` の網羅テストと `readProblem` の Validate が二重に守る）。`make generate`
    の再生成も忘れずに。
 
 そして呼び出し側は 1 行で書く。
@@ -203,8 +205,8 @@ if n < 1 {
 ### 永続化のクエリ／スキーマを変更する
 
 1. `db/schema.sql` または `queries.sql` を編集する。
-2. `go generate ./...` で sqlc を再生成する。
-3. `internal/adapter/outbound/postgres/store.go` を、生成された型・関数に合わせて更新する。
+2. `make generate` で sqlc を再生成する。
+3. `internal/adapter/outbound/postgres/<集約>_store.go` を、生成された型・関数に合わせて更新する。
 
 ### コンテキストを跨ぐ呼び出し（ACL / イベント）を扱う
 

@@ -1,21 +1,23 @@
 # DDD パターン → このリポジトリでの実装位置
 
 この索引は「**今あるものがどこにあるか**」を引く表です。「**新しいものをどう足すか**」の手順は
-[add-a-use-case.md](./add-a-use-case.md) にあります（索引とレシピで役割を分け、内容を重複させて
-いません）。層の分離そのものの規約は [../CONVENTIONS.md](../CONVENTIONS.md)、境界を割った理由は
+レシピ側にあります（索引とレシピで役割を分け、内容を重複させていません）——
+ユースケースを足すなら [add-a-use-case.md](./add-a-use-case.md)、**集約ルートを足すなら**
+[add-an-aggregate.md](./add-an-aggregate.md) です。層の分離そのものの規約は [../CONVENTIONS.md](../CONVENTIONS.md)、境界を割った理由は
 [why-these-boundaries.md](./why-these-boundaries.md) を参照してください。
 
 ## 1. 戦術パターン（モデルの構成要素）
 
 | パターン | 一言の定義 | このリポジトリでの実装 |
 | --- | --- | --- |
-| 集約（Aggregate） | 同時に一貫していなければならないオブジェクトの塊。外からは集約ルート経由でのみ操作する | `Order`（[../contexts/ordering/internal/domain.go](../contexts/ordering/internal/domain.go)）／ `StockItem`（[../contexts/inventory/internal/domain/stock_item.go](../contexts/inventory/internal/domain/stock_item.go)） |
+| 集約（Aggregate） | 同時に一貫していなければならないオブジェクトの塊。外からは集約ルート経由でのみ操作する | `Order`・`Shipment`（[../contexts/ordering/internal/domain/order.go](../contexts/ordering/internal/domain/order.go) ／ [shipment.go](../contexts/ordering/internal/domain/shipment.go)）／ `StockItem`（[../contexts/inventory/internal/domain/stock_item.go](../contexts/inventory/internal/domain/stock_item.go)） |
+| **集約間の参照は識別子で** | 集約ルートは他の集約ルートの実体を持たず、識別子だけを持つ。境界を跨ぐ整合性を引き受けない | `Shipment.orderID` は `OrderID`（`*Order` ではない）。[../contexts/ordering/internal/domain/shipment.go](../contexts/ordering/internal/domain/shipment.go)。**検査 14 が機械強制**し、手順は [add-an-aggregate.md](./add-an-aggregate.md) |
 | エンティティ（Entity） | 同一性を持ち、状態が時間とともに変わるもの | `Reservation`（[../contexts/inventory/internal/domain/reservation.go](../contexts/inventory/internal/domain/reservation.go)）— 集約 `StockItem` の子 |
 | 値オブジェクト（Value Object） | 同一性を持たず、値そのもので等価性が決まる不変の型 | `SKU` / `Quantity` / `Money` / `ReservationRef` / `CustomerID` / `OrderID`。**境界ごとに独立所有**する（[../contexts/ordering/internal/domain/](../contexts/ordering/internal/domain/) と [../contexts/inventory/internal/domain/](../contexts/inventory/internal/domain/) に同名で別の型がある） |
 | ドメインイベント（Domain Event） | ドメインで起きた「事実」。過去形で名づける | 注文 2 種（[../contexts/ordering/internal/domain/event.go](../contexts/ordering/internal/domain/event.go)）と在庫 5 種（[../contexts/inventory/internal/domain/event.go](../contexts/inventory/internal/domain/event.go)）の計 7 種。集約が記録し、`PullEvents` で取り出す |
 | ドメインサービス（Domain Service） | 1 つの集約に閉じない振る舞い。状態を持たない | `ReservationService`（[../contexts/inventory/internal/domain/reservation_service.go](../contexts/inventory/internal/domain/reservation_service.go)）— マルチ SKU 予約の全か無か。**リポジトリを引かず**、ユースケースから引き当て済みの集約を受け取る |
-| リポジトリ（Repository） | 集約の永続化を抽象化する。**ポートはアプリケーション層**、実装はアダプタ層 | ポート: `StockStore` / `OrderStore`（[../contexts/inventory/internal/application/ports.go](../contexts/inventory/internal/application/ports.go) ／ [../contexts/ordering/internal/application/ports.go](../contexts/ordering/internal/application/ports.go)）。実装: `memory`（[../contexts/inventory/internal/adapter/outbound/memory/store.go](../contexts/inventory/internal/adapter/outbound/memory/store.go)）と `postgres`（[../contexts/inventory/internal/adapter/outbound/postgres/store.go](../contexts/inventory/internal/adapter/outbound/postgres/store.go)） |
-| 再構成（Reconstitution） | 永続化された状態から集約を組み立て直す。検証済みなのでイベントは発生させない | `ReconstituteOrder`（[../contexts/ordering/internal/domain.go](../contexts/ordering/internal/domain.go)）／ `ReconstituteStockItem`・`ReconstituteReservation`（[../contexts/inventory/internal/domain/stock_item.go](../contexts/inventory/internal/domain/stock_item.go)） |
+| リポジトリ（Repository） | 集約の永続化を抽象化する。**ポートはアプリケーション層**、実装はアダプタ層 | ポート: `StockStore` / `OrderStore` / `ShipmentStore`（[../contexts/inventory/internal/application/ports.go](../contexts/inventory/internal/application/ports.go) ／ [../contexts/ordering/internal/application/ports.go](../contexts/ordering/internal/application/ports.go)）。実装: `memory`（[../contexts/inventory/internal/adapter/outbound/memory/stock_rows.go](../contexts/inventory/internal/adapter/outbound/memory/stock_rows.go)）と `postgres`（[../contexts/inventory/internal/adapter/outbound/postgres/stock_store.go](../contexts/inventory/internal/adapter/outbound/postgres/stock_store.go)） |
+| 再構成（Reconstitution） | 永続化された状態から集約を組み立て直す。検証済みなのでイベントは発生させない | `ReconstituteOrder`（[../contexts/ordering/internal/domain/order.go](../contexts/ordering/internal/domain/order.go)）／ `ReconstituteStockItem`・`ReconstituteReservation`（[../contexts/inventory/internal/domain/stock_item.go](../contexts/inventory/internal/domain/stock_item.go)） |
 
 ## 2. 戦略パターン（大きな構造）
 
@@ -34,7 +36,7 @@
 | --- | --- | --- |
 | 作業単位（Unit of Work） | 1 つのトランザクションの範囲を明示し、その中でだけ書き込みを許す | [../shared/uow/uow.go](../shared/uow/uow.go)（純粋な契約 + 再試行 `Run`）と [../shared/uow/pgxuow/uow.go](../shared/uow/pgxuow/uow.go)（pgx 実装）。**トランザクションを `context.Context` に載せない**（束ねたリポジトリをクロージャ引数で渡す） |
 | トランザクショナルアウトボックス | 集約の保存と同一トランザクションでメッセージを積み、二重書き込みを避ける | [../shared/outbox/outbox.go](../shared/outbox/outbox.go)。`outbox` は一時的な配送キュー（送出成功後に削除）、`events` は恒久イベントログで、`Enqueue` が同一トランザクションで両方書く |
-| 楽観的排他制御 | バージョン番号の比較で更新の衝突を検出し、再試行する | 集約はバージョンを**保持するだけ**（`Order.Version` / `StockItem.Version`）で、比較はリポジトリ（[../contexts/ordering/internal/adapter/outbound/postgres/store.go](../contexts/ordering/internal/adapter/outbound/postgres/store.go)）が行い、`uow.Run` が再試行する |
+| 楽観的排他制御 | バージョン番号の比較で更新の衝突を検出し、再試行する | 集約はバージョンを**保持するだけ**（`Order.Version` / `StockItem.Version`）で、比較はリポジトリ（[../contexts/ordering/internal/adapter/outbound/postgres/order_store.go](../contexts/ordering/internal/adapter/outbound/postgres/order_store.go)）が行い、`uow.Run` が再試行する |
 | プロセス内イベント配信 | 永続化に成功したあとにドメインイベントを購読者へ配る | [../shared/event/event.go](../shared/event/event.go)（型なしコア）と [../shared/event/typed.go](../shared/event/typed.go)（型付きファサード `Typed[E]`）。ドメイン層は `shared/event` を import しない |
 | HTTP サーバランナー | 複数の HTTP サーバの起動・停止・グレースフルシャットダウンをまとめる | [../shared/serve/serve.go](../shared/serve/serve.go) — サーバ本数に依存しない（注文は公開 1 本、在庫は公開 + 内部の 2 本） |
 | RFC 9457（Problem Details） | エラー応答の標準形式。`type` URI で問題種別を機械識別できるようにする | [../shared/problem/](../shared/problem/) — `type` URI 台帳・`code` 語彙・パス表記。各コンテキストの変換は `internal/adapter/inbound/*/problem.go` |
