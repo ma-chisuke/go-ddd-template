@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	inventory "github.com/example/go-ddd-template/contexts/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory"
 	invport "github.com/example/go-ddd-template/contexts/inventory/port"
 	ordport "github.com/example/go-ddd-template/contexts/ordering/port"
 )

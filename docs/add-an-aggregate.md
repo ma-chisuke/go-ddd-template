@@ -47,7 +47,7 @@
 | 送信アダプタ | backing store・ストア実装・行変換 | [memory/shipment_rows.go](../contexts/ordering/internal/adapter/outbound/memory/shipment_rows.go) / [memory/shipment_store.go](../contexts/ordering/internal/adapter/outbound/memory/shipment_store.go) / [postgres/shipment_store.go](../contexts/ordering/internal/adapter/outbound/postgres/shipment_store.go) |
 | **モック** | `mockgen` の引数にポートを追加して再生成 | [internal/mock/generate.go](../contexts/ordering/internal/mock/generate.go) に `ShipmentStore` を追加 |
 | 受信アダプタ | ogen の `Handler` 実装に**操作の数だけ**メソッドが増える | [httpapi/handler.go](../contexts/ordering/internal/adapter/inbound/httpapi/handler.go) に 3 メソッド |
-| 契約 | OpenAPI の `paths` / `schemas` / `InvalidParam.code` の `enum` | [../contracts/ordering/openapi.yaml](../contracts/ordering/openapi.yaml) |
+| 契約 | OpenAPI の `paths` / `schemas` / `InvalidParam.code` の `enum` | [../contracts/api/ordering/openapi.yaml](../contracts/api/ordering/openapi.yaml) |
 | スキーマ | `schema.sql` / `queries.sql` / `roles.sql` / `fixtures.sql` / `seed.sql` | [../contexts/ordering/db/](../contexts/ordering/db/)（§ 5） |
 | **合成ルート（1 箇所）** | 公開ファサードの `New` / `NewInMemory` / `build` | [../contexts/ordering/ordering.go](../contexts/ordering/ordering.go) **のみ** |
 | 問題種別 | § 4 の 4 系統 | — |
@@ -102,7 +102,7 @@ import するのは、`Deps` へ注入する ACL とイベント送信のトラ�
 
 | 系統 | 箇所 | `Shipment` での内容 |
 | --- | --- | --- |
-| **新しい `domain.Rule`** | **3 箇所** | ① [domain/errors.go](../contexts/ordering/internal/domain/errors.go) の `Rule` 一覧に `VShipmentID` / `VTrackingNumber`<br>② [httpapi/problem.go](../contexts/ordering/internal/adapter/inbound/httpapi/problem.go) の `domainReasons` に定型文（**受信値も閾値も載せない**）<br>③ [contracts/ordering/openapi.yaml](../contracts/ordering/openapi.yaml) の `InvalidParam.code` の `enum` に `invalid_shipment_id` / `invalid_tracking_number`。**追加先は「ドメイン検証語彙」群**で、上にある「契約検証語彙」群ではありません |
+| **新しい `domain.Rule`** | **3 箇所** | ① [domain/errors.go](../contexts/ordering/internal/domain/errors.go) の `Rule` 一覧に `VShipmentID` / `VTrackingNumber`<br>② [httpapi/problem.go](../contexts/ordering/internal/adapter/inbound/httpapi/problem.go) の `domainReasons` に定型文（**受信値も閾値も載せない**）<br>③ [contracts/api/ordering/openapi.yaml](../contracts/api/ordering/openapi.yaml) の `InvalidParam.code` の `enum` に `invalid_shipment_id` / `invalid_tracking_number`。**追加先は「ドメイン検証語彙」群**で、上にある「契約検証語彙」群ではありません |
 | **新しい type URI 種別** | **[shared/problem/type_uri.go](../shared/problem/type_uri.go)** | 定数 `TypeOrderNotConfirmedForShipment`、`titles` の 1 行、`detail` の定型文。**`titles` を足さないと `TitleOf` が理由句へ fallback し、409 の複数種別が同じ title になります** |
 | **番兵のステータス対応** | **[httpapi/errmap.go](../contexts/ordering/internal/adapter/inbound/httpapi/errmap.go) の 3 関数** | ① `classify()` に 404 / 409 / 422 の分岐を**番兵ごとに `errors.Is` で明示列挙**（型で書かない）<br>② `problemTypeSuffix()` に**より特殊な種別を先に**判定<br>③ `detailOf()` に定型文（**足さないと「予期しないエラーが発生しました」に落ちます**） |
 | **`invalid-params` の位置解決** | `locate()` と `jsonNames` | `application.locate(at, err)` をパス断片・本文断片で呼ぶ。[httpapi/problem.go](../contexts/ordering/internal/adapter/inbound/httpapi/problem.go) の `jsonNames` へ **`"ShipmentId": "id"` は必要**（パスパラメータ名が違う）。**`TrackingNumber` は不要**（機械変換で `trackingNumber` になる） |

@@ -1,0 +1,16 @@
+# contracts/api/protected.txt
+# 後方互換ゲート（check-compat.sh）が「守る」と宣言した OpenAPI 契約の一覧。
+# 1 行 1 パス（このファイルからの相対）。空行と # で始まる行は無視する。
+#
+# ゲートはこの宣言と、contracts/api/ 配下の自動探索（*.baseline.yaml と *.ogen.yaml を
+# 除いた *.yaml）を突き合わせ、**差分があれば失敗する**。宣言だけで実体が無ければ
+# 移設漏れかパス誤り、実体だけで宣言が無ければ「守る」と言い忘れた新しい契約である。
+# どちらも黙って通さないのがこのファイルの役目で、列挙は「何を守ると宣言したか」、
+# 探索は「実体に何があるか」を答える。
+#
+# コンテキストを持ち出すときは、連れて行かない契約の行をここから消す
+# （docs/copy-a-context.md の手順）。ファイルだけ消して行を残すと、ゲートは
+# 「宣言にあるが実体が無い」として失敗する。
+inventory/openapi.yaml
+inventory/internal.openapi.yaml
+ordering/openapi.yaml

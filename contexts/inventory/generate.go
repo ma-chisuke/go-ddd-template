@@ -9,6 +9,6 @@ package inventory
 //
 // パスはこのファイルのあるディレクトリ（コンテキストのモジュールルート）からの相対。
 
-//go:generate go tool ogen --config ../../contracts/inventory/.ogen.yaml --target internal/adapter/inbound/openapi --package openapi --clean ../../contracts/inventory/openapi.yaml
-//go:generate go tool ogen --config ../../contracts/inventory/internal.ogen.yaml --target internal/adapter/inbound/openapiinternal --package openapiinternal --clean ../../contracts/inventory/internal.openapi.yaml
+//go:generate go tool ogen --config ../../contracts/api/inventory/openapi.ogen.yaml --target internal/adapter/inbound/openapi --package openapi --clean ../../contracts/api/inventory/openapi.yaml
+//go:generate go tool ogen --config ../../contracts/api/inventory/internal.ogen.yaml --target internal/adapter/inbound/openapiinternal --package openapiinternal --clean ../../contracts/api/inventory/internal.openapi.yaml
 //go:generate go tool sqlc generate

@@ -48,7 +48,7 @@
 
 ## 4. 入口と契約（公開 API）
 
-- 公開 API に出すなら、**契約を先に**変更します（`contracts/<ctx>/openapi.yaml`）。契約は真実の
+- 公開 API に出すなら、**契約を先に**変更します（`contracts/api/<ctx>/openapi.yaml`）。契約は真実の
   源で、ここから ogen がサーバを生成します。
 - `make generate` で ogen を再生成し、**入口アダプタ**（`internal/adapter/inbound/httpapi/`、
   パッケージ `httpapi`）の薄いハンドラを生成型に合わせて更新します。ハンドラは HTTP と
@@ -75,7 +75,7 @@
 - 相手コンテキストを**同期**で呼ぶなら、腐敗防止層（ACL）ポートを application 層の `ports.go` に
   定義し（番兵は同じ層の `errors.go`）、`aclhttp`（生成クライアント）で実装します。
   相手の失敗は自分の番兵へ翻訳します。
-- **非同期**メッセージなら、契約を `contracts/events/*.schema.json` に定義（`type` = 契約識別子）
+- **非同期**メッセージなら、契約を `contracts/events/<発行元ctx>/*.schema.json` に定義（`type` = 契約識別子）
   し、送信側と受信側の双方を整合させます。破壊的変更は既存 `type` を変えず、新しい `type`
   （新スキーマファイル）を足してバージョン移行します（後方互換ゲートが守ります）。
 - 詳細は [context-map.md](./context-map.md) を参照してください。

@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	inventory "github.com/example/go-ddd-template/contexts/inventory"
+	"github.com/example/go-ddd-template/contexts/inventory"
 	"github.com/example/go-ddd-template/shared/outbox"
 )
 

@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	inventory "github.com/example/go-ddd-template/contexts/inventory"
-	ordering "github.com/example/go-ddd-template/contexts/ordering"
+	"github.com/example/go-ddd-template/contexts/inventory"
+	"github.com/example/go-ddd-template/contexts/ordering"
 )
 
 // harness は両コンテキスト（在庫・注文）を 1 プロセスにインメモリで結線したもの。

@@ -13,7 +13,7 @@
    そして **`GLOSSARY.md`**）。用語集は境界が所有するので、コンテキストと一緒に付いてきます
    — ユビキタス言語はこの境界の内側でだけ通用するからです（境界を跨いで同名の語の対比は
    [glossary.md](./glossary.md) 側に残り、切り出し先では不要になります）。
-2. **そのコンテキストの契約** — `contracts/inventory/`（`openapi.yaml`、内部 API を使うなら
+2. **そのコンテキストの契約** — `contracts/api/inventory/`（`openapi.yaml`、内部 API を使うなら
    `internal.openapi.yaml` と ogen 設定、`*.baseline.*`）。
 3. **共有モジュール** — `shared/`（`uow` / `event` / `serve` / `outbox` / `id` / `correlation` /
    `logging` / `problem` / `worker` / `clock`）。ドメイン非依存の機構で、どのコンテキストも
@@ -27,8 +27,9 @@
    > アダプタコードのように**共有すると読みにくくなる重複は意図的に各コンテキストへ残して**
    > います（CONVENTIONS.md「共通化しない重複」）。
 4. **消費する場合のみ**: 別コンテキストの内部 API を呼ぶなら、その生成クライアント
-   （`clients/<peer>/`）と、送出するメッセージ契約（`contracts/events/`）。在庫だけを取り出す
-   場合、在庫は他コンテキストを呼ばないので `clients/` は不要です。
+   （`clients/<peer>/`）と、送出するメッセージ契約（`contracts/events/<発行元ctx>/`。
+   自分が発行するものは自分のディレクトリ、相手から受け取るものは相手のディレクトリ）。
+   在庫だけを取り出す場合、在庫は他コンテキストを呼ばないので `clients/` は不要です。
 
 > **契約は中央レジストリを優先**します。厳密な「1 ディレクトリ完全自己完結」より、`contracts/` に
 > 契約を集中管理する構成を採っています。コピー時は、そのコンテキストが**使う契約**（自分の
@@ -56,7 +57,11 @@
 - [ ] `Makefile` の `MODULES` / `GEN_MODULES` / `ITEST_MODULES` / `FMT_DIRS` から、連れて行かない
       モジュールを外す。**直すのはこの変数だけ**で、ターゲットと `.github/workflows/ci.yml` は
       触らなくてよい（CI は Makefile のターゲットを呼ぶだけなので）。
-- [ ] `contracts/check-openapi-compat.sh` の対象一覧から、連れて行かない契約を外す。
+- [ ] `contracts/api/protected.txt` から、連れて行かない契約の**行を消す**。この 1 ファイルが
+      「守ると宣言した契約」の一覧で、`contracts/api/check-compat.sh` はこの宣言と実体
+      （`contracts/api/**` の自動探索）を突き合わせて差分があれば失敗する。契約ファイルだけ
+      消して行を残すと「宣言にあるが実体が無い」として落ちる（逆に、行だけ消してファイルを
+      残しても「実体があるが宣言が無い」として落ちる）。スクリプト本体は編集しない。
 - [ ] README / AGENTS / CONVENTIONS を自分のプロジェクトに合わせて調整する。
       切り出したコンテキストの `GLOSSARY.md` はそのまま使える（境界が変わっていないため）。
 

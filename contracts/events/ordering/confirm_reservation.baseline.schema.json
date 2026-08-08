@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://go-ddd-template.example/contracts/events/confirm_reservation.schema.json",
+  "$id": "https://go-ddd-template.example/contracts/events/ordering/confirm_reservation.schema.json",
   "title": "ConfirmReservation",
   "description": "予約確定コマンド。注文が durable になったことを受けて、在庫の仮予約（pending）を確定（confirmed）へ進めるよう依頼するクロスコンテキストコマンド。注文コンテキストが送信し、在庫コンテキストの購読ポリシ（OnConfirmReservation）が受信して確定へ進める。",
   "type": "object",

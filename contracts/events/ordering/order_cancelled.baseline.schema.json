@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://go-ddd-template.example/contracts/events/order_cancelled.schema.json",
+  "$id": "https://go-ddd-template.example/contracts/events/ordering/order_cancelled.schema.json",
   "title": "OrderCancelled",
   "description": "注文取消イベント。注文が取り消されたことを通知するドメインイベント。注文コンテキストが発行し、在庫コンテキストの購読ポリシ（OnOrderCancelled）が受信して予約を解放（release）する。下流から上流への同期呼び出しは行わない。",
   "type": "object",

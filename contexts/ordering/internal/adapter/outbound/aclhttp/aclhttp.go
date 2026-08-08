@@ -15,7 +15,7 @@ import (
 	"errors"
 	"fmt"
 
-	invclient "github.com/example/go-ddd-template/clients/inventory/invclient"
+	"github.com/example/go-ddd-template/clients/inventory/invclient"
 	"github.com/example/go-ddd-template/contexts/ordering/internal/application"
 	"github.com/example/go-ddd-template/contexts/ordering/port"
 )
